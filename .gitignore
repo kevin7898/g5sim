@@ -5,3 +5,6 @@ node_modules/
 deere-display-research/
 # Local Claude settings
 .claude/settings.local.json
+
+# Deere simulator screenshots: local reference only, not for the public repo
+reference-shots/

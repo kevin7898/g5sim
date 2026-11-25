@@ -18,6 +18,8 @@ mod writes telemetry to a file, a Node bridge streams it to a browser or iPad, a
   the Deere Display Simulator (see "Design reference" in NOTES.md), not against text descriptions.
   Use the palette in `G5Link/app/style.css` `:root`.
 - **Don't commit Deere screenshots, logos or artwork.** Icons in the app are original line drawings.
+- **Tests:** run `G5Link/tests/run.sh` after any mod change. When the mod calls a new game or mod API, add it to the
+  mocks in `tests/mod_smoke.lua` with a check, so a typo or a nil/NaN shows up before FS25 does.
 - **Bridge:** keep it dependency-free (Node 18+ only).
 - **Display:** keep it a fixed 1280×720 canvas (16:9, the G5 frame ×4/3), scaled to fit.
 
@@ -27,6 +29,7 @@ mod writes telemetry to a file, a Node bridge streams it to a browser or iPad, a
 node G5Link/bridge/g5link-bridge.js --demo          # fake tractor + planter, every key works
 node G5Link/bridge/g5link-bridge.js --demo combine  # fake combine with Realistic Harvesting data
 node G5Link/bridge/g5link-bridge.js --dir <folder>  # read a real modSettings/FS25_G5Link folder
+LUA=<lua5.1> LUAC=<luac5.1> sh G5Link/tests/run.sh   # Lua syntax + mocked-engine smoke test + bridge parse
 python3 G5Link/tools/package.py                     # rebuild dist/ zips after changes
 python3 G5Link/tools/make_icon.py                   # regenerate mod icon.dds
 ```

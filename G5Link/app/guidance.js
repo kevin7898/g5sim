@@ -18,6 +18,7 @@
   // ---------------------------------------------------------------- live pose (dead-reckoned between 4 Hz frames)
   const pose = { ok: false, x: 0, z: 0, h: 0, speed: 0, dir: 1, t: 0, width: 0, recording: false, farmland: null, onField: false };
   const trail = [];            // coverage: {x, z, h, w}
+  const CHEV_STEP = 60;        // metres between pass-direction chevrons
   let lastTrail = null;
 
   window.onTelemetry = d => {
@@ -240,6 +241,24 @@
                  P(b.x + rb.x * b.w / 2, b.z + rb.z * b.w / 2), P(b.x - rb.x * b.w / 2, b.z - rb.z * b.w / 2)];
       if (q.some(v => !v)) continue;
       ctx.beginPath(); ctx.moveTo(q[0].x, q[0].y); q.slice(1).forEach(v => ctx.lineTo(v.x, v.y)); ctx.closePath(); ctx.fill();
+    }
+
+    // pass-direction chevrons on the coverage (as on the G5): one every CHEV_STEP metres of each strip
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.22)'; ctx.strokeStyle = 'rgba(0, 0, 0, 0.38)'; ctx.lineJoin = 'miter';
+    let run = CHEV_STEP / 2;
+    for (let i = 1; i < trail.length; i++) {
+      const a = trail[i - 1], b = trail[i];
+      if (!a || !b) { run = CHEV_STEP / 2; continue; }
+      run += Math.hypot(b.x - a.x, b.z - a.z);
+      if (run < CHEV_STEP) continue;
+      run = 0;
+      const cf = fwdOf(b.h), cr = rightOf(b.h), s5 = Math.min(b.w * 0.3, 6);
+      const W2 = (fo, ro) => P(b.x + cf.x * fo + cr.x * ro, b.z + cf.z * fo + cr.z * ro);
+      const c = [W2(s5 * 1.1, 0), W2(-s5, s5), W2(-s5 * 0.35, 0), W2(-s5, -s5)];   // tip, right tail, notch, left tail
+      if (c.some(v => !v)) continue;
+      ctx.lineWidth = Math.max(1, c[0].s * 0.08);
+      ctx.beginPath(); ctx.moveTo(c[0].x, c[0].y); c.slice(1).forEach(v => ctx.lineTo(v.x, v.y)); ctx.closePath();
+      ctx.fill(); ctx.stroke();
     }
 
     // guidance tracks

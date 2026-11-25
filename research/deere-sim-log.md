@@ -266,3 +266,19 @@ Calibrations & Procedures, Controls Setup, Engine, Folding, Grain Handling, Harv
 ### What FS25 can feed for a combine page
 - Likely available: grain tank fill level and capacity (FillUnit), crop fill type, speed, engine rpm and load, fuel, header attached and turned on/lowered, work width, area and time (G5Link counters), pipe/auger state (FS25 Pipe spec: unloading on/off), cruise speed.
 - Not simulated: threshing/fan/sieve settings, grain loss, foreign material, moisture (FS25 has no moisture by default), residue spread width/direction, spout angle. These would be display placeholders.
+
+### Getting the simulated combine harvesting
+1. Toolbar → **Operations** (`#operations`) → scenario **Begin Harvesting**. It lists 7 steps: engage separator, engage header, fast engine speed, disengage park brake, multi-function lever forward, lower header past setpoint (press and hold), view recording status.
+2. The CommandARM panel (`commanderarmpage`, `combine_x9my21.html`) uses **zoom hotspots**: click an area to open a close-up, and use ↶ to go back.
+   - Yellow switches close-up: click the separator (left) and header (right) switches. The arrow beside each flips to show the next direction.
+   - Orange cluster close-up: three engine-speed keys (the rightmost is fast) and the **(P)** park brake.
+   - The lever opens a small popup with ⇧/⇩ and a **yellow bar that must be dragged** forward. Clicking ⇧ did nothing; dragging set **F93%** and the combine drove off.
+3. After the park brake is released, the WORK key goes **ON**. Active shortcut keys get a **green status strip with white "ON"**, not black. (The G5Link app still uses a black strip with green text, which needs fixing.)
+4. A quick-adjust window shade appeared at the top (a value of 14 with a ✕ key), apparently from header or reel adjustment.
+
+### Live harvesting values seen (Wheat, about 3.7 mi/h)
+- Grain level climbs about 1% every 4 s (3 → 6 → 14%). Blue coverage paints behind the header. The lightbar is fully red because nobody is steering.
+- Harvesting page: reel 14, threshing speed 400 rpm, fan 620 rpm, chaffer and sieve 2, area 0.26 ac
+- Counters: yield 108.0 bu/ac (average dry yield 110.70), moisture 15.7% (average 15.45%), throughput 2,280 bu/h, wet weight 2,392.91 lb
+- Field Totals: area worked 0.35 ac, area remaining 72.22 ac, time worked 00:02, time remaining 07:54, rate 9.1 ac/h
+- Harvest Automation: the yield and throughput chart jumps to 2,280 bu/h and 289.2 bu/ac; Grain Loss reads 3.7 against a 4.5 set point, with a L/R bar gauge; engine power 70%; automation column speed 5.8 (M = manual)

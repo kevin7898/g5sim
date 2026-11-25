@@ -305,3 +305,12 @@ Calibrations & Procedures, Controls Setup, Engine, Folding, Grain Handling, Harv
 - The full-screen map has no title bar or shortcut bar. It has the lightbar, a layer chip (e.g. "Dry Yield") under the heading and track chips (track shown as "5S" = track 5 south), a fit-to-field key top-right, and a distance scale (532 ft / 99.5 ft).
 - The coverage legend reads Coverage, Overlap, Shared Coverage, Shared Overlap, plus a "+ New Work" key.
 - **Dry Yield map:** the worked strip is dark green, with yellow and orange bands where yield dropped (matching Field Conditions changes 80↔110). The newest few metres behind the header stay gray until the yield data catches up.
+
+### Turning around (full-screen map, AutoTrac on, Dry Yield layer)
+Two frames, before and after a headland turn: heading E 90° on track 3S, then W 270° on track 1S.
+- **Pass-direction arrows:** each recorded coverage pass has large, semi-transparent dark chevrons drawn on it, pointing the way that pass was driven. After the turn, the previous pass beside the machine shows chevrons pointing back toward the viewer (the opposite way to travel). The arrows are tinted by the layer color under them, so they look dark green on green and brown on orange.
+- **North arrow (top-left):** a red-and-white diamond needle. Red points to north, so it points left while heading east and right while heading west. It rotates with the heading-up view.
+- **Distance box (top-right):** a red tile with a fork/turn icon over a signed distance in ft: −1481 ft while heading east, −347 ft after turning. It sits under the fit-to-field key. It is probably the distance to the end of the pass or the next turn (turn automation). The meaning of the sign is not confirmed.
+- **Track chip:** the track number and direction change across the turn (3S → 1S), shown under the heading chip ("E 90°" → "W 270°").
+- **Lightbar after the turn:** 5 ft off-line. The center box turns yellow and reads "5ft", and the segments to the right of center turn red. On line, the center box is green and reads "0in".
+- The new pass starts gray directly behind the header, the same yield delay noted above.

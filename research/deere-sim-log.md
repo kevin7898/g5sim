@@ -282,3 +282,16 @@ Calibrations & Procedures, Controls Setup, Engine, Folding, Grain Handling, Harv
 - Counters: yield 108.0 bu/ac (average dry yield 110.70), moisture 15.7% (average 15.45%), throughput 2,280 bu/h, wet weight 2,392.91 lb
 - Field Totals: area worked 0.35 ac, area remaining 72.22 ac, time worked 00:02, time remaining 07:54, rate 9.1 ac/h
 - Harvest Automation: the yield and throughput chart jumps to 2,280 bu/h and 289.2 bu/ac; Grain Loss reads 3.7 against a 4.5 set point, with a L/R bar gauge; engine power 70%; automation column speed 5.8 (M = manual)
+
+### Sim control panels (operator-side, not part of the display)
+- **Navigation** (toolbar steering-wheel button, `#navsteer`):
+  - Steer left/right arrows with a value (0), a steering wheel, and turn-left/turn-right buttons
+  - Ground speed readout (5.84 mph)
+  - Initial Latitude 41.466966, Initial Longitude −90.436465 (near the Deere test fields in Illinois)
+  - GPS Simulation Spacing 30
+  - Inputs `gpslatitude`, `gpsLongitude`, `gpsfeet`
+- **Field Conditions** (`fieldConditionspage`, `combine_field.html`), paged with ‹ ›:
+  - Page 1: Yield bu/ac (`VIO_YieldDisplay`, steps of 10, default 80), Moisture % (`VIO_MoistureDisplay`, 15), Pitch deg (`VIO_PitchDisplay`, 0)
+  - Page 2: constituents, i.e. HarvestLab-style moisture 16, protein 17, starch 60, oil 16
+- The display's yield and moisture come from these inputs; the sim does not simulate them. Changes ease in over tens of seconds: setting 80 bu/ac moved the yield trend to 80.6 bu/ac and throughput to 3,140 bu/h.
+- With AutoTrac turned on, the AUTOTRAC key shows a green ON strip.

@@ -211,3 +211,58 @@ cream sections with gray centered headers; segmented ON/OFF toggles (dark = sele
 ### Which of this FS25 can feed (for a later decision)
 - Available or likely: engine rpm, max rpm, load, fuel rate (derived), engine hours, speed, cruise speed and max, gear/direction, PTO on/off (turned on), implement lowered state, attached implement list, work width
 - Not simulated in FS25: SCV flow and timers, hitch rate/limit/load depth/slip settings, PTO gear and remote, exhaust filter state, start gears. These would be display-only placeholders, or would map to implement state per attacher joint.
+
+## Session 6: S7 (2026) Combine, G5 CommandCenter (2026-11-25)
+
+Reference frames are saved locally in `reference-shots/combine_*.png` (git-ignored).
+
+### Run pages (4, cycled with → in the title bar)
+1. **Harvest Logistics**: full-height guidance map (lightbar, crop tag "Wheat", heading and track chips). Left column: Grain Level (tank icon, %), Carts (3 machine-sync partner slots), Variety, Details (operator).
+2. **Harvesting** (the densest):
+   - Location: client, farm, field, each with an icon
+   - Header: tilt −8.5, reel, height 50, and a fourth setting
+   - Mini map, plus the Guidance side module (track, Set Track, spacing, Shift Track)
+   - Variety; crop module (area worked, ac); Machine (hours)
+   - Spread: a slider at 10% and a semicircle direction dial at 10, plus a spread key
+   - Grain Handling: crop, tank 0%, a top-down combine drawing, unloading 100%
+   - Harvest Settings: fan, rotor, sieve, chaffer and concave values with icons
+   - Counters A: bu/ac, moisture %, bu/h, ac/h; Machine fuel rate gal/h
+3. **Work Monitor**:
+   - Loads: current load #1, average moisture %, average dry yield bu/ac, wet weight lb
+   - Field Totals: a crop header and a white scrolling list (area worked/remaining, time worked/remaining, fuel, moisture avg) with large up/down scroll keys
+   - Counters A and B: tiles with an "Avg" tag; Video module
+4. **Harvest Automation**:
+   - Targets: target speed 3.7 mi/h and engine power 100% (boxed values)
+   - 15-minute trend charts with set points of 4.5: yield/throughput (bu/ac, bu/h), Grain Loss, Foreign Material, Broken Grain
+   - Grain Loss L/R bar gauge; Grain Camera
+   - Harvest Automation column (M = manual): speed, power %, fan, rotor, sieves
+   - Raise/Lower AUTO; Grain Level; Auto Unload (OFF, tank picture)
+
+### Combine shortcut bar
+SETUP, WORK (AUTO), AUTOTRAC, GUIDANCE, AUTO TURN, SWAP TRACK, SYNC, RESIDUE (two LEDs; tapping toggles directly, no window), AUTO ISSUE, AUTO READY ×2 (green/orange LEDs under the label), HELP, MENU.
+Keys with state show LEDs under the label instead of the black ON/OFF strip.
+
+### Machine Settings menu (combine)
+Calibrations & Procedures, Controls Setup, Engine, Folding, Grain Handling, Harvest Settings, Header, HVAC, Lights, Maintenance, Residue Management, Transmission.
+
+### App windows
+- **ActiveYield** (pops up at start): Master ON/OFF, a note about automatic yield calibration
+- **Harvest Settings**:
+  - Crop preset row (Enter Manually; threshing and straw conditions Normal)
+  - Current Settings: Threshing Clearance, Threshing Speed, Cleaning Fan Speed, Chaffer Clearance, Sieve Clearance. Each is a boxed value with +/−; keys gray out at their limits.
+  - An "Outside Configuration" link
+- **Header**:
+  - Header type (Hinged Draper), hours, width 40.0 ft, AUTO height
+  - Vertical sliders (all 50): Raise/Lower Speed, Tilt Speed, Height Sensitivity, Tilt Sensitivity
+  - Auto Control presets 3/2/1; Fore/Aft Tilt −8.5; Draper Belt Speed slider; Down Force; Gauge Wheels ▲▼
+- **Grain Handling**:
+  - Grain Level vertical gauge 0–100%; Grain Tank Calibrations key
+  - Adjustable Spout: Field Transport Position, arc gauge, 100% with +/−, two spout keys
+  - Moisture alarm (OFF, 40% max / 5% min, 0.0% correction); Accuracy → Yield Calibration
+- **Residue Management**:
+  - Chopper Position (Lowered); Knife Bank 0% with − 100% +
+  - Spreader: width 10% (+/− and a mini slider), a spread pattern drawing, a Direction dial 10 with ◀ ▶, Swap (AUTO LED, ON/OFF) and a spread key
+
+### What FS25 can feed for a combine page
+- Likely available: grain tank fill level and capacity (FillUnit), crop fill type, speed, engine rpm and load, fuel, header attached and turned on/lowered, work width, area and time (G5Link counters), pipe/auger state (FS25 Pipe spec: unloading on/off), cruise speed.
+- Not simulated: threshing/fan/sieve settings, grain loss, foreign material, moisture (FS25 has no moisture by default), residue spread width/direction, spout angle. These would be display placeholders.

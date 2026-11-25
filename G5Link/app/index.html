@@ -207,6 +207,44 @@
           </div>
         </div>
       </section>
+
+      <!-- Run page 5: Harvesting (combine; extra data from the Realistic Harvesting mod) -->
+      <section class="page" data-name="Harvesting">
+        <div class="page-grid main-side" id="hvPage">
+          <div class="module">
+            <div class="mod-title" id="hvTitle">Harvesting</div>
+            <div class="tiles t4 compact" id="hvTiles"></div>
+            <div class="mod-lower split hv-lower">
+              <div class="lower-col">
+                <div class="lower-head"><span>Harvest Settings</span><span class="hv-mode" id="hvMode">---</span></div>
+                <div class="hv-settings" id="hvSettings"></div>
+              </div>
+              <div class="lower-col">
+                <div class="lower-head"><span>Grain Loss</span><span class="hv-rank" id="hvRank">-</span></div>
+                <div class="hv-loss" id="hvLoss"></div>
+              </div>
+            </div>
+          </div>
+          <div class="side">
+            <div class="module side-mod">
+              <div class="mod-title">Grain Level</div>
+              <div class="side-body center">
+                <div class="hv-tank"><i id="hvTankBar"></i><b id="hvTankPct">--%</b></div>
+                <div class="hv-tank-sub" id="hvTankVol">---</div>
+              </div>
+            </div>
+            <div class="module side-mod grow">
+              <div class="mod-title">Field Totals</div>
+              <div class="side-body">
+                <div class="kv"><span>Area Harvested</span><b id="hvTripArea">--</b></div>
+                <div class="kv"><span>Harvested</span><b id="hvTripMass">--</b></div>
+                <div class="kv"><span>Lost</span><b id="hvTripLost">--</b></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="empty-page" id="hvEmpty" hidden><div class="module"><div class="mod-title">Harvesting</div><p>Enter a combine to see harvest data.</p></div></div>
+      </section>
     </main>
 
     <!-- Shortcut bar -->
@@ -240,6 +278,7 @@
             <button class="app" data-goto="2"><span class="app-ico"><svg><use href="#i-work"/></svg></span><b>Work Monitor</b></button>
             <button class="app" data-goto="3"><span class="app-ico"><svg><use href="#i-hitch"/></svg></span><b>Implement Details</b></button>
             <button class="app" data-goto="4"><span class="app-ico"><svg><use href="#i-engine"/></svg></span><b>Machine Monitor</b></button>
+            <button class="app" data-goto="5"><span class="app-ico"><svg><use href="#i-work"/></svg></span><b>Harvesting</b></button>
             <button class="app" id="appStatus"><span class="app-ico"><svg><use href="#i-sat"/></svg></span><b>Status Center</b></button>
             <button class="app" id="appReset"><span class="app-ico"><svg><use href="#i-reset"/></svg></span><b>Reset Work Totals</b></button>
           </div>

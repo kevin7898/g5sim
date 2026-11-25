@@ -8,7 +8,8 @@
 //
 // Usage:
 //   node g5link-bridge.js                 watch the game (default folder)
-//   node g5link-bridge.js --demo          fake data, no game needed
+//   node g5link-bridge.js --demo          fake data, no game needed (tractor + planter)
+//   node g5link-bridge.js --demo combine  fake combine with Realistic Harvesting data
 //   node g5link-bridge.js --dir <folder>  custom modSettings/FS25_G5Link folder
 //   node g5link-bridge.js --port 8765
 
@@ -26,7 +27,9 @@ function opt(name, fallback) {
   const v = args[i + 1];
   return v === undefined || v.startsWith('--') ? true : v;
 }
-const DEMO = opt('demo', false) === true;
+const DEMO_OPT = opt('demo', false);
+const DEMO = DEMO_OPT !== false;
+const DEMO_COMBINE = DEMO_OPT === 'combine';
 const PORT = Number(opt('port', 8765));
 const DEFAULT_DIR = path.join(os.homedir(), 'Documents', 'My Games', 'FarmingSimulator2025',
   'modSettings', 'FS25_G5Link');
@@ -101,6 +104,18 @@ function telemetryFromXml(text) {
       areas: String(n.attrs.areas ?? '').split('').map(c => c === '1'),
       fills: children(n, 'fill').map(f => f.attrs),
     })),
+    combine: (child(g5, 'combine') || {}).attrs || null,
+    rh: rhFromNode(child(g5, 'rh')),
+  };
+}
+
+// Realistic Harvesting block: attributes plus settings and the trip odometer.
+function rhFromNode(n) {
+  if (!n) return null;
+  return {
+    ...n.attrs,
+    settings: children(n, 'setting').map(c => c.attrs),
+    trip: (child(n, 'trip') || {}).attrs || null,
   };
 }
 
@@ -203,6 +218,7 @@ function queueCommand(cmd) {
 const demo = {
   t: 0, speed: 0, target: 11.5, motorOn: true, cc: 1, ccSpeed: 11.5, fuel: 512, def: 64,
   lowered: true, turnedOn: true, heading: 92, x: -120, z: 340, seed: 2800,
+  tank: 3200, unloading: false, massKg: 0, lostKg: 0,
   work: { area: 0, time: 0, distance: 0, totalDistance: 0, fuelUsed: 0, totalFuel: 0 },
 };
 function demoCommand(c) {
@@ -216,6 +232,56 @@ function demoCommand(c) {
     case 'resetWork': Object.keys(demo.work).forEach(k => { demo.work[k] = 0; }); break;
   }
   demo.lastCmd = c.id;
+}
+if (DEMO_COMBINE) { demo.ccSpeed = 6.2; demo.target = 6.2; }
+
+// Turns the tractor demo frame into a combine with a header and Realistic Harvesting data.
+const DEMO_SETTINGS = [
+  ['concave', 31, 24, 6], ['fan', 70, 72, 6], ['feeder', 36, 35, 4],
+  ['lowerSieve', 22, 20, 5], ['rotor', 64, 67, 6], ['upperSieve', 33, 35, 5],
+];
+function demoCombine(t, dt, working, meters) {
+  const width = 12.19;
+  const yieldT = Math.max(2, 6.6 + 1.4 * Math.sin(demo.x / 45) + 0.7 * Math.sin(demo.z / 23 + demo.t / 20000)); // t/ha
+  const haph = working ? width * demo.speed / 10 : 0;
+  const tph = yieldT * haph;
+  const moisture = 14.2 + 1.6 * Math.sin(demo.t / 45000);
+  const load = demo.motorOn ? (working ? 38 + tph * 1.25 : 22) : 0;
+  const target = 85;
+  const lossSettings = working ? 0.35 : 0;
+  const lossOverload = working ? Math.max(0, load - 100) * 0.09 : 0;
+  const lossMoisture = working ? Math.max(0, moisture - 14.5) * 0.35 : 0;
+  const loss = lossSettings + lossOverload + lossMoisture;
+  const kg = tph * 1000 / 3600 * dt / 1000;                     // harvested this tick
+  demo.massKg += kg; demo.lostKg += kg * loss / 100;
+  const cap = 14100;
+  if (demo.unloading) { demo.tank = Math.max(0, demo.tank - 450 * dt / 1000); if (demo.tank === 0) demo.unloading = false; }
+  else { demo.tank += kg / 0.78; if (demo.tank >= cap) { demo.tank = cap; demo.unloading = true; } }
+  const rank = loss < 1 ? 'A' : loss < 2.5 ? 'B' : loss < 5 ? 'C' : 'D';
+  t.vehicle.name = 'Demo S7 Combine';
+  t.vehicle.load = Math.round(Math.min(100, load));
+  t.implements = [{
+    name: 'Demo HD40F Header', canLower: true, lowered: demo.lowered, canTurnOn: true, turnedOn: demo.turnedOn,
+    width, areas: [working], fills: [],
+  }];
+  t.combine = { name: 'Demo S7 Combine', tank: Math.round(demo.tank), tankCap: cap, crop: 'WHEAT', cropTitle: 'Wheat', turnedOn: demo.turnedOn };
+  t.rh = {
+    version: 'demo', crop: 'WHEAT', mode: 'MANUAL', harvesting: working, ai: false, moistureHigh: moisture > 14.5, tier: 3,
+    yield: +yieldT.toFixed(2), lastYield: +yieldT.toFixed(2), tph: +tph.toFixed(2), haph: +haph.toFixed(2),
+    avgHaph: 6.9, lph: working ? 58 : 18, width, massKg: Math.round(demo.massKg),
+    moisture: +moisture.toFixed(1), moistureLimit: 14.5, weeds: 0.04,
+    loss: +loss.toFixed(2), lossOverload: +lossOverload.toFixed(2), lossMoisture: +lossMoisture.toFixed(2),
+    lossSettings, lossSlope: 0, lossWear: 0, rank,
+    load: +load.toFixed(1), targetLoad: target, recSpeed: +(demo.speed * Math.min(1.25, target / Math.max(1, load))).toFixed(1),
+    efficiency: 0.94,
+    settings: DEMO_SETTINGS.map(([name, value, opt, tol]) => ({ name, value, opt, tol, min: opt - 20, max: opt + 20 })),
+    trip: {
+      areaHa: +(demo.work.area / 10000).toFixed(3), massKg: Math.round(demo.massKg), liters: Math.round(demo.massKg / 0.78),
+      lostLiters: Math.round(demo.lostKg / 0.78), fuelL: +demo.work.fuelUsed.toFixed(1), seconds: Math.round(demo.work.time / 1000),
+      field: 23, rank,
+    },
+  };
+  return t;
 }
 function demoTick(dt) {
   demo.t += dt;
@@ -240,7 +306,7 @@ function demoTick(dt) {
   }
   const rpm = demo.motorOn ? 850 + demo.speed * 55 + (working ? 250 : 0) : 0;
   const minutes = 6 * 60 + Math.floor(demo.t / 2500);
-  setTelemetry({
+  const frame = ({
     seq: Math.floor(demo.t / 250), version: 'demo', state: 'vehicle', time: Math.floor(demo.t),
     lastCmd: demo.lastCmd || 0,
     game: { day: 3, hour: Math.floor(minutes / 60) % 24, minute: minutes % 60 },
@@ -263,6 +329,7 @@ function demoTick(dt) {
       fuelUsed: +demo.work.fuelUsed.toFixed(2), totalFuel: +demo.work.totalFuel.toFixed(2),
     },
   });
+  setTelemetry(DEMO_COMBINE ? demoCombine(frame, dt, working, meters) : frame);
 }
 
 // ---------------------------------------------------------------- HTTP

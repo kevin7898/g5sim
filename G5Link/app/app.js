@@ -304,6 +304,7 @@ function render() {
   renderWorkMonitor(v, w, imps, r);
   renderImplements(imps);
   renderMachine(v, fuelPct, defPct, r);
+  renderHarvest(d, v);
   if (window.onTelemetry) window.onTelemetry(d);
 }
 
@@ -379,6 +380,98 @@ function renderMachine(v, fuelPct, defPct, r) {
     tile('Farmland', v && v.farmland ? v.farmland : '---', '', { on: v && v.onField, sub: v && v.onField ? 'On field' : '' }),
     tile('AI Worker', v ? (v.ai ? 'On' : 'Off') : '---', '', { on: v && v.ai }),
   ].join(''));
+}
+
+// ------------------------------------------------------------ Harvesting page
+// Bushel weights (lb/bu) by FS25 fill type name, for US yield units. Unknown crops fall back to 56.
+const LB_PER_BU = { WHEAT: 60, SOYBEAN: 60, BARLEY: 48, OAT: 32, CANOLA: 50, MAIZE: 56, SORGHUM: 56, SUNFLOWER: 28,
+  RYE: 56, TRITICALE: 50, PEA: 60, BEANS: 60, LENTILS: 60, CHICKPEAS: 60, RICELONGGRAIN: 45, RICE: 45, SPELT: 40 };
+const HU = {
+  lbPerBu: crop => LB_PER_BU[String(crop || '').toUpperCase()] || 56,
+  yield: (tha, crop) => metric() ? tha : tha * 892.18 / HU.lbPerBu(crop),       // t/ha -> bu/ac
+  yieldUnit: () => metric() ? 't/ha' : 'bu/ac',
+  flow: (tph, crop) => metric() ? tph : tph * 2204.62 / HU.lbPerBu(crop),       // t/h -> bu/h
+  flowUnit: () => metric() ? 't/h' : 'bu/h',
+  mass: (kg, crop) => metric() ? (kg >= 1000 ? fmt(kg / 1000, 1) + ' t' : fmt(kg, 0) + ' kg') : fmt(kg * 2.20462 / HU.lbPerBu(crop), 0) + ' bu',
+  tank: l => metric() ? fmt(l, 0) + ' L' : fmt(l / 35.239, 0) + ' bu',
+};
+// RH setting names -> the labels the G5 Harvest Settings window uses
+const SETTING_LABEL = { concave: 'Threshing Clearance', rotor: 'Threshing Speed', fan: 'Cleaning Fan Speed',
+  upperSieve: 'Chaffer Clearance', lowerSieve: 'Sieve Clearance', feeder: 'Feeder House' };
+const SETTING_ORDER = ['concave', 'rotor', 'fan', 'upperSieve', 'lowerSieve', 'feeder'];
+
+function renderHarvest(d, v) {
+  const c = d.state === 'vehicle' ? d.combine : null, rh = c ? d.rh : null;
+  $('hvPage').hidden = !c; $('hvEmpty').hidden = !!c;
+  const tankPct = c && c.tankCap ? c.tank / c.tankCap * 100 : null;
+  edge('tankFull', tankPct !== null && tankPct >= 99.5, 'Grain tank full.', 'warn');
+  edge('rhMoist', !!(rh && rh.moistureHigh && rh.harvesting), 'Crop moisture above limit. Grain loss increases.', 'info');
+  edge('rhLoss', !!(rh && rh.loss > 3), 'High grain loss. Check speed and harvest settings.', 'warn');
+  if (!c) return;
+
+  const crop = (rh && rh.crop && rh.crop !== '--') ? rh.crop : c.crop;
+  const cropTitle = c.cropTitle || (crop ? crop[0] + crop.slice(1).toLowerCase() : '');
+  $('hvTitle').textContent = `${c.name || 'Combine'}${cropTitle ? ' - ' + cropTitle : ''}`;
+  const on = !!(rh && rh.harvesting);
+  const val = (x, f, dg) => rh && typeof x === 'number' ? fmt(f(x), dg) : '---';
+  const loadOver = rh && rh.load > (rh.targetLoad || 100);
+  setHtml($('hvTiles'), [
+    tile('Yield', val(rh && rh.yield, x => HU.yield(x, crop), metric() ? 2 : 1), HU.yieldUnit(), { on }),
+    tile('Moisture', val(rh && rh.moisture, x => x, 1), '%', { on, alert: !!(rh && rh.moistureHigh),
+      sub: rh && rh.moistureLimit ? 'Limit ' + fmt(rh.moistureLimit, 1) + ' %' : '' }),
+    tile('Throughput', val(rh && rh.tph, x => HU.flow(x, crop), 0), HU.flowUnit(), { on }),
+    tile('Productivity', val(rh && rh.haph, x => U.areaFromHa(x), 1), U.areaUnit() + '/h', { on,
+      sub: rh && rh.avgHaph ? 'Avg ' + fmt(U.areaFromHa(rh.avgHaph), 1) : '' }),
+    tile('Grain Loss', val(rh && rh.loss, x => x, 1), '%', { on, alert: !!(rh && rh.loss > 3) }),
+    tile('Engine Load', rh ? fmt(rh.load, 0) : v ? fmt(v.load, 0) : '---', '%', { on: v && v.motorOn, alert: loadOver,
+      sub: rh && rh.targetLoad ? 'Target ' + fmt(rh.targetLoad, 0) + ' %' : '' }),
+    tile('Target Speed', val(rh && rh.recSpeed, x => U.speed(x), 1), U.speedUnit(), { on,
+      sub: v ? 'Now ' + fmt(U.speed(v.speed || 0), 1) : '' }),
+    tile('Fuel Rate', rh && rh.lph ? fmt(U.vol(rh.lph), 1) : '---', U.volUnit() + '/h'),
+  ].join(''));
+
+  // Harvest Settings: G5-style boxed values on a 0-100 % scale with RH's optimum band
+  const mode = rh ? (rh.mode || 'MANUAL') : '---';
+  $('hvMode').textContent = mode === 'AUTO' ? 'AUTO' : mode === 'MANUAL' ? 'MANUAL' : '---';
+  $('hvMode').classList.toggle('auto', mode === 'AUTO');
+  const sets = (rh && rh.settings || []).slice().sort((a, b) => {
+    const ia = SETTING_ORDER.indexOf(a.name), ib = SETTING_ORDER.indexOf(b.name);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+  });
+  setHtml($('hvSettings'), !rh
+    ? '<p class="hv-note">Realistic Harvesting not detected.<br>Settings and losses need that mod.</p>'
+    : !sets.length ? '<p class="hv-note">No settings reported.</p>'
+    : sets.map(s => {
+      const has = typeof s.opt === 'number', tol = s.tol || 5;
+      const off = has && Math.abs(s.value - s.opt) > tol;
+      const pos = x => Math.max(0, Math.min(100, x)).toFixed(1) + '%';
+      return `<div class="hv-row"><span>${esc(SETTING_LABEL[s.name] || s.name)}</span>
+        <b class="hv-val ${off ? 'off' : ''}">${fmt(s.value, 0)}</b>
+        <div class="hv-scale">${has ? `<i class="band" style="left:${pos(s.opt - tol)};width:${(2 * tol).toFixed(1)}%"></i><i class="opt" style="left:${pos(s.opt)}"></i>` : ''}
+        <i class="cur" style="left:${pos(s.value)}"></i></div></div>`;
+    }).join(''));
+
+  // Grain loss breakdown (RH computes each cause separately)
+  const rank = rh && rh.rank ? String(rh.rank) : '-';
+  $('hvRank').textContent = rank; $('hvRank').className = 'hv-rank ' + rank;
+  const causes = rh ? [['Total', rh.loss], ['Overload', rh.lossOverload], ['Moisture', rh.lossMoisture],
+    ['Settings', rh.lossSettings], ['Slope', rh.lossSlope], ['Wear', rh.lossWear]] : [];
+  setHtml($('hvLoss'), !rh ? '<p class="hv-note">---</p>' : causes.map(([k, x]) => {
+    const n = typeof x === 'number' ? x : null;
+    return `<div class="hv-row"><span>${k}</span><div class="hv-bar"><i class="${n > 3 ? 'hi' : ''}" style="width:${n === null ? 0 : Math.min(100, n / 10 * 100).toFixed(0)}%"></i></div>
+      <b class="hv-val">${n === null ? '---' : fmt(n, 1) + '%'}</b></div>`;
+  }).join(''));
+
+  // Grain tank and field totals
+  $('hvTankBar').style.height = (tankPct ?? 0).toFixed(0) + '%';
+  $('hvTankBar').classList.toggle('full', tankPct !== null && tankPct >= 95);
+  $('hvTankPct').textContent = tankPct === null ? '--%' : fmt(tankPct, 0) + '%';
+  $('hvTankVol').textContent = c.tank !== undefined ? HU.tank(c.tank) : '---';
+  const trip = rh && rh.trip;
+  $('hvTripArea').textContent = trip && trip.areaHa !== undefined ? fmt(U.areaFromHa(trip.areaHa), 2) + ' ' + U.areaUnit() : '---';
+  $('hvTripMass').textContent = trip && trip.massKg !== undefined ? HU.mass(trip.massKg, crop) : '---';
+  const lostKg = trip && trip.lostLiters !== undefined && trip.liters ? trip.lostLiters * (trip.massKg / trip.liters) : null;
+  $('hvTripLost').textContent = lostKg !== null ? HU.mass(lostKg, crop) : '---';
 }
 
 // ------------------------------------------------------------ live stream

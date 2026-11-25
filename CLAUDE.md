@@ -25,6 +25,7 @@ mod writes telemetry to a file, a Node bridge streams it to a browser or iPad, a
 
 ```bash
 node G5Link/bridge/g5link-bridge.js --demo          # fake tractor + planter, every key works
+node G5Link/bridge/g5link-bridge.js --demo combine  # fake combine with Realistic Harvesting data
 node G5Link/bridge/g5link-bridge.js --dir <folder>  # read a real modSettings/FS25_G5Link folder
 python3 G5Link/tools/package.py                     # rebuild dist/ zips after changes
 python3 G5Link/tools/make_icon.py                   # regenerate mod icon.dds
@@ -32,6 +33,9 @@ python3 G5Link/tools/make_icon.py                   # regenerate mod icon.dds
 
 `.claude/launch.json` has a `g5link-demo` preview config on port 8765. Test the display at a
 1280×720 viewport.
+
+- **Other mods:** read their public API source before hooking in; only call it if it exists, pcall every call.
+  Realistic Harvesting notes are in NOTES.md.
 
 ## Layout
 

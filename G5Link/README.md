@@ -23,6 +23,7 @@ files in `Documents\My Games\FarmingSimulator2025\modSettings\FS25_G5Link\`.
 | **Work Monitor** | Area worked, time worked, instant and average productivity, average working speed, distance, fuel used, fuel per area, fuel per hour, plus a counter reset |
 | **Implement Details** | Every attached implement: lowered and turned-on state, working width, section status, fill levels with bars, a Turn On/Off key |
 | **Machine Monitor** | Engine speed and load, ground speed, gear, fuel and DEF, fuel per hour, time to empty, engine hours, condition, farmland, AI worker |
+| **Harvesting** | For combines: grain tank level. With the [Realistic Harvesting](https://github.com/exekx/FS25_RealisticHarvesting) mod also yield, moisture and its limit, throughput, productivity, grain loss (total and by cause, with an A to D grade), engine load against target, RH's recommended speed, fuel rate, the harvest settings against RH's optimum band, and field totals |
 
 **Title bar:** run page name, game clock, link status (tap for the Status Center), and the
 previous/next run page arrows. You can also swipe between pages.
@@ -65,6 +66,8 @@ when you tap Reset Counter.
 
 Run `start-demo.bat` (or `node bridge/g5link-bridge.js --demo` on any computer) and open the
 printed address. A simulated tractor and planter drive around, and every key works.
+
+For a combine with Realistic Harvesting data, run `node bridge/g5link-bridge.js --demo combine`.
 
 ## Options
 

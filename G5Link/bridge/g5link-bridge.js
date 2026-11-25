@@ -1,0 +1,338 @@
+#!/usr/bin/env node
+// G5Link bridge: connects the FS25_G5Link mod to the G5 web display.
+//
+//   FS25 mod --(telemetry.xml)--> bridge --(Server-Sent Events)--> iPad browser
+//   iPad --(POST /api/cmd)--> bridge --(commands.xml)--> FS25 mod
+//
+// Zero dependencies. Requires Node.js 18+.
+//
+// Usage:
+//   node g5link-bridge.js                 watch the game (default folder)
+//   node g5link-bridge.js --demo          fake data, no game needed
+//   node g5link-bridge.js --dir <folder>  custom modSettings/FS25_G5Link folder
+//   node g5link-bridge.js --port 8765
+
+'use strict';
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+
+// ---------------------------------------------------------------- options
+const args = process.argv.slice(2);
+function opt(name, fallback) {
+  const i = args.indexOf('--' + name);
+  if (i === -1) return fallback;
+  const v = args[i + 1];
+  return v === undefined || v.startsWith('--') ? true : v;
+}
+const DEMO = opt('demo', false) === true;
+const PORT = Number(opt('port', 8765));
+const DEFAULT_DIR = path.join(os.homedir(), 'Documents', 'My Games', 'FarmingSimulator2025',
+  'modSettings', 'FS25_G5Link');
+const DIR = String(opt('dir', DEFAULT_DIR));
+const TELEMETRY = path.join(DIR, 'telemetry.xml');
+const COMMANDS = path.join(DIR, 'commands.xml');
+const APP_DIR = path.resolve(__dirname, '..', 'app');
+const STALE_MS = 3000; // no new seq for this long => game considered paused/closed
+
+// ---------------------------------------------------------------- tiny XML parser
+// Handles the flat, attribute-only XML the mod writes. Not a general parser.
+function decodeEntities(s) {
+  return s.replace(/&(lt|gt|amp|quot|apos|#\d+|#x[0-9a-f]+);/gi, (m, e) => {
+    switch (e.toLowerCase()) {
+      case 'lt': return '<';
+      case 'gt': return '>';
+      case 'amp': return '&';
+      case 'quot': return '"';
+      case 'apos': return "'";
+    }
+    return e[1].toLowerCase() === 'x'
+      ? String.fromCodePoint(parseInt(e.slice(2), 16))
+      : String.fromCodePoint(parseInt(e.slice(1), 10));
+  });
+}
+function typed(v) {
+  if (v === 'true') return true;
+  if (v === 'false') return false;
+  if (v !== '' && /^-?\d+(\.\d+)?(e-?\d+)?$/i.test(v)) return Number(v);
+  return v;
+}
+function parseXml(text) {
+  const root = { name: '#root', attrs: {}, children: [] };
+  const stack = [root];
+  const tagRe = /<(\/?)([A-Za-z_][\w.-]*)((?:\s+[\w:.-]+\s*=\s*"[^"]*")*)\s*(\/?)>/g;
+  const attrRe = /([\w:.-]+)\s*=\s*"([^"]*)"/g;
+  let m;
+  while ((m = tagRe.exec(text)) !== null) {
+    const [, closing, name, attrText, selfClose] = m;
+    if (closing) {
+      if (stack.length > 1) stack.pop();
+      continue;
+    }
+    const node = { name, attrs: {}, children: [] };
+    let a;
+    attrRe.lastIndex = 0;
+    while ((a = attrRe.exec(attrText)) !== null) node.attrs[a[1]] = typed(decodeEntities(a[2]));
+    stack[stack.length - 1].children.push(node);
+    if (!selfClose) stack.push(node);
+  }
+  if (stack.length !== 1) throw new Error('unbalanced XML (partial write?)');
+  return root.children[0];
+}
+function child(node, name) { return node && node.children.find(c => c.name === name); }
+function children(node, name) { return node ? node.children.filter(c => c.name === name) : []; }
+
+function telemetryFromXml(text) {
+  const g5 = parseXml(text);
+  if (!g5 || g5.name !== 'g5') throw new Error('not a G5Link telemetry file');
+  const implementsNode = child(g5, 'implements');
+  return {
+    seq: g5.attrs.seq,
+    version: g5.attrs.version,
+    state: g5.attrs.state,       // vehicle | onfoot | unloaded
+    time: g5.attrs.time,
+    lastCmd: g5.attrs.lastCmd || 0,
+    game: (child(g5, 'game') || {}).attrs || {},
+    vehicle: (child(g5, 'vehicle') || {}).attrs || null,
+    work: (child(g5, 'work') || {}).attrs || {},
+    implements: children(implementsNode, 'implement').map(n => ({
+      ...n.attrs,
+      areas: String(n.attrs.areas ?? '').split('').map(c => c === '1'),
+      fills: children(n, 'fill').map(f => f.attrs),
+    })),
+  };
+}
+
+// ---------------------------------------------------------------- state + SSE
+let latest = { state: 'waiting', link: 'waiting' };
+let lastSeq = null;
+let lastSeqAt = 0;
+const clients = new Set();
+
+function broadcast() {
+  const payload = 'data: ' + JSON.stringify(latest) + '\n\n';
+  for (const res of clients) res.write(payload);
+}
+
+function setTelemetry(t) {
+  if (t.seq !== lastSeq) {
+    lastSeq = t.seq;
+    lastSeqAt = Date.now();
+  }
+  latest = { ...t, link: 'live' };
+  broadcast();
+}
+
+// Heartbeat: flag the game as stale if the file stops changing.
+function heartbeat() {
+  if (DEMO) return;
+  const stale = lastSeqAt && Date.now() - lastSeqAt > STALE_MS;
+  const link = !lastSeqAt ? 'waiting' : stale ? 'stale' : 'live';
+  if (link !== latest.link) {
+    latest = { ...latest, link };
+    broadcast();
+  }
+  for (const res of clients) res.write(': ping\n\n');
+}
+
+// ---------------------------------------------------------------- game file watcher
+let lastMtime = 0;
+let parseErrors = 0;
+function pollTelemetry() {
+  fs.stat(TELEMETRY, (err, st) => {
+    if (err || st.mtimeMs === lastMtime) return;
+    lastMtime = st.mtimeMs;
+    fs.readFile(TELEMETRY, 'utf8', (err2, text) => {
+      if (err2) return;
+      try {
+        setTelemetry(telemetryFromXml(text));
+        parseErrors = 0;
+      } catch (e) {
+        // The game may be mid-write; the next poll will pick up the full file.
+        if (++parseErrors === 20) console.warn('Telemetry unreadable for a while:', e.message);
+        lastMtime = 0;
+      }
+    });
+  });
+}
+
+// ---------------------------------------------------------------- commands
+const ALLOWED = new Set(['motorToggle', 'cruiseToggle', 'cruiseSet', 'cruiseAdjust',
+  'lowerAll', 'turnOnAll', 'implTurnOn', 'resetWork']);
+let cmdQueue = [];
+let nextCmdId = 1;
+
+function loadExistingCommandIds() {
+  try {
+    const root = parseXml(fs.readFileSync(COMMANDS, 'utf8'));
+    for (const c of children(root, 'cmd')) nextCmdId = Math.max(nextCmdId, Number(c.attrs.id || 0) + 1);
+  } catch { /* no file yet */ }
+}
+
+function escAttr(v) {
+  return String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function writeCommands() {
+  const body = cmdQueue.map(c =>
+    `    <cmd id="${c.id}" name="${escAttr(c.name)}" value="${Number(c.value) || 0}" index="${c.index | 0}"/>`
+  ).join('\n');
+  const xml = `<?xml version="1.0" encoding="utf-8" standalone="no"?>\n<commands>\n${body}\n</commands>\n`;
+  const tmp = COMMANDS + '.tmp';
+  fs.mkdirSync(DIR, { recursive: true });
+  fs.writeFileSync(tmp, xml);
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try { fs.renameSync(tmp, COMMANDS); return; } catch (e) {
+      if (attempt === 4) throw e; // file briefly locked by the game on Windows
+    }
+  }
+}
+
+function queueCommand(cmd) {
+  if (!ALLOWED.has(cmd.name)) throw new Error('unknown command ' + cmd.name);
+  const entry = { id: nextCmdId++, name: cmd.name, value: Number(cmd.value) || 0, index: cmd.index | 0 };
+  if (DEMO) { demoCommand(entry); return entry; }
+  cmdQueue.push(entry);
+  if (cmdQueue.length > 30) cmdQueue = cmdQueue.slice(-30);
+  writeCommands();
+  return entry;
+}
+
+// ---------------------------------------------------------------- demo simulator
+const demo = {
+  t: 0, speed: 0, target: 11.5, motorOn: true, cc: 1, ccSpeed: 11.5, fuel: 512, def: 64,
+  lowered: true, turnedOn: true, heading: 92, x: -120, z: 340, seed: 2800,
+  work: { area: 0, time: 0, distance: 0, totalDistance: 0, fuelUsed: 0, totalFuel: 0 },
+};
+function demoCommand(c) {
+  switch (c.name) {
+    case 'motorToggle': demo.motorOn = !demo.motorOn; break;
+    case 'cruiseToggle': demo.cc = demo.cc ? 0 : 1; break;
+    case 'cruiseSet': demo.ccSpeed = Math.max(1, Math.min(40, c.value)); break;
+    case 'cruiseAdjust': demo.ccSpeed = Math.max(1, Math.min(40, demo.ccSpeed + c.value)); break;
+    case 'lowerAll': demo.lowered = !demo.lowered; break;
+    case 'turnOnAll': case 'implTurnOn': demo.turnedOn = !demo.turnedOn; break;
+    case 'resetWork': Object.keys(demo.work).forEach(k => { demo.work[k] = 0; }); break;
+  }
+  demo.lastCmd = c.id;
+}
+function demoTick(dt) {
+  demo.t += dt;
+  const target = !demo.motorOn ? 0 : demo.cc ? demo.ccSpeed : 6 + 4 * Math.sin(demo.t / 9000);
+  demo.speed += (target - demo.speed) * Math.min(1, dt / 1500);
+  const meters = demo.speed / 3.6 * dt / 1000;
+  const working = demo.lowered && demo.turnedOn && demo.speed > 0.3;
+  const burn = demo.motorOn ? (working ? 38 : 12) / 3600 * dt / 1000 : 0; // l per tick
+  demo.fuel = Math.max(0, demo.fuel - burn);
+  demo.def = Math.max(0, demo.def - burn * 0.05);
+  demo.heading = (demo.heading + 0.4 * Math.sin(demo.t / 4000)) % 360;
+  demo.x += meters * Math.sin(demo.heading * Math.PI / 180);
+  demo.z -= meters * Math.cos(demo.heading * Math.PI / 180);
+  demo.work.totalDistance += meters;
+  demo.work.totalFuel += burn;
+  if (working) {
+    demo.work.area += 12.19 * meters;
+    demo.work.time += dt;
+    demo.work.distance += meters;
+    demo.work.fuelUsed += burn;
+    demo.seed = Math.max(0, demo.seed - 0.004 * 12.19 * meters);
+  }
+  const rpm = demo.motorOn ? 850 + demo.speed * 55 + (working ? 250 : 0) : 0;
+  const minutes = 6 * 60 + Math.floor(demo.t / 2500);
+  setTelemetry({
+    seq: Math.floor(demo.t / 250), version: 'demo', state: 'vehicle', time: Math.floor(demo.t),
+    lastCmd: demo.lastCmd || 0,
+    game: { day: 3, hour: Math.floor(minutes / 60) % 24, minute: minutes % 60 },
+    vehicle: {
+      name: 'Demo 8R Tractor', speed: +demo.speed.toFixed(1), motorOn: demo.motorOn, ai: false, onField: true,
+      rpm: Math.round(rpm), maxRpm: 2100, load: demo.motorOn ? Math.round(working ? 62 + 8 * Math.sin(demo.t / 3000) : 18) : 0,
+      gear: demo.speed > 0.2 ? 'D' : 'N', cvt: true, dir: demo.speed > 0.2 ? 1 : 0,
+      ccState: demo.cc, ccSpeed: demo.ccSpeed, ccMax: 40,
+      fuel: +demo.fuel.toFixed(1), fuelCap: 680, fuelType: 'DIESEL', def: +demo.def.toFixed(1), defCap: 72,
+      damage: 12.5, hours: 1287.4, x: +demo.x.toFixed(1), z: +demo.z.toFixed(1), heading: Math.round(demo.heading), farmland: 23,
+    },
+    implements: [{
+      name: 'Demo 1775NT Planter', canLower: true, lowered: demo.lowered, canTurnOn: true, turnedOn: demo.turnedOn,
+      width: 12.19, areas: Array.from({ length: 16 }, (_, i) => working && !(i === 5 && Math.sin(demo.t / 5000) > 0.6)),
+      fills: [{ title: 'Seeds', level: +demo.seed.toFixed(1), cap: 2800 }, { title: 'Liquid Fertilizer', level: 1600, cap: 2271 }],
+    }],
+    work: {
+      recording: working, area: Math.round(demo.work.area), time: Math.round(demo.work.time / 1000),
+      distance: Math.round(demo.work.distance), totalDistance: Math.round(demo.work.totalDistance),
+      fuelUsed: +demo.work.fuelUsed.toFixed(2), totalFuel: +demo.work.totalFuel.toFixed(2),
+    },
+  });
+}
+
+// ---------------------------------------------------------------- HTTP
+const MIME = {
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.svg': 'image/svg+xml',
+};
+
+function serveStatic(req, res) {
+  const urlPath = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+  const rel = urlPath === '/' ? 'index.html' : urlPath.replace(/^\/+/, '');
+  const file = path.resolve(APP_DIR, rel);
+  if (!file.startsWith(APP_DIR + path.sep)) { res.writeHead(403).end(); return; }
+  fs.readFile(file, (err, data) => {
+    if (err) { res.writeHead(404).end('Not found'); return; }
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
+    res.end(data);
+  });
+}
+
+const server = http.createServer((req, res) => {
+  if (req.url === '/api/events') {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+    res.write('retry: 1000\n\n');
+    res.write('data: ' + JSON.stringify(latest) + '\n\n');
+    clients.add(res);
+    req.on('close', () => clients.delete(res));
+    return;
+  }
+  if (req.url === '/api/state') {
+    res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(latest));
+    return;
+  }
+  if (req.url === '/api/cmd' && req.method === 'POST') {
+    let body = '';
+    req.on('data', d => { body += d; if (body.length > 4096) req.destroy(); });
+    req.on('end', () => {
+      try {
+        const entry = queueCommand(JSON.parse(body || '{}'));
+        res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: true, id: entry.id }));
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+  serveStatic(req, res);
+});
+
+function start() {
+setInterval(heartbeat, 1000);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`G5Link bridge ${DEMO ? '(DEMO MODE) ' : ''}on port ${PORT}`);
+  if (!DEMO) console.log('Watching', TELEMETRY);
+  const ips = Object.values(os.networkInterfaces()).flat()
+    .filter(i => i && i.family === 'IPv4' && !i.internal).map(i => i.address);
+  console.log('Open on your iPad:');
+  for (const ip of ips) console.log(`   http://${ip}:${PORT}`);
+  console.log(`   (this PC: http://localhost:${PORT})`);
+});
+
+if (DEMO) {
+  let last = Date.now();
+  setInterval(() => { const now = Date.now(); demoTick(now - last); last = now; }, 250);
+} else {
+  loadExistingCommandIds();
+  setInterval(pollTelemetry, 100);
+}
+}
+
+if (require.main === module) start();
+
+module.exports = { parseXml, telemetryFromXml };

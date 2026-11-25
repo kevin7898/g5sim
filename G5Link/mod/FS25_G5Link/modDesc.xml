@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<modDesc descVersion="104">
+    <author>kevin7898</author>
+    <version>0.1.0.0</version>
+    <title>
+        <en>G5Link - Display Bridge</en>
+    </title>
+    <description>
+        <en><![CDATA[Streams live data from the vehicle you are driving (speed, rpm, gear, fuel, cruise, implements, work totals) to a companion G5-style display that runs in a browser on a tablet. Commands tapped on the tablet (cruise control, engine, lower/raise, turn on) are sent back to the game.
+
+Requires the G5Link bridge running on the same PC. See README for setup.]]></en>
+    </description>
+    <iconFilename>icon.dds</iconFilename>
+    <multiplayer supported="true"/>
+
+    <extraSourceFiles>
+        <sourceFile filename="scripts/G5Link.lua"/>
+    </extraSourceFiles>
+</modDesc>

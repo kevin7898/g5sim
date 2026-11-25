@@ -1,0 +1,10 @@
+{
+  "name": "G5Link Display",
+  "short_name": "G5Link",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0b0c0d",
+  "theme_color": "#0b0c0d",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

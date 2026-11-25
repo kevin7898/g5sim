@@ -1,0 +1,7 @@
+.DS_Store
+*.tmp
+node_modules/
+# Duplicate of research/ kept locally
+deere-display-research/
+# Local Claude settings
+.claude/settings.local.json

@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="G5Link">
+<meta name="theme-color" content="#000000">
+<title>G5Link Display</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="icon" href="icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<!-- Shared SVG icons (simple line art drawn for this app) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-engine" viewBox="0 0 48 48"><path d="M10 18h6l3-4h10l3 4h4v6h3v-4h3v12h-3v-4h-3v6h-5l-3 4H17l-3-4h-4z" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linejoin="round"/><path d="M4 22v8M4 26h6" stroke="currentColor" stroke-width="3.2"/></symbol>
+    <symbol id="i-cruise" viewBox="0 0 48 48"><path d="M8 34a17 17 0 1 1 32 0" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round"/><path d="M24 34l9-12" stroke="currentColor" stroke-width="3.6" stroke-linecap="round"/><circle cx="24" cy="34" r="3.4" fill="currentColor"/><path d="M13 22l2 1.5M24 15v3M35 22l-2 1.5" stroke="currentColor" stroke-width="3"/></symbol>
+    <symbol id="i-hitch" viewBox="0 0 48 48"><path d="M6 36h36" stroke="currentColor" stroke-width="3.4"/><path d="M12 36V24h10v12M26 36V24h10v12" fill="none" stroke="currentColor" stroke-width="3.2"/><path d="M17 6v12M12 12l5-6 5 6M31 6v12M26 12l5 6 5-6" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linejoin="round"/></symbol>
+    <symbol id="i-pto" viewBox="0 0 48 48"><circle cx="24" cy="24" r="6" fill="none" stroke="currentColor" stroke-width="3.4"/><path d="M24 4v8M24 36v8M4 24h8M36 24h8M10 10l6 6M32 32l6 6M38 10l-6 6M16 32l-6 6" stroke="currentColor" stroke-width="3.4" stroke-linecap="round"/></symbol>
+    <symbol id="i-work" viewBox="0 0 48 48"><path d="M6 38l10-26h16l10 26z" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linejoin="round"/><path d="M20 12l-4 26M28 12l4 26M24 12v26" stroke="currentColor" stroke-width="2.4"/></symbol>
+    <symbol id="i-reset" viewBox="0 0 48 48"><path d="M38 24a14 14 0 1 1-4-9.8" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round"/><path d="M36 6v10H26" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linejoin="round"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 48 48"><rect x="8" y="8" width="13" height="13" rx="2" fill="currentColor"/><rect x="27" y="8" width="13" height="13" rx="2" fill="currentColor"/><rect x="8" y="27" width="13" height="13" rx="2" fill="currentColor"/><rect x="27" y="27" width="13" height="13" rx="2" fill="currentColor"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 48 48"><path d="M8 24h30M24 10l14 14-14 14" fill="none" stroke="currentColor" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"/></symbol>
+    <symbol id="i-link" viewBox="0 0 48 48"><path d="M10 30a10 10 0 0 1 2-19 12 12 0 0 1 23 2 9 9 0 0 1 3 17z" fill="currentColor"/></symbol>
+    <symbol id="i-sat" viewBox="0 0 48 48"><path d="M18 8l8 8-6 6-8-8zM30 20l8 8-6 6-8-8z" fill="currentColor"/><path d="M20 22l6 6" stroke="currentColor" stroke-width="4"/><path d="M10 34a10 10 0 0 0 6 6M6 34a14 14 0 0 0 10 10" fill="none" stroke="currentColor" stroke-width="2.6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 48 48"><path d="M8 26l11 11 21-24" fill="none" stroke="currentColor" stroke-width="6" stroke-linejoin="round" stroke-linecap="round"/></symbol>
+    <symbol id="i-x" viewBox="0 0 48 48"><path d="M12 12l24 24M36 12L12 36" stroke="currentColor" stroke-width="6" stroke-linecap="round"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 48 48"><circle cx="24" cy="24" r="8" fill="none" stroke="currentColor" stroke-width="3.4"/><path d="M24 4v7M24 37v7M4 24h7M37 24h7M10 10l5 5M33 33l5 5M38 10l-5 5M15 33l-5 5" stroke="currentColor" stroke-width="4" stroke-linecap="round"/></symbol>
+  </defs>
+</svg>
+
+<div id="stage">
+  <div id="display">
+
+    <!-- Title bar: run page name, status center, page arrows -->
+    <header class="titlebar">
+      <div class="tb-title" id="pageName">Tractor</div>
+      <button class="tb-status" id="statusCenter" aria-label="Status Center">
+        <span class="tb-clock" id="scClock">--:--</span>
+        <span class="tb-ico" id="scLinkIco"><svg><use href="#i-link"/></svg><i id="scLinkBadge">!</i></span>
+        <span class="tb-ico"><svg><use href="#i-sat"/></svg></span>
+        <span class="tb-signal"><b id="scLinkTxt">WAIT</b><span class="bars" id="scBars"><i></i><i></i><i></i><i></i><i></i></span></span>
+      </button>
+      <button class="tb-arrow left" id="prevPage" aria-label="Previous run page"><svg><use href="#i-arrow"/></svg></button>
+      <button class="tb-arrow" id="nextPage" aria-label="Next run page"><svg><use href="#i-arrow"/></svg></button>
+    </header>
+
+    <!-- Window shade -->
+    <div class="shade" id="shade"><div class="shade-icon" id="shadeIcon">!</div><div class="shade-text" id="shadeText"></div></div>
+
+    <main class="pages" id="pages">
+
+      <!-- Run page: Guidance -->
+      <section class="page" data-name="Guidance">
+        <div class="page-grid main-side">
+          <div class="module map-mod">
+            <div class="lightbar" id="lightbar"></div>
+            <canvas id="map"></canvas>
+            <div class="map-tag" id="mapCrop">Field</div>
+            <div class="map-arrow" id="mapArrow"></div>
+            <div class="map-chip" id="mapHdg">---</div>
+            <div class="map-chip trk" id="mapTrk">---</div>
+            <div class="map-btns">
+              <button class="map-btn" data-zoom="-1" aria-label="Zoom in">+</button>
+              <button class="map-btn" data-zoom="1" aria-label="Zoom out">−</button>
+              <button class="map-btn" id="mapView" aria-label="Change view">3D</button>
+            </div>
+            <div class="map-note" id="mapNote" hidden></div>
+          </div>
+          <div class="side">
+            <div class="module side-mod guid-mod">
+              <div class="mod-title">Guidance</div>
+              <div class="side-body guid-body">
+                <b class="trk-name" id="trkName">No track</b>
+                <button class="g5btn" id="setTrackBtn">Set Track</button>
+                <button class="val-line" id="spacingBtn"><b id="trkSpacing">---</b><span>Track Spacing</span></button>
+                <div class="sub-strip">Shift Track</div>
+                <button class="g5btn big" data-shift="0" aria-label="Center track"><svg viewBox="0 0 48 48"><path d="M6 14v20l14-10zM42 14v20L28 24z" fill="currentColor"/><path d="M24 8v32" stroke="currentColor" stroke-width="3"/></svg></button>
+                <div class="two-btn">
+                  <button class="g5btn" data-shift="-1" aria-label="Shift left"><svg viewBox="0 0 48 48"><path d="M12 10v28" stroke="currentColor" stroke-width="4"/><path d="M38 12v24L18 24z" fill="currentColor"/></svg></button>
+                  <button class="g5btn" data-shift="1" aria-label="Shift right"><svg viewBox="0 0 48 48"><path d="M36 10v28" stroke="currentColor" stroke-width="4"/><path d="M10 12v24l20-12z" fill="currentColor"/></svg></button>
+                </div>
+                <button class="val-line" id="incrBtn"><b id="trkIncr">---</b><span>Shift Increment</span></button>
+              </div>
+            </div>
+            <div class="module side-mod loc-mod">
+              <div class="mod-title">Location</div>
+              <div class="side-body"><b class="loc-name" id="locName">---</b><span class="loc-sub">Field</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Run page 1: Tractor -->
+      <section class="page" data-name="Tractor">
+        <div class="page-grid main-side">
+          <div class="module">
+            <div class="mod-title" id="vehicleTitle">Tractor - Overview</div>
+            <div class="tiles t3">
+              <div class="tile" id="tSpeed"><div class="t-title">Ground Speed</div><div class="t-big"><span id="speed">--</span><small id="speedUnit">km/h</small></div><div class="t-sub" id="dirTxt">&nbsp;</div></div>
+              <div class="tile" id="tRpm"><div class="t-title">Engine Speed</div><div class="t-big"><span id="rpm">--</span><small>rpm</small></div><div class="meter"><i id="rpmBar"></i></div></div>
+              <div class="tile" id="tGear"><div class="t-title">Transmission</div><div class="t-big"><span id="gear">-</span></div><div class="t-sub" id="gearSub">&nbsp;</div></div>
+              <div class="tile" id="tLoad"><div class="t-title">Engine Load</div><div class="t-big"><span id="loadTxt">--</span><small>%</small></div><div class="meter"><i id="loadBar"></i></div></div>
+              <div class="tile" id="tFuel"><div class="t-title" id="fuelLbl">Fuel</div><div class="t-big"><span id="fuelPct">--</span><small>%</small></div><div class="meter"><i id="fuelBar"></i></div></div>
+              <div class="tile" id="tDef"><div class="t-title">DEF</div><div class="t-big"><span id="defPct">--</span><small>%</small></div><div class="meter"><i id="defBar"></i></div></div>
+            </div>
+            <div class="mod-lower split">
+              <div class="lower-col">
+                <div class="lower-head">Cruise Control</div>
+                <div class="cc-row">
+                  <button class="g5btn sq" data-cmd="cruiseAdjust" data-value="-0.5">−</button>
+                  <button class="cc-value" id="ccSetBtn"><span id="ccSet">--</span><small id="ccUnit">km/h</small></button>
+                  <button class="g5btn sq" data-cmd="cruiseAdjust" data-value="0.5">+</button>
+                </div>
+                <div class="seg" id="ccSeg">
+                  <button data-cmd="cruiseToggle" id="ccOn">ON</button><button data-cmd="cruiseToggle" id="ccOff">OFF</button>
+                </div>
+              </div>
+              <div class="lower-col">
+                <div class="lower-head">Implement</div>
+                <div class="impl-line"><b id="implName">No implement</b></div>
+                <div class="impl-flags">
+                  <span class="led-tag" id="implLowered"><i></i>Lowered</span>
+                  <span class="led-tag" id="implOn"><i></i>Turned On</span>
+                  <span class="plain-tag" id="implWidth">-- m</span>
+                </div>
+                <div class="sectionbar" id="homeSections"></div>
+              </div>
+            </div>
+          </div>
+          <div class="side">
+            <div class="module side-mod">
+              <div class="mod-title">Heading</div>
+              <div class="side-body center">
+                <svg viewBox="0 0 120 120" class="compass" aria-hidden="true">
+                  <circle cx="60" cy="60" r="54" class="c-ring"/>
+                  <g id="compassRose">
+                    <text x="60" y="22" class="c-n">N</text><text x="103" y="65" class="c-l">E</text>
+                    <text x="60" y="107" class="c-l">S</text><text x="17" y="65" class="c-l">W</text>
+                  </g>
+                  <path d="M60 30 L69 72 L60 64 L51 72 Z" class="c-needle"/>
+                </svg>
+                <div class="side-big" id="headingTxt">---°</div>
+              </div>
+            </div>
+            <div class="module side-mod">
+              <div class="mod-title">Work Totals</div>
+              <div class="side-body">
+                <div class="kv"><span>Area</span><b id="homeArea">--</b></div>
+                <div class="kv"><span>Time</span><b id="homeTime">--</b></div>
+                <div class="kv"><span>Rate</span><b id="homeRate">--</b></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Run page 2: Work Monitor -->
+      <section class="page" data-name="Work Monitor">
+        <div class="page-grid main-side">
+          <div class="module">
+            <div class="mod-title">Work Monitor</div>
+            <div class="tiles t3 r3" id="wmTiles"></div>
+          </div>
+          <div class="side">
+            <div class="module side-mod">
+              <div class="mod-title">Work Recording</div>
+              <div class="side-body center">
+                <div class="rec-big" id="wmRec"><i></i><b>OFF</b></div>
+              </div>
+            </div>
+            <div class="module side-mod grow">
+              <div class="mod-title">Counter</div>
+              <div class="side-body">
+                <div class="kv"><span>Total distance</span><b id="wmTotalDist">--</b></div>
+                <div class="kv"><span>Total fuel</span><b id="wmTotalFuel">--</b></div>
+                <button class="g5btn wide" id="resetWork"><svg><use href="#i-reset"/></svg>Reset</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Run page 3: Implements -->
+      <section class="page" data-name="Implement Details">
+        <div class="impl-pages" id="implList"></div>
+      </section>
+
+      <!-- Run page 4: Machine Monitor -->
+      <section class="page" data-name="Machine Monitor">
+        <div class="page-grid single">
+          <div class="module">
+            <div class="mod-title">Machine Monitor</div>
+            <div class="tiles t4 r3" id="mmTiles"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Shortcut bar -->
+    <footer class="shortcuts">
+      <button class="sk" data-cmd="motorToggle" id="skMotor"><svg><use href="#i-engine"/></svg><b>ENGINE</b><span id="skMotorState">--</span></button>
+      <button class="sk" data-cmd="cruiseToggle" id="skCruise"><svg><use href="#i-cruise"/></svg><b>CRUISE</b><span id="skCruiseState">--</span></button>
+      <button class="sk" data-cmd="lowerAll" id="skLower"><svg><use href="#i-hitch"/></svg><b>LOWER/RAISE</b><span id="skLowerState">--</span></button>
+      <button class="sk" data-cmd="turnOnAll" id="skTurnOn"><svg><use href="#i-pto"/></svg><b>TURN ON</b><span id="skTurnOnState">--</span></button>
+      <button class="sk" id="skWork"><svg><use href="#i-work"/></svg><b>WORK</b><span id="skWorkState">--</span></button>
+      <div class="sk empty"></div><div class="sk empty"></div><div class="sk empty"></div><div class="sk empty"></div><div class="sk empty"></div>
+      <button class="sk" id="skPageSet"><svg><use href="#i-gear"/></svg><b>DISPLAY</b><span class="nostrip"></span></button>
+      <button class="sk menu" id="menuBtn"><svg><use href="#i-menu"/></svg><b>MENU</b><span class="nostrip"></span></button>
+    </footer>
+
+    <!-- Menu: full screen, like the G5 -->
+    <div class="menu-screen" id="menu" hidden>
+      <div class="ms-head">
+        <b>Menu</b><span class="ms-help">?</span>
+        <button class="win-close" data-close="menu" aria-label="Close"><svg><use href="#i-x"/></svg></button>
+      </div>
+      <div class="ms-body">
+        <div class="ms-tabs" id="menuTabs">
+          <button data-tab="pages" class="on">Run Pages</button>
+          <button data-tab="apps">Applications</button>
+          <button data-tab="display">System</button>
+          <div class="ms-tabs-fill"></div>
+        </div>
+        <div class="ms-panel" id="tab-pages"><div class="app-grid" id="menuPages"></div></div>
+        <div class="ms-panel" id="tab-apps" hidden>
+          <div class="app-grid">
+            <button class="app" data-goto="2"><span class="app-ico"><svg><use href="#i-work"/></svg></span><b>Work Monitor</b></button>
+            <button class="app" data-goto="3"><span class="app-ico"><svg><use href="#i-hitch"/></svg></span><b>Implement Details</b></button>
+            <button class="app" data-goto="4"><span class="app-ico"><svg><use href="#i-engine"/></svg></span><b>Machine Monitor</b></button>
+            <button class="app" id="appStatus"><span class="app-ico"><svg><use href="#i-sat"/></svg></span><b>Status Center</b></button>
+            <button class="app" id="appReset"><span class="app-ico"><svg><use href="#i-reset"/></svg></span><b>Reset Work Totals</b></button>
+          </div>
+        </div>
+        <div class="ms-panel" id="tab-display" hidden>
+          <div class="set-row"><span>Units</span><div class="seg" id="unitSeg"><button data-v="metric">Metric</button><button data-v="imperial">US</button></div></div>
+          <div class="set-row"><span>Display Mode</span><div class="seg" id="modeSeg"><button data-v="day">Day</button><button data-v="night">Night</button></div></div>
+          <div class="set-row"><span>Alert Sounds</span><div class="seg" id="soundSeg"><button data-v="on">On</button><button data-v="off">Off</button></div></div>
+          <p class="about" id="aboutTxt"></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- App window: Status Center -->
+    <div class="window-wrap" id="scPanel" hidden>
+      <div class="window narrow">
+        <div class="win-head"><b>Status Center</b><button class="win-close" data-close="scPanel" aria-label="Close"><svg><use href="#i-x"/></svg></button></div>
+        <div class="win-body"><div class="sc-grid" id="scPanelGrid"></div></div>
+      </div>
+    </div>
+
+    <!-- Message dialog -->
+    <div class="window-wrap" id="confirm" hidden>
+      <div class="window narrow">
+        <div class="win-head"><b id="confirmTitle">Confirm</b></div>
+        <div class="win-body msg"><p id="confirmText"></p></div>
+        <div class="win-foot">
+          <button class="g5btn" id="confirmNo"><svg class="x"><use href="#i-x"/></svg>Cancel</button>
+          <button class="g5btn" id="confirmYes"><svg class="ok"><use href="#i-check"/></svg>OK</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Guidance track list -->
+    <div class="window-wrap" id="trackWin" hidden>
+      <div class="window">
+        <div class="win-head"><b>Guidance Track List</b><button class="win-close" data-close="trackWin" aria-label="Close"><svg><use href="#i-x"/></svg></button></div>
+        <div class="win-body trk-win">
+          <div class="trk-list" id="trackList"></div>
+          <div class="trk-new">
+            <div class="lower-head">New Straight Track</div>
+            <button class="g5btn" id="newHeading">A + Heading</button>
+            <p class="hint">Uses your current position and heading.</p>
+            <div class="two-btn"><button class="g5btn" id="setA">Set A</button><button class="g5btn" id="setB">Set B</button></div>
+            <p class="hint" id="abStatus">Drive to point A, tap Set A, then drive at least 3 m and tap Set B.</p>
+          </div>
+        </div>
+        <div class="win-foot">
+          <button class="g5btn" id="trkDelete"><svg class="x"><use href="#i-x"/></svg>Delete</button>
+          <button class="g5btn" data-close="trackWin"><svg class="ok"><use href="#i-check"/></svg>OK</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Number entry for cruise set speed -->
+    <div class="window-wrap" id="numpad" hidden>
+      <div class="window narrow">
+        <div class="win-head"><b id="numTitle">Set Speed</b><button class="win-close" data-close="numpad" aria-label="Close"><svg><use href="#i-x"/></svg></button></div>
+        <div class="win-body">
+          <div class="num-display" id="numDisplay">0</div>
+          <div class="num-keys" id="numKeys"></div>
+        </div>
+        <div class="win-foot">
+          <button class="g5btn" data-close="numpad"><svg class="x"><use href="#i-x"/></svg>Cancel</button>
+          <button class="g5btn" id="numOk"><svg class="ok"><use href="#i-check"/></svg>OK</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="app.js"></script>
+<script src="guidance.js"></script>
+</body>
+</html>

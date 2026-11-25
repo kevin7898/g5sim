@@ -1,0 +1,105 @@
+# G5Link: a G5-style display for Farming Simulator 25 on your iPad
+
+G5Link shows live data from the tractor you are driving in FS25 on a tablet next to you,
+styled after the G5 Universal Display (16:9, Day and Night modes): run pages built from
+modules, a status center in the title bar, a shortcut bar, app windows and window-shade alerts. Tapping keys on the tablet controls the game (engine, cruise control,
+lower/raise, turn on).
+
+```
+FS25 on Windows PC                      same PC                      iPad (Safari)
+FS25_G5Link mod  -- telemetry.xml -->   G5Link bridge (Node.js) -- live stream -->  G5 display
+                 <-- commands.xml --                             <-- taps -----
+```
+
+FS25 mods can't open network connections, so the mod and the bridge talk through two small
+files in `Documents\My Games\FarmingSimulator2025\modSettings\FS25_G5Link\`.
+
+## What's on the display
+
+| Run page | Shows |
+|---|---|
+| **Guidance** | Perspective (or top-down) map with your straight guidance tracks, coverage, and the tractor and implement; a lightbar with off-track error; heading and track number; Set Track (A + Heading or A + B), track spacing, Shift Track (center, left, right) and shift increment; farmland |
+| **Tractor** | Ground speed, gear and direction, engine rpm gauge and load, fuel and DEF bars, cruise control with − / + keys, an ON/OFF switch and a keypad (tap the set speed), first implement (lowered, turned on, width, section bar), work totals, heading compass |
+| **Work Monitor** | Area worked, time worked, instant and average productivity, average working speed, distance, fuel used, fuel per area, fuel per hour, plus a counter reset |
+| **Implement Details** | Every attached implement: lowered and turned-on state, working width, section status, fill levels with bars, a Turn On/Off key |
+| **Machine Monitor** | Engine speed and load, ground speed, gear, fuel and DEF, fuel per hour, time to empty, engine hours, condition, farmland, AI worker |
+
+**Title bar:** run page name, game clock, link status (tap for the Status Center), and the
+previous/next run page arrows. You can also swipe between pages.
+
+**Shortcut bar:** Engine, Cruise, Lower/Raise (all), Turn On (all), Work, Display and Menu.
+
+**Menu:** Run Pages tab to jump to a page; Display tab for Metric / US units, Day / Night mode
+and alert sounds.
+
+Guidance is calculated on the iPad from the position the mod streams, so it is visual guidance with
+a lightbar, like the G5's manual guidance. It doesn't steer the tractor. Tracks are saved on the iPad.
+
+**Window shades** appear for low fuel or DEF, critical machine condition, lost connection,
+a paused game, or when you're on foot.
+
+"Sections" are the implement's work areas, so their count depends on how the vehicle mod is
+built. Work totals are counted by G5Link itself while any work area is active, and reset
+when you tap Reset Counter.
+
+## Setup on the Windows PC
+
+1. **Install Node.js** (LTS) from https://nodejs.org. It's needed for the bridge.
+2. **Install the mod:** copy `dist/FS25_G5Link.zip` into
+   `Documents\My Games\FarmingSimulator2025\mods\`. Don't unzip it.
+3. **Copy the bridge:** unzip `dist/G5Link-PC.zip` anywhere, for example your Desktop.
+4. **Start the bridge:** double-click `G5Link\bridge\start-bridge.bat`. It prints an address
+   such as `http://192.168.1.50:8765`. The first time, Windows Firewall asks about Node.js:
+   allow it on **Private networks**.
+5. **Start FS25**, activate **G5Link - Display Bridge** in the savegame's mod list, load the game
+   and get in a vehicle.
+
+## Setup on the iPad
+
+1. Join the same Wi-Fi as the PC.
+2. In Safari, open the address the bridge printed.
+3. Tap Share, then **Add to Home Screen**. Launching from the home-screen icon runs it full
+   screen with no browser bars. Use it in landscape.
+
+## Try it without the game
+
+Run `start-demo.bat` (or `node bridge/g5link-bridge.js --demo` on any computer) and open the
+printed address. A simulated tractor and planter drive around, and every key works.
+
+## Options
+
+```
+node g5link-bridge.js --port 9000           use a different port
+node g5link-bridge.js --dir "D:\path\..."   custom modSettings\FS25_G5Link folder
+```
+
+## Troubleshooting
+
+- **Status center says "Waiting":** the bridge hasn't seen `telemetry.xml` yet. Make sure
+  the mod is active in the savegame and you're in the game, not the main menu. Check
+  `log.txt` in the FS25 profile folder for a line starting with `G5Link`.
+- **"Paused":** the game stopped writing data, for example in the pause menu or ESC screen.
+- **iPad can't load the page:** check that both devices are on the same network, that the
+  firewall allowed Node.js on Private networks, and that you're typing the PC's address, not
+  `localhost`.
+- **A key does nothing:** some vehicles don't support every command (for example, Turn On
+  on a tractor with no powered implement). The key flashes yellow until the game confirms.
+
+## Project layout
+
+```
+mod/FS25_G5Link/   the FS25 mod (modDesc.xml, scripts/G5Link.lua, icon.dds)
+bridge/            g5link-bridge.js (Node, no dependencies) + .bat launchers
+app/               the display web app (served by the bridge)
+tools/             make_icon.py, package.py
+dist/              built zips
+```
+
+Rebuild the zips after changes: `python3 tools/package.py`.
+
+## Ideas for later
+
+- A native iPad app (Swift) using the same bridge stream
+- A mapping page with coverage drawn from vehicle position
+- AutoTrac-style guidance (AB lines, status pie, lightbar)
+- A corner post display page

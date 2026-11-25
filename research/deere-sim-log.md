@@ -295,3 +295,13 @@ Calibrations & Procedures, Controls Setup, Engine, Folding, Grain Handling, Harv
   - Page 2: constituents, i.e. HarvestLab-style moisture 16, protein 17, starch 60, oil 16
 - The display's yield and moisture come from these inputs; the sim does not simulate them. Changes ease in over tens of seconds: setting 80 bu/ac moved the yield trend to 80.6 bu/ac and throughput to 3,140 bu/h.
 - With AutoTrac turned on, the AUTOTRAC key shows a green ON strip.
+
+### Map layers (full-screen map → layers key)
+- **Select Map View** dialog:
+  - White header with "?"; left tabs Operation (Wheat), Primary Layer, Background Layer, Satellite Layer (Satellite). The selected tab is yellow with an arrow.
+  - The right list for Primary Layer is Coverage, Dry Yield, Protein, Moisture, Starch (the selected row is yellow with a dark left edge).
+  - After choosing a layer, it auto-advances to the next tab. Background Layer offers "No Background".
+  - Footer: Map Advanced Settings link (yellow arrow icon), Cancel (✕) and **OK as a green key** with a white ✓.
+- The full-screen map has no title bar or shortcut bar. It has the lightbar, a layer chip (e.g. "Dry Yield") under the heading and track chips (track shown as "5S" = track 5 south), a fit-to-field key top-right, and a distance scale (532 ft / 99.5 ft).
+- The coverage legend reads Coverage, Overlap, Shared Coverage, Shared Overlap, plus a "+ New Work" key.
+- **Dry Yield map:** the worked strip is dark green, with yellow and orange bands where yield dropped (matching Field Conditions changes 80↔110). The newest few metres behind the header stay gray until the yield data catches up.

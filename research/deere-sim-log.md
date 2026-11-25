@@ -173,3 +173,41 @@ The machine/implement/display picker already fetched G5_CommandCenter.png and G5
   - `deere-help-index.md`: every page with title and word count.
   - `deere-help-notes.md`: condensed study notes, 12 batches. ★ marks the CAN / diagnostics material.
 - Batches 1–11 were read in full (after removing sentences that repeat across pages). Batch 12 (SeedStar planter, 33k words) was read through a fact filter for numbers, requirements and diagnostics, so not every word.
+
+## Session 5: G5 CommandCenter, tractor screens (2026-11-25)
+
+Simulator: Tractor + G5 CommandCenter. Full-resolution 960×540 frames were captured for reference and
+kept locally only (they are Deere's UI). This section describes what's on each screen.
+
+### Default Tractor Run Page (the CommandCenter home)
+A dense grid of small modules, each with a dark title strip:
+- **Readings**: Counters A / Machine, 2×2 (fuel rate gal/h, engine hours, fuel per area gal/ac, engine load %)
+- **Rear Hitch**: an icon plus 51% and a vertical 0–100 gauge with a position pointer and a set-point marker
+- **SCV I–VI**: color-coded Roman-numeral headers (I green, II blue, III brown, IV black, V purple, VI gray), a vertical flow gauge and a timer (0s)
+- **Front Hitch**: 50%, same gauge style
+- **Mini guidance map** with a lightbar
+- **Rear PTO**: rpm
+- **Transmission**: max speed 33.5 MPH, cruise 2 12.4 and cruise 1 6.2; an orange LED marks the active one
+- **Engine Power**: a power bar and 500.0 h; **Max Eng Speed** 1900 with an LED button
+- **SCV XIV–XV**
+- **PTO Gear**: 1000
+- **Counters A Avg**: area rate ac/h
+- **Shortcut bar**: SETUP, WORK (AUTO), AUTOTRAC, GUIDANCE, ISOBUS VT, FLAGS, PTO, ENGINE, TRANS, SCV, HITCH, CONTROLS, MENU
+
+### App windows opened from the shortcut keys
+All use the same window: dark olive header with a white title, ? and ⓘ icons, and a yellow ✕ key;
+cream sections with gray centered headers; segmented ON/OFF toggles (dark = selected); LED dots on buttons.
+- **PTO**: Front PTO rpm, Rear PTO rpm, Rear PTO Cruise (1000, ON/OFF), PTO Remote (ON/OFF), PTO Out-of-Seat (LED + OFF), Rear PTO Gear (1000 / 1000E selector)
+- **Engine**: Max Engine Speed key + LED (1900 n/min), Engine Set Speeds 1 and 2 (1400 and 1600) keys + LEDs, Front/Rear PTO readouts and PTO Cruise, Exhaust Filter Cleaning (AUTO, plus a P key), Engine Power bar + hours
+- **Transmission**: Mode as a stacked selector (Full AUTO / Custom / Manual, dark = selected), Custom Settings key, Set Speeds (Maximum 33.5; Cruise Speed 2 and 1 with LEDs), Shuttle Shift Speeds forward/reverse (grayed), Start Gear forward 8/12 selector and reverse 3
+- **SCV**: left tabs I–IV / V–VI / XIV–XV (yellow arrow tab); per SCV a colored header, flow value 5.00 with a vertical gauge, and a timer 0s
+- **Rear Hitch**: Hitch Position gauge 51% (pointer + set point); Raise Rate and Drop Rate vertical sliders (hare/tortoise, yellow pointer, 3.0); Upper Limit slider Max/Min 100%; Load Depth and Slip Sensitivity horizontal OFF–5 scales with a yellow pointer (0.0)
+- **Controls**: icon tabs (joystick, armrest, button grid); a joystick picture with callout boxes per button (A1 rear hitch, A2 front hitch, A3 AUTO, Resume) with LEDs; footer keys Activate Custom, ISO Aux, Defaults, Save/Load
+
+### CommandCenter Menu
+- **Machine Settings**: Central Tire Inflation System, Controls, Engine, Front Hitch, Lights, Maintenance & Calibrations, PTO, Rear Hitch, SCV, Steering, Suspension, Transmission. White tiles with a yellow-and-green stripe.
+- **System**: COM Port Settings, Diagnostics Center, Display Settings, File Manager, Software Manager, Users & Access, Wireless Settings. These use **khaki rounded tiles with no stripe**, a different style from the application tiles.
+
+### Which of this FS25 can feed (for a later decision)
+- Available or likely: engine rpm, max rpm, load, fuel rate (derived), engine hours, speed, cruise speed and max, gear/direction, PTO on/off (turned on), implement lowered state, attached implement list, work width
+- Not simulated in FS25: SCV flow and timers, hitch rate/limit/load depth/slip settings, PTO gear and remote, exhaust filter state, start gears. These would be display-only placeholders, or would map to implement state per attacher joint.

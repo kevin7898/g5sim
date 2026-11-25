@@ -36,6 +36,9 @@ const DEFAULT_DIR = path.join(os.homedir(), 'Documents', 'My Games', 'FarmingSim
 const DIR = String(opt('dir', DEFAULT_DIR));
 const TELEMETRY = path.join(DIR, 'telemetry.xml');
 const COMMANDS = path.join(DIR, 'commands.xml');
+const PROVIDERS = path.join(DIR, 'providers.json'); // other mods: soil, Courseplay, AutoDrive, mud (1 Hz)
+const COURSE = path.join(DIR, 'course.json');       // Courseplay course + field boundary (on change)
+const PROVIDER_STALE_MS = 6000;
 const APP_DIR = path.resolve(__dirname, '..', 'app');
 const STALE_MS = 3000; // no new seq for this long => game considered paused/closed
 
@@ -130,12 +133,31 @@ function broadcast() {
   for (const res of clients) res.write(payload);
 }
 
+// Data from other mods arrives in providers.json and is merged into every frame.
+let extras = { providers: null, providerStatus: null, providerSource: null, field: null, courseKey: null };
+let extrasAt = 0;
+let course = { key: null, waypoints: [], field: [] };
+function setExtras(frame) {
+  extras = {
+    providers: frame.providers && typeof frame.providers === 'object' && !Array.isArray(frame.providers) ? frame.providers : {},
+    providerStatus: frame.status && !Array.isArray(frame.status) ? frame.status : {},
+    providerSource: frame.source || null,
+    field: frame.fieldId ?? null,
+    courseKey: frame.courseKey ?? null,
+  };
+  extrasAt = Date.now();
+}
+function currentExtras() {
+  if (!DEMO && extrasAt && Date.now() - extrasAt > PROVIDER_STALE_MS) return { ...extras, providers: null };
+  return extras;
+}
+
 function setTelemetry(t) {
   if (t.seq !== lastSeq) {
     lastSeq = t.seq;
     lastSeqAt = Date.now();
   }
-  latest = { ...t, link: 'live' };
+  latest = { ...t, ...currentExtras(), link: 'live' };
   broadcast();
 }
 
@@ -171,6 +193,26 @@ function pollTelemetry() {
     });
   });
 }
+
+// JSON files written by the mod (providers.json, course.json). A half-written file fails to
+// parse; the mtime is reset so the next poll reads it again.
+function jsonPoller(file, onData) {
+  let mtime = 0;
+  return () => fs.stat(file, (err, st) => {
+    if (err || st.mtimeMs === mtime) return;
+    mtime = st.mtimeMs;
+    fs.readFile(file, 'utf8', (err2, text) => {
+      if (err2) return;
+      try { onData(JSON.parse(text)); } catch (e) { mtime = 0; }
+    });
+  });
+}
+const pollProviders = jsonPoller(PROVIDERS, frame => {
+  setExtras(frame);
+  latest = { ...latest, ...currentExtras() };
+  broadcast();
+});
+const pollCourse = jsonPoller(COURSE, c => { course = { key: c.key ?? null, name: c.name, workWidth: c.workWidth, waypoints: c.waypoints || [], field: c.field || [] }; });
 
 // ---------------------------------------------------------------- commands
 const ALLOWED = new Set(['motorToggle', 'cruiseToggle', 'cruiseSet', 'cruiseAdjust',
@@ -329,7 +371,60 @@ function demoTick(dt) {
       fuelUsed: +demo.work.fuelUsed.toFixed(2), totalFuel: +demo.work.totalFuel.toFixed(2),
     },
   });
+  setExtras(demoProviders(working));
   setTelemetry(DEMO_COMBINE ? demoCombine(frame, dt, working, meters) : frame);
+}
+
+// Demo values shaped like the real adapters' snapshots (Realistic Soil & Fertilizer getFieldInfo,
+// Courseplay vehicle functions, AutoDrive state module, Mud System Physics).
+function demoCourse() {
+  const h = 92 * Math.PI / 180, f = { x: Math.sin(h), z: -Math.cos(h) }, r = { x: Math.cos(h), z: Math.sin(h) };
+  const pts = [];
+  for (let k = 0; k < 10; k++) {
+    const off = k * 12.19, along = k % 2 ? [620, 0] : [0, 620];
+    for (let a = 0; a <= 620; a += 10) {
+      const L = along[0] + (along[1] - along[0]) * a / 620;
+      pts.push([+(-120 - f.x * 20 + f.x * L + r.x * off).toFixed(1), +(340 - f.z * 20 + f.z * L + r.z * off).toFixed(1),
+        a === 0 ? 1 : a === 620 ? 2 : 0]);
+    }
+  }
+  const c = (fo, ro) => [+(-120 + f.x * fo + r.x * ro).toFixed(1), +(340 + f.z * fo + r.z * ro).toFixed(1)];
+  return { key: 'demo-course', name: 'Field 23 demo course', workWidth: 12.19, waypoints: pts,
+    field: [c(-40, -14), c(640, -14), c(640, 126), c(-40, 126), c(-40, -14)] };
+}
+if (DEMO) course = demoCourse();
+function demoProviders(working) {
+  const s = demo.t / 1000;
+  const providers = {
+    'soil-fertilizer': {
+      sourceMode: 'public-api', fieldId: 23,
+      values: {
+        fieldId: 23, nitrogen: { value: 46, status: 'Fair' }, phosphorus: { value: 41, status: 'Good' },
+        potassium: { value: 18, status: 'Poor' }, pH: +(6.4 + 0.1 * Math.sin(s / 30)).toFixed(2), pHStatus: 'LOCAL',
+        organicMatter: 3.6, compaction: Math.round(22 + 6 * Math.sin(s / 40)), weedPressure: 12, pestPressure: 4,
+        diseasePressure: 9, shownDiseasePressure: null, yieldEfficiency: 0.91, lastCrop: DEMO_COMBINE ? 'WHEAT' : 'SOYBEAN',
+        rotationStatus: 'Good', daysSinceHarvest: 41,
+      },
+    },
+    'mud-system-physics': {
+      sourceMode: 'public-api', slip: +(0.06 + 0.03 * Math.sin(s / 9)).toFixed(3), sink: 0.04, fieldMudFactor: 0.18,
+      groundType: 'field', tirePressure: 1.2, targetTirePressure: 1.0,
+    },
+  };
+  if (DEMO_COMBINE) {
+    providers.courseplay = {
+      sourceMode: 'vehicle-functions', active: true, fieldworkActive: working, drivingToFieldwork: false,
+      progress: Math.min(1, (demo.work.area / 10000) / 7.5), waitingForUnload: demo.unloading, maneuvering: false,
+      courseName: 'Field 23 demo course',
+      course: { name: 'Field 23 demo course', workWidth: 12.19, headlands: 0, waypointCount: 630, remainingTurns: 8,
+        remainingDistance: Math.max(0, 6200 - demo.work.distance) },
+    };
+  } else {
+    providers.autodrive = { sourceMode: 'vehicle-state', active: false, task: '', destination: 'Grain Bins', remainingDriveTime: 0 };
+  }
+  return { providers, fieldId: 23, courseKey: DEMO_COMBINE ? 'demo-course' : null, source: 'demo',
+    status: { 'soil-fertilizer': { available: true, mode: 'public-api' }, courseplay: { available: true, mode: 'vehicle-functions' },
+      autodrive: { available: true, mode: 'vehicle-state' }, 'mud-system-physics': { available: true, mode: 'public-api' } } };
 }
 
 // ---------------------------------------------------------------- HTTP
@@ -357,6 +452,10 @@ const server = http.createServer((req, res) => {
     res.write('data: ' + JSON.stringify(latest) + '\n\n');
     clients.add(res);
     req.on('close', () => clients.delete(res));
+    return;
+  }
+  if (req.url === '/api/course') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' }).end(JSON.stringify(course));
     return;
   }
   if (req.url === '/api/state') {
@@ -397,6 +496,8 @@ if (DEMO) {
 } else {
   loadExistingCommandIds();
   setInterval(pollTelemetry, 100);
+  setInterval(pollProviders, 500);
+  setInterval(pollCourse, 1000);
 }
 }
 

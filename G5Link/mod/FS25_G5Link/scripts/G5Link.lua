@@ -16,10 +16,12 @@
 -- one odd vehicle can never break the game loop.
 
 G5Link = {}
-G5Link.VERSION = "0.2.0"
+G5Link.VERSION = "0.3.0"
 G5Link.WRITE_INTERVAL = 250   -- ms between telemetry writes (4 Hz)
 G5Link.CMD_INTERVAL = 250     -- ms between command file polls
 G5Link.MAX_IMPLEMENTS = 8
+G5Link.PROVIDER_INTERVAL = 1000  -- ms between providers.json writes (soil, Courseplay, AutoDrive, mud)
+G5Link.COURSE_MAX_POINTS = 4000   -- waypoints kept in course.json
 
 local function call(obj, fname, ...)
     if obj == nil then
@@ -59,6 +61,11 @@ function G5Link:loadMap(name)
     createFolder(self.dir)
     self.telemetryPath = self.dir .. "telemetry.xml"
     self.commandPath = self.dir .. "commands.xml"
+    self.providersPath = self.dir .. "providers.json"
+    self.coursePath = self.dir .. "course.json"
+    self.providerTimer = 0
+    self.providerSeq = 0
+    self.lastCourseKey = false
 
     self.writeTimer = 0
     self.cmdTimer = 0
@@ -67,12 +74,22 @@ function G5Link:loadMap(name)
     self.lastVehicle = nil
     self:resetWork()
 
+    if G5LinkProviders ~= nil then
+        local ok, err = pcall(G5LinkProviders.loadMap, G5LinkProviders)
+        if not ok then
+            print("G5Link: provider setup failed: " .. tostring(err))
+        end
+    end
+
     print(string.format("G5Link %s: writing telemetry to %s", G5Link.VERSION, self.telemetryPath))
 end
 
 function G5Link:deleteMap()
     -- Leave a final "no session" file so the display shows the idle screen.
     self:writeIdle("unloaded")
+    if G5LinkProviders ~= nil then
+        pcall(G5LinkProviders.deleteMap, G5LinkProviders)
+    end
 end
 
 function G5Link:resetWork()
@@ -113,6 +130,19 @@ function G5Link:update(dt)
     if self.cmdTimer >= G5Link.CMD_INTERVAL then
         self.cmdTimer = 0
         self:processCommands(vehicle)
+    end
+
+    if G5LinkProviders ~= nil then
+        pcall(G5LinkProviders.update, G5LinkProviders, dt)
+        self.providerTimer = self.providerTimer + dt
+        if self.providerTimer >= G5Link.PROVIDER_INTERVAL then
+            self.providerTimer = 0
+            local ok, err = pcall(self.writeProviders, self, vehicle)
+            if not ok and not self.providerErrorLogged then
+                self.providerErrorLogged = true
+                print("G5Link: provider write failed: " .. tostring(err))
+            end
+        end
     end
 end
 
@@ -352,6 +382,10 @@ function G5Link:writeTelemetry(vehicle)
                     xml:setInt(k .. "#farmland", fid)
                 end
             end
+            local fieldId = self:getFieldIdAt(x, z)
+            if fieldId ~= nil then
+                xml:setInt(k .. "#field", fieldId)
+            end
         end
 
         local implements = self:getImplements(vehicle)
@@ -559,6 +593,125 @@ function G5Link:writeRealisticHarvesting(xml, combine)
             xml:setString(tk .. "#rank", tostring(trip.efficiencyRank))
         end
     end
+end
+
+---------------------------------------------------------------------------
+-- Other mods (providers.json, course.json)
+---------------------------------------------------------------------------
+
+-- Field id under a position. Realistic Soil & Fertilizer has a field lookup
+-- (soilSystem.hookManager:getFieldIdAtWorldPosition, used in its SoilFertilitySystem.lua);
+-- without it, no field id is reported and the display shows the farmland only.
+function G5Link:getFieldIdAt(x, z)
+    local manager = g_currentMission and g_currentMission.soilFertilityManager
+    local system = manager and manager.soilSystem
+    local hooks = system and system.hookManager
+    local id = call(hooks, "getFieldIdAtWorldPosition", x, z, false)
+    if type(id) == "number" and id > 0 then
+        return id
+    end
+    return nil
+end
+
+-- createFile / fileWrite / delete: Giants file API (see BitmapUtil.writeBitmapToFile).
+function G5Link:writeTextFile(path, text)
+    if createFile == nil or fileWrite == nil or FileAccess == nil then
+        return false
+    end
+    local file = createFile(path, FileAccess.WRITE)
+    if file == nil or file == 0 then
+        return false
+    end
+    fileWrite(file, text)
+    delete(file)
+    return true
+end
+
+function G5Link:writeProviders(vehicle)
+    local api = G5LinkProviders.api
+    if api == nil or type(api.getDisplayFrame) ~= "function" then
+        return
+    end
+
+    local context = {vehicle = vehicle, maxWaypoints = 1}
+    if vehicle ~= nil and vehicle.rootNode ~= nil then
+        local x, _, z = getWorldTranslation(vehicle.rootNode)
+        context.x, context.z = x, z
+        context.fieldId = self:getFieldIdAt(x, z)
+    end
+
+    local ok, frame = pcall(api.getDisplayFrame, context)
+    if not ok or type(frame) ~= "table" then
+        return
+    end
+    frame.providers = frame.providers or {}
+
+    -- Keep the 1 Hz frame small: course and field geometry go to course.json on change.
+    local cp = frame.providers.courseplay
+    local courseKey = nil
+    if type(cp) == "table" then
+        local course = cp.course
+        if type(course) == "table" then
+            course.waypoints = nil
+            courseKey = tostring(course.hash or "") .. "|" .. tostring(course.name or "") .. "|"
+                .. tostring(course.waypointCount or 0) .. "|" .. tostring(course.length or 0)
+        end
+        cp.hasFieldPolygon = type(cp.fieldPolygon) == "table" and #cp.fieldPolygon > 0
+        cp.fieldPolygon = nil
+        cp.islandPolygons = nil
+    end
+    local ad = frame.providers.autodrive
+    if type(ad) == "table" and type(ad.activePath) == "table" and #ad.activePath > 64 then
+        local trimmed = {}
+        for i = 1, 64 do trimmed[i] = ad.activePath[i] end
+        ad.activePath = trimmed
+    end
+
+    if courseKey ~= self.lastCourseKey then
+        self.lastCourseKey = courseKey
+        self:writeCourse(api, vehicle, courseKey)
+    end
+
+    self.providerSeq = self.providerSeq + 1
+    frame.seq = self.providerSeq
+    frame.courseKey = courseKey
+    frame.source = G5LinkProviders.external and "fieldPathPrivateAPI" or "g5link"
+    frame.status = G5LinkProviders:getStatuses()
+    self:writeTextFile(self.providersPath, G5Json.encode(frame))
+end
+
+-- course.json: Courseplay field-work course and field boundary, as compact [x, z, flags] lists.
+-- flags: 1 = row start, 2 = row end, 4 = headland, 8 = connecting path, 16 = reverse
+function G5Link:writeCourse(api, vehicle, courseKey)
+    local out = {key = courseKey, waypoints = {}, field = {}}
+    if courseKey ~= nil and type(api.getSnapshot) == "function" then
+        local ok, snap = pcall(api.getSnapshot, "courseplay", {vehicle = vehicle, maxWaypoints = 20000})
+        if ok and type(snap) == "table" then
+            local course = snap.course or {}
+            out.name = course.name
+            out.workWidth = course.workWidth
+            local wps = course.waypoints or {}
+            local step = math.max(1, math.ceil(#wps / G5Link.COURSE_MAX_POINTS))
+            for i = 1, #wps, step do
+                local w = wps[i]
+                if w ~= nil and w.x ~= nil and w.z ~= nil then
+                    local flags = (w.rowStart and 1 or 0) + (w.rowEnd and 2 or 0)
+                        + (((w.headland or 0) > 0) and 4 or 0) + (w.connectingPath and 8 or 0)
+                        + (w.reverse and 16 or 0)
+                    out.waypoints[#out.waypoints + 1] = {round(w.x, 1), round(w.z, 1), flags}
+                end
+            end
+            local poly = snap.fieldPolygon or {}
+            local pstep = math.max(1, math.ceil(#poly / G5Link.COURSE_MAX_POINTS))
+            for i = 1, #poly, pstep do
+                local p = poly[i]
+                if p ~= nil and p.x ~= nil and p.z ~= nil then
+                    out.field[#out.field + 1] = {round(p.x, 1), round(p.z, 1)}
+                end
+            end
+        end
+    end
+    self:writeTextFile(self.coursePath, G5Json.encode(out))
 end
 
 ---------------------------------------------------------------------------

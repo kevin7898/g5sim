@@ -226,10 +226,14 @@ function render() {
   document.querySelectorAll('#scBars i').forEach((b, i) => b.classList.toggle('on', i < barsOn));
   const g = d.game || {};
   $('scClock').textContent = g.hour !== undefined ? `${g.hour}:${String(g.minute || 0).padStart(2, '0')}` : '--:--';
+  const pst = d.providerStatus || {};
+  const modState = id => pst[id] ? (pst[id].available ? 'Found' : pst[id].mode === 'incompatible' ? 'Incompatible' : 'Not installed') : '---';
   setHtml($('scPanelGrid'), [
     ['Bridge Link', $('scLinkTxt').textContent], ['Game State', d.state || '---'], ['Game Day', g.day ?? '---'],
     ['Vehicle', inVehicle ? v.name : '---'], ['Work Recording', w.recording ? 'On' : 'Off'], ['Units', metric() ? 'Metric' : 'US'],
     ['Mod Version', d.version || '---'], ['Last Command', d.lastCmd ?? '---'],
+    ['Realistic Harvesting', d.rh ? 'Found' : d.combine ? 'Not found' : '---'], ['Soil & Fertilizer', modState('soil-fertilizer')],
+    ['Courseplay', modState('courseplay')], ['AutoDrive', modState('autodrive')],
   ].map(([k, val]) => `<div><small>${k}</small><b>${esc(val)}</b></div>`).join(''));
 
   for (const [id, el] of pendingCmds) if ((d.lastCmd || 0) >= id) { el.classList.remove('pending'); pendingCmds.delete(id); }
@@ -305,6 +309,7 @@ function render() {
   renderImplements(imps);
   renderMachine(v, fuelPct, defPct, r);
   renderHarvest(d, v);
+  renderField(d);
   if (window.onTelemetry) window.onTelemetry(d);
 }
 
@@ -472,6 +477,59 @@ function renderHarvest(d, v) {
   $('hvTripMass').textContent = trip && trip.massKg !== undefined ? HU.mass(trip.massKg, crop) : '---';
   const lostKg = trip && trip.lostLiters !== undefined && trip.liters ? trip.lostLiters * (trip.massKg / trip.liters) : null;
   $('hvTripLost').textContent = lostKg !== null ? HU.mass(lostKg, crop) : '---';
+}
+
+// ------------------------------------------------------------ Field page (other mods)
+const STATUS_TAG = { Good: 'on', Fair: '', Poor: 'alert' };
+function renderField(d) {
+  const pv = d.providers || {}, soil = pv['soil-fertilizer'], sv = soil && soil.values;
+  const mud = pv['mud-system-physics'], cp = pv.courseplay, ad = pv.autodrive;
+  const field = d.field ?? (sv && sv.fieldId);
+  $('fdTitle').textContent = field ? `Field ${field} - Soil` : 'Soil';
+  const pct = x => typeof x === 'number' ? fmt(x, 0) : '---';
+  const nut = (title, n) => n && typeof n === 'object'
+    ? tile(title, fmt(n.value, 0), '', { on: n.status === 'Good', alert: n.status === 'Poor', sub: esc(n.status || '') })
+    : tile(title, '---');
+  const crop = c => c ? esc(String(c)[0] + String(c).slice(1).toLowerCase()) : '---';
+  setHtml($('fdSoil'), !sv
+    ? `<div class="fd-note">${pv && d.providerStatus && d.providerStatus['soil-fertilizer'] && !d.providerStatus['soil-fertilizer'].available
+        ? 'Realistic Soil &amp; Fertilizer not installed.' : field ? 'No soil data for this field.' : 'Drive onto a field to see soil data.'}</div>`
+    : [
+      nut('Nitrogen', sv.nitrogen), nut('Phosphorus', sv.phosphorus), nut('Potassium', sv.potassium),
+      tile('pH', typeof sv.pH === 'number' ? fmt(sv.pH, 1) : '---', '', { alert: typeof sv.pH === 'number' && sv.pH < 5.5,
+        sub: typeof sv.pH === 'number' ? (sv.pHStatus === 'LOCAL' ? 'Here' : 'Field') : (typeof sv.pHLastKnown === 'number' ? 'Last ' + fmt(sv.pHLastKnown, 1) : '') }),
+      tile('Organic Matter', typeof sv.organicMatter === 'number' ? fmt(sv.organicMatter, 1) : '---', '%'),
+      tile('Compaction', pct(sv.compaction), '%', { alert: sv.compaction > 60 }),
+      tile('Yield Potential', typeof sv.yieldEfficiency === 'number' ? fmt(sv.yieldEfficiency * 100, 0) : '---', '%'),
+      tile('Last Crop', crop(sv.lastCrop), '', { sub: sv.daysSinceHarvest ? sv.daysSinceHarvest + ' days ago' : '' }),
+      tile('Weed Pressure', pct(sv.weedPressure), '%', { alert: sv.weedPressure > 50, sub: sv.herbicideActive ? 'Herbicide active' : '' }),
+      tile('Pest Pressure', pct(sv.pestPressure), '%', { alert: sv.pestPressure > 50, sub: sv.insecticideActive ? 'Insecticide active' : '' }),
+      tile('Disease', sv.shownDiseasePressure === null || sv.shownDiseasePressure === undefined ? 'Unscouted' : pct(sv.shownDiseasePressure),
+        sv.shownDiseasePressure === null || sv.shownDiseasePressure === undefined ? '' : '%', { sub: sv.fungicideActive ? 'Fungicide active' : '' }),
+      tile('Rotation', esc(sv.rotationStatus || '---')),
+    ].join(''));
+
+  const kv = (k, val) => `<div class="kv"><span>${k}</span><b>${val}</b></div>`;
+  setHtml($('fdGround'), !mud ? '<p class="fd-side-note">Mud System Physics not active.</p>' : [
+    kv('Wheel Slip', typeof mud.slip === 'number' ? fmt(mud.slip * 100, 0) + ' %' : '---'),
+    kv('Mud', typeof mud.fieldMudFactor === 'number' ? fmt(mud.fieldMudFactor * 100, 0) + ' %' : typeof mud.effectiveWetness === 'number' ? fmt(mud.effectiveWetness * 100, 0) + ' % wet' : '---'),
+    kv('Tire Pressure', typeof mud.tirePressure === 'number' ? (metric() ? fmt(mud.tirePressure, 2) + ' bar' : fmt(mud.tirePressure * 14.504, 1) + ' psi') : '---'),
+  ].join(''));
+
+  let ai;
+  if (cp && cp.active) {
+    const c = cp.course || {};
+    ai = [kv('Courseplay', cp.waitingForUnload ? 'Waiting to unload' : cp.maneuvering ? 'Turning' : cp.drivingToFieldwork ? 'To field' : cp.fieldworkActive ? 'Field work' : 'Active'),
+      kv('Progress', typeof cp.progress === 'number' ? fmt(cp.progress * 100, 0) + ' %' : '---'),
+      kv('Remaining', typeof c.remainingDistance === 'number' ? U.dist(c.remainingDistance) + (typeof c.remainingTurns === 'number' ? ` · ${c.remainingTurns} turns` : '') : '---')];
+  } else if (ad && ad.active) {
+    ai = [kv('AutoDrive', esc(ad.destination || ad.task || 'Driving')),
+      kv('Time Left', ad.remainingDriveTime > 0 ? hms(ad.remainingDriveTime) : '---'),
+      kv('Speed Limit', ad.speedLimit ? fmt(U.speed(ad.speedLimit), 0) + ' ' + U.speedUnit() : '---')];
+  } else {
+    ai = [`<p class="fd-side-note">${cp || ad ? 'No AI driver active.' : 'Courseplay and AutoDrive not active.'}</p>`];
+  }
+  setHtml($('fdAi'), ai.join(''));
 }
 
 // ------------------------------------------------------------ live stream

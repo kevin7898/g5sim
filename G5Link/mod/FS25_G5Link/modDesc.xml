@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <modDesc descVersion="104">
     <author>kevin7898</author>
-    <version>0.2.0.0</version>
+    <version>0.3.0.0</version>
     <title>
         <en>G5Link - Display Bridge</en>
     </title>
     <description>
-        <en><![CDATA[Streams live data from the vehicle you are driving (speed, rpm, gear, fuel, cruise, implements, work totals, combine grain tank, plus yield, moisture, grain loss and harvest settings from Realistic Harvesting when it is installed) to a companion G5-style display that runs in a browser on a tablet. Commands tapped on the tablet (cruise control, engine, lower/raise, turn on) are sent back to the game.
+        <en><![CDATA[Streams live data from the vehicle you are driving (speed, rpm, gear, fuel, cruise, implements, work totals, combine grain tank, plus yield, moisture, grain loss and harvest settings from Realistic Harvesting, soil from Realistic Soil & Fertilizer, and Courseplay, AutoDrive and Mud System Physics state when those mods are installed) to a companion G5-style display that runs in a browser on a tablet. Commands tapped on the tablet (cruise control, engine, lower/raise, turn on) are sent back to the game.
 
 Requires the G5Link bridge running on the same PC. See README for setup.]]></en>
     </description>
@@ -14,6 +14,14 @@ Requires the G5Link bridge running on the same PC. See README for setup.]]></en>
     <multiplayer supported="true"/>
 
     <extraSourceFiles>
+        <sourceFile filename="scripts/providers/Util.lua"/>
+        <sourceFile filename="scripts/providers/ProviderRegistry.lua"/>
+        <sourceFile filename="scripts/providers/adapters/MudSystemPhysicsAdapter.lua"/>
+        <sourceFile filename="scripts/providers/adapters/SoilFertilizerAdapter.lua"/>
+        <sourceFile filename="scripts/providers/adapters/AutoDriveAdapter.lua"/>
+        <sourceFile filename="scripts/providers/adapters/CourseplayAdapter.lua"/>
+        <sourceFile filename="scripts/providers/Providers.lua"/>
+        <sourceFile filename="scripts/Json.lua"/>
         <sourceFile filename="scripts/G5Link.lua"/>
     </extraSourceFiles>
 </modDesc>

@@ -389,3 +389,14 @@ svg { display: block; }
 .hv-tank b { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); text-align: center; font-size: 22px; font-weight: 800; color: var(--ink); text-shadow: 0 0 3px var(--cream), 0 0 3px var(--cream); }
 .hv-tank-sub { margin-top: 6px; font-size: 16px; font-weight: 700; color: var(--ink-2); }
 #hvPage[hidden], #hvEmpty[hidden] { display: none; }
+.map-ai { position: absolute; right: 12px; top: 46px; z-index: 2; display: flex; flex-direction: column; align-items: flex-end;
+  background: rgba(32,32,28,.85); color: #fff; padding: 4px 12px 6px; border-radius: 4px; border-left: 5px solid var(--tile-on); }
+.map-ai b { font-size: 15px; color: #b8f0a8; }
+.map-ai span { font-size: 18px; font-weight: 700; }
+.map-ai[hidden] { display: none; }
+.fd-note { grid-column: 1 / -1; display: grid; place-items: center; background: var(--cream); font-size: 22px; font-weight: 600; color: var(--ink-2); }
+.fd-side-note { margin: auto 0; text-align: center; font-size: 15px; font-weight: 600; color: var(--muted); }
+.side-body.compact { gap: 0; padding: 6px 12px; }
+.side-body.compact .kv { padding: 3px 0; }
+.side-body.compact .kv span { font-size: 13px; }
+.side-body.compact .kv b { font-size: 19px; }

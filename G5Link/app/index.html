@@ -78,6 +78,7 @@
               <button class="map-btn" id="mapView" aria-label="Change view">3D</button>
             </div>
             <div class="map-note" id="mapNote" hidden></div>
+            <div class="map-ai" id="mapAi" hidden><b id="mapAiName">---</b><span id="mapAiTxt"></span></div>
           </div>
           <div class="side">
             <div class="module side-mod guid-mod">
@@ -97,7 +98,7 @@
             </div>
             <div class="module side-mod loc-mod">
               <div class="mod-title">Location</div>
-              <div class="side-body"><b class="loc-name" id="locName">---</b><span class="loc-sub">Field</span></div>
+              <div class="side-body"><b class="loc-name" id="locName">---</b><span class="loc-sub" id="locSub">Field</span></div>
             </div>
           </div>
         </div>
@@ -245,6 +246,26 @@
         </div>
         <div class="empty-page" id="hvEmpty" hidden><div class="module"><div class="mod-title">Harvesting</div><p>Enter a combine to see harvest data.</p></div></div>
       </section>
+
+      <!-- Run page 6: Field (data from other mods: Realistic Soil & Fertilizer, Mud System Physics, Courseplay, AutoDrive) -->
+      <section class="page" data-name="Field">
+        <div class="page-grid main-side">
+          <div class="module">
+            <div class="mod-title" id="fdTitle">Soil</div>
+            <div class="tiles t4 r3" id="fdSoil"></div>
+          </div>
+          <div class="side">
+            <div class="module side-mod">
+              <div class="mod-title">Ground</div>
+              <div class="side-body compact" id="fdGround"></div>
+            </div>
+            <div class="module side-mod grow">
+              <div class="mod-title">AI Driver</div>
+              <div class="side-body compact" id="fdAi"></div>
+            </div>
+          </div>
+        </div>
+      </section>
     </main>
 
     <!-- Shortcut bar -->
@@ -279,6 +300,7 @@
             <button class="app" data-goto="3"><span class="app-ico"><svg><use href="#i-hitch"/></svg></span><b>Implement Details</b></button>
             <button class="app" data-goto="4"><span class="app-ico"><svg><use href="#i-engine"/></svg></span><b>Machine Monitor</b></button>
             <button class="app" data-goto="5"><span class="app-ico"><svg><use href="#i-work"/></svg></span><b>Harvesting</b></button>
+            <button class="app" data-goto="6"><span class="app-ico"><svg><use href="#i-sat"/></svg></span><b>Field</b></button>
             <button class="app" id="appStatus"><span class="app-ico"><svg><use href="#i-sat"/></svg></span><b>Status Center</b></button>
             <button class="app" id="appReset"><span class="app-ico"><svg><use href="#i-reset"/></svg></span><b>Reset Work Totals</b></button>
           </div>

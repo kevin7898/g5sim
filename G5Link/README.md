@@ -18,12 +18,13 @@ files in `Documents\My Games\FarmingSimulator2025\modSettings\FS25_G5Link\`.
 
 | Run page | Shows |
 |---|---|
-| **Guidance** | Perspective (or top-down) map with your straight guidance tracks, coverage, and the tractor and implement; a lightbar with off-track error; heading and track number; Set Track (A + Heading or A + B), track spacing, Shift Track (center, left, right) and shift increment; farmland |
+| **Guidance** | Perspective (or top-down) map with your straight guidance tracks, coverage, pass-direction arrows, the Courseplay course and field boundary, a Courseplay/AutoDrive status chip, and the tractor and implement; a lightbar with off-track error; heading and track number; Set Track (A + Heading or A + B), track spacing, Shift Track (center, left, right) and shift increment; farmland |
 | **Tractor** | Ground speed, gear and direction, engine rpm gauge and load, fuel and DEF bars, cruise control with − / + keys, an ON/OFF switch and a keypad (tap the set speed), first implement (lowered, turned on, width, section bar), work totals, heading compass |
 | **Work Monitor** | Area worked, time worked, instant and average productivity, average working speed, distance, fuel used, fuel per area, fuel per hour, plus a counter reset |
 | **Implement Details** | Every attached implement: lowered and turned-on state, working width, section status, fill levels with bars, a Turn On/Off key |
 | **Machine Monitor** | Engine speed and load, ground speed, gear, fuel and DEF, fuel per hour, time to empty, engine hours, condition, farmland, AI worker |
 | **Harvesting** | For combines: grain tank level. With the [Realistic Harvesting](https://github.com/exekx/FS25_RealisticHarvesting) mod also yield, moisture and its limit, throughput, productivity, grain loss (total and by cause, with an A to D grade), engine load against target, RH's recommended speed, fuel rate, the harvest settings against RH's optimum band, and field totals |
+| **Field** | Soil under the machine from [Realistic Soil & Fertilizer](https://github.com/Realistic-Farming/FS25_SoilFertilizer): N, P and K with Good/Fair/Poor, pH, organic matter, compaction, yield potential, last crop, weed, pest and disease pressure, rotation. Ground from Mud System Physics: wheel slip, mud, tire pressure. AI driver from Courseplay or AutoDrive: state, progress, distance and turns left |
 
 **Title bar:** run page name, game clock, link status (tap for the Status Center), and the
 previous/next run page arrows. You can also swipe between pages.

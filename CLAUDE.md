@@ -39,7 +39,7 @@ python3 G5Link/tools/make_icon.py                   # regenerate mod icon.dds
 
 ## Layout
 
-- `G5Link/mod/FS25_G5Link/`: modDesc.xml, scripts/G5Link.lua, icon.dds
+- `G5Link/mod/FS25_G5Link/`: modDesc.xml, scripts/G5Link.lua, scripts/Json.lua, scripts/providers/ (FieldPath adapters), icon.dds
 - `G5Link/bridge/`: g5link-bridge.js, start-bridge.bat, start-demo.bat
 - `G5Link/app/`: index.html, style.css, app.js (pages, windows, commands), guidance.js (Guidance page)
 - `G5Link/tools/`: package.py, make_icon.py

@@ -33,6 +33,11 @@
     pose.recording = !!(d.work && d.work.recording);
     pose.farmland = v.farmland; pose.onField = !!v.onField;
     pose.implName = imps[0] ? imps[0].name : null;
+    pose.field = d.field ?? v.field ?? null;
+    const pv = d.providers || {};
+    pose.cp = pv.courseplay || null;
+    pose.ad = pv.autodrive || null;
+    if ((d.courseKey ?? null) !== courseKey) loadCourse(d.courseKey ?? null);
     // Coverage trail behind the implement, sampled every ~1.5 m
     if (pose.recording && pose.width > 0) {
       const f = fwdOf(pose.h);
@@ -45,6 +50,14 @@
     } else if (lastTrail) { trail.push(null); lastTrail = null; }
     renderSide();
   };
+
+  // Courseplay course and field boundary (course.json via /api/course), refetched when the key changes
+  let courseKey = null, course = null;
+  function loadCourse(key) {
+    courseKey = key;
+    if (!key) { course = null; return; }
+    fetch('/api/course').then(r => r.json()).then(c => { if (courseKey === key) course = c; }).catch(() => { courseKey = null; });
+  }
 
   function livePose() {
     if (!pose.ok) return null;
@@ -100,7 +113,9 @@
     $('trkName').textContent = t ? t.name : 'No track';
     $('trkSpacing').textContent = lenText(spacing());
     $('trkIncr').textContent = metric() ? `${(G.incr * 100).toFixed(1)} cm` : `${(G.incr / 0.0254).toFixed(1)} in`;
-    $('locName').textContent = pose.farmland ? `Farmland ${pose.farmland}` : '---';
+    $('locName').textContent = pose.field ? `Field ${pose.field}` : pose.farmland ? `Farmland ${pose.farmland}` : '---';
+    $('locSub').textContent = pose.field && pose.farmland ? `Farmland ${pose.farmland}` : 'Field';
+    renderAi();
     $('mapCrop').textContent = pose.implName || 'Field';
   }
 
@@ -261,6 +276,23 @@
       ctx.fill(); ctx.stroke();
     }
 
+    // Courseplay field boundary and course (only points near the machine)
+    if (course) {
+      const near = (x, z) => Math.abs(x - p.x) < 450 && Math.abs(z - p.z) < 450;
+      const fieldPts = (course.field || []).map(q => near(q[0], q[1]) ? P(q[0], q[1]) : null);
+      if (fieldPts.length > 1) { fieldPts.push(fieldPts[0]); polyline(fieldPts, 'rgba(255, 238, 63, .9)', 3); }
+      const wps = course.waypoints || [];
+      const rows = [], links = [];
+      for (let i = 1; i < wps.length; i++) {
+        const a = wps[i - 1], b = wps[i];
+        if (!near(a[0], a[1]) || Math.hypot(b[0] - a[0], b[1] - a[1]) > 60) { rows.push(null); links.push(null); continue; }
+        const target = (b[2] & 8) ? links : rows, other = target === rows ? links : rows;
+        target.push(P(a[0], a[1]), P(b[0], b[1]), null); other.push(null);
+      }
+      polyline(rows, 'rgba(110, 220, 235, .8)', 2);
+      polyline(links, 'rgba(110, 220, 235, .8)', 2, [10, 8]);
+    }
+
     // guidance tracks
     const t = currentTrack();
     if (t && s) {
@@ -301,6 +333,26 @@
     $('mapHdg').textContent = `${cardinal(p.h)} ${Math.round(p.h)}°`;
     $('mapTrk').textContent = s ? `${Math.abs(s.k)}${s.k === 0 ? '' : ' ' + cardinal((s.k > 0 ? t.h + 90 : t.h - 90))}` : '---';
     $('mapArrow').style.transform = `rotate(${-p.h}deg)`;
+  }
+
+  // AI driver status chip (Courseplay or AutoDrive)
+  function renderAi() {
+    const cp = pose.cp, ad = pose.ad;
+    let name = null, txt = '';
+    if (cp && cp.active) {
+      name = 'Courseplay';
+      const state = cp.waitingForUnload ? 'Waiting for unload' : cp.maneuvering ? 'Turning'
+        : cp.drivingToFieldwork ? 'Driving to field' : cp.fieldworkActive ? 'Field work' : 'Active';
+      const pct = typeof cp.progress === 'number' ? ` · ${Math.round(cp.progress * 100)}%` : '';
+      const turns = cp.course && typeof cp.course.remainingTurns === 'number' ? ` · ${cp.course.remainingTurns} turns left` : '';
+      txt = state + pct + turns;
+    } else if (ad && ad.active) {
+      name = 'AutoDrive';
+      const eta = ad.remainingDriveTime > 0 ? ` · ${Math.floor(ad.remainingDriveTime / 60)}:${String(Math.round(ad.remainingDriveTime % 60)).padStart(2, '0')}` : '';
+      txt = (ad.destination ? 'To ' + ad.destination : ad.task || 'Driving') + eta;
+    }
+    $('mapAi').hidden = !name;
+    if (name) { $('mapAiName').textContent = name; $('mapAiTxt').textContent = txt; }
   }
 
   function drawTractor(proj) {

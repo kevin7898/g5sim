@@ -40,6 +40,10 @@ function print(...)  -- capture the mod's log lines, still echo them
 end
 
 function getUserProfileAppPath() return PROFILE end
+-- Deterministic GNSS noise: with u = 0.25 the Box-Muller cosine term is cos(pi/2) = 0, so the simulated
+-- receiver error stays at 0 unless a scenario swaps math.random.
+local realRandom = math.random
+math.random = function() return 0.25 end
 function createFolder(path) os.execute('mkdir -p "' .. path .. '"') end
 function fileExists(path)
     local f = io.open(path, "r")
@@ -976,6 +980,8 @@ do
         for _, id in ipairs(machine) do nodes[id].x = 2 * cx - nodes[id].x nodes[id].dx = -1 end
     end
     mod:loadMap("test")
+    tick(1)
+    G5LinkRtk.data.gates = false      -- gates are tested in the RTK scenario
     os.execute('mkdir -p "' .. dir .. '"')
     local function writeHeadland(v, extra, pts)
         writeFile(dir .. "headland.xml", '<?xml version="1.0"?>\n<headland v="' .. v .. '" armed="true" field="23" width="20" raiseLead="0.6" lowerLead="1.0" '
@@ -1108,6 +1114,8 @@ do
     g_modManager.CP_MOD_NAME = "FS25_Courseplay"
     mod:loadMap("test")
     g_currentMission.vehicleSystem = {vehicles = {combine, near, far}}
+    tick(1)
+    G5LinkRtk.data.gates = false
     tick(4)
     local t = telemetry(dir)
     eq(t["g5.grainCart#carts"], "2", "two carts in range")
@@ -1137,6 +1145,161 @@ do
     eq(telemetry(dir)["g5.grainCart#carts"], nil, "no grain cart block without the add-on")
     g_server = nil
     mod:deleteMap()
+end
+
+---------------------------------------------------------------------------
+-- Scenario 9: RTK package (receivers, subscriptions, base station, RTK-X, gates, billing, API)
+---------------------------------------------------------------------------
+do
+    local dir = newScenario("rtk", {})
+    local money = {}
+    local periodHandler
+    MoneyType = {OTHER = 1, register = function(stat, l10n, modName) record("moneyType", stat, l10n) return 77 end}
+    FinanceStats = {statNames = {}, statNameToIndex = {}, statNamesI18n = {}}
+    g_i18n = {getText = function(self, k) return "GPS corrections" end}
+    MessageType = {PERIOD_CHANGED = 5}
+    g_messageCenter = {subscribe = function(self, mt, fn, target) if mt == 5 then periodHandler = {fn, target} end end,
+        unsubscribeAll = function(self, target) periodHandler = nil end}
+    g_server = {}
+    local tractor, ts = makeVehicle({name = "Test 8R Tractor", x = 500, z = 500})
+    tractor.uniqueId = "veh1"
+    tractor.spec_motorized = {}
+    tractor.getOwnerFarmId = function() return 1 end
+    g_localPlayer = {getCurrentVehicle = function(self) return tractor end}
+    mod:loadMap("test")
+    g_currentMission.missionInfo = {savegameDirectory = "/profile/savegame3"}
+    g_currentMission.environment.currentPeriod = 4
+    g_currentMission.vehicleSystem = {vehicles = {tractor}}
+    storeItem = {name = "RTK Station Standalone", xmlFilename = "mods/fs25_jd_rtkstations/rtkstandalone.xml", species = 2, price = 9900, dailyUpkeep = 15}
+    otherItem = {name = "Big Barn", xmlFilename = "data/placeables/barn.xml", species = 2, price = 1234, dailyUpkeep = 5}
+    StoreSpecies = {PLACEABLE = 2, VEHICLE = 1}
+    g_storeManager = {getItems = function(self) return {storeItem, otherItem} end}
+    -- an RTK station already on the map at load counts as surveyed, but this one is far away
+    preplaced = {rootNode = addNode(5000, 5000), configFileName = "mods/FS25_JD_RTKStations/rtkRoof.xml",
+        getName = function() return "RTK Roof Antenna" end, getUniqueId = function() return "placeable3" end,
+        getOwnerFarmId = function() return 1 end}
+    g_currentMission.placeableSystem = {placeables = {preplaced}}
+    g_currentMission.addMoney = function(self, amount, farmId, mt, addChange, show) money[#money + 1] = {amount = amount, farm = farmId, mt = mt} end
+    local api = g_currentMission.g5linkAPI
+    check(api ~= nil and api.getVersion() == "1.0.0", "API published with version")
+    tick(4)
+    check(api.isReady(), "API ready after the first update")
+    local t = telemetry(dir)
+    eq(t["g5.gnss#receiver"], "SF6000", "default receiver StarFire 6000")
+    eq(t["g5.gnss#level"], "SF1", "free SF1")
+    eq(t["g5.gnss.gate#headland"], "false", "headland automation needs SF2")
+    eq(t["g5.gnss.gate#grainCart"], "false", "grain cart needs SF3")
+
+    local function cmds(list)
+        local lines = {'<?xml version="1.0" encoding="utf-8" standalone="no"?>', "<commands>"}
+        for i, c in ipairs(list) do lines[#lines + 1] = string.format('    <cmd id="%d" name="rtk" value="0" index="0" arg="%s"/>', c[1], c[2]) end
+        lines[#lines + 1] = "</commands>"
+        writeFile(dir .. "commands.xml", table.concat(lines, "\n") .. "\n")
+        tick(2)
+    end
+    cmds({{1, "action=sub;vehicle=current;item=SF3;on=1"}})
+    t = telemetry(dir)
+    eq(t["g5.gnss#src"], "SF3", "SF3 subscribed")
+    check(tonumber(t["g5.gnss#accuracy"]) < 100, "SF3 still pulling in")
+    eq(t["g5.gnss.gate#headland"], "false", "gates wait for full accuracy")
+    tick(1000)                                   -- 250 s
+    t = telemetry(dir)
+    eq(t["g5.gnss#accuracy"], "100.000000", "SF3 converged")
+    eq(t["g5.gnss.gate#headland"], "true", "headland allowed on SF3")
+    eq(t["g5.gnss.gate#grainCart"], "true", "grain cart allowed on SF3")
+    local subs = api.getSubscriptions(1)
+    eq(#subs, 1, "API lists one subscription")
+    eq(subs[1] and subs[1].subscriptions[1], "SF3", "API subscription kind")
+    eq(api.getMonthlyCost(1), 120, "monthly cost")
+    eq(api.isFeatureAllowed("veh1", "headland"), true, "API feature gate")
+    cmds({{2, "action=sub;vehicle=current;item=SFRTK;on=1"}})
+    eq(telemetry(dir)["g5.gnss.result#error"], "needsSF7000", "SF-RTK needs a StarFire 7000")
+
+    -- Farm Finance-style payer takes the monthly bill
+    local paid, billed = {}, nil
+    check(api.setPayer("FS25_FarmFinance", function(farmId, amount, info) paid[#paid + 1] = {farmId, amount, info.kind} return true end), "payer set")
+    api.subscribe("monthBilled", function(target, farmId, total, lines) billed = {farmId, total, #lines} end, {})
+    check(periodHandler ~= nil, "subscribed to PERIOD_CHANGED")
+    periodHandler[1](periodHandler[2])
+    tick(1)
+    eq(#paid, 1, "payer charged once")
+    eq(paid[1] and paid[1][2], 120, "payer got the monthly amount")
+    eq(#money, 0, "no cash taken while the payer pays")
+    check(billed and billed[2] == 120 and billed[3] == 1, "monthBilled event")
+    local charges = api.getCharges(1)
+    eq(charges[1] and charges[1].paidBy, "FS25_FarmFinance", "ledger shows who paid")
+    check(api.clearPayer("FS25_FarmFinance"), "payer cleared")
+
+    -- RTK activation (cash), then an RTK station built from the construction menu
+    cmds({{3, "action=buy;vehicle=current;item=RTK"}})
+    eq(#money, 1, "activation charged")
+    check(money[1].amount == -2500 and money[1].mt == 77, "activation booked under the G5Link money type")
+    eq(FinanceStats.statNames[1], "g5linkRtk", "finance page line registered")
+    eq(storeItem.price, 15000, "RTK station shop price set from the G5Link price list")
+    eq(storeItem.dailyUpkeep, 10, "RTK station daily upkeep set")
+    eq(otherItem.price, 1234, "other shop items untouched")
+    local station = {rootNode = addNode(520, 520), configFileName = "mods/FS25_JD_RTKStations/rtkStandalone.xml",
+        getName = function() return "John Deere RTK Station" end, getUniqueId = function() return "placeable7" end,
+        getOwnerFarmId = function() return 1 end}
+    g_currentMission.placeableSystem.placeables = {preplaced, station}
+    tick(24)                                   -- next placeable scan (5 s)
+    t = telemetry(dir)
+    eq(t["g5.gnss#base"], "John Deere RTK Station", "placed RTK station found")
+    eq(t["g5.gnss#baseState"], "survey", "base self-surveying")
+    eq(t["g5.gnss#src"], "SF3", "still SF3 during the survey")
+    g_currentMission.environment.currentHour = 10   -- 3 h later
+    tick(60)                                          -- 15 s: survey done, RTK fixed
+    t = telemetry(dir)
+    eq(t["g5.gnss#level"], "RTK", "RTK from own base")
+    eq(t["g5.gnss#src"], "RTK", "radio RTK")
+    eq(t["g5.gnss#inRange"], "true", "in radio range")
+    cmds({{5, "action=price;item=BASE;value=0"}})
+    eq(storeItem.price, 9900, "price 0 gives the mod's own price back")
+    -- drive out of range: RTK-X holds
+    nodes[tractor.rootNode].x = 4500
+    tick(4)
+    t = telemetry(dir)
+    eq(t["g5.gnss#src"], "RTK-X", "RTK-X after losing the base")
+    check(tonumber(t["g5.gnss#rtkxMin"]) > 0, "RTK-X time left")
+
+    -- the error moves reported positions (real noise for a moment)
+    nodes[tractor.rootNode].x = 500
+    local apiG = api.getVehicleGnss("veh1")
+    eq(apiG.level, "RTK", "API live level")
+    G5LinkRtk.live.veh1.ex, G5LinkRtk.live.veh1.ez = 0.4, -0.3
+    tick(1)
+    t = telemetry(dir)
+    near(tonumber(t["g5.vehicle#x"]), 500.4, 0.02, "reported x carries the GNSS error")
+    near(tonumber(t["g5.vehicle#z"]), 499.7, 0.02, "reported z carries the GNSS error")
+    math.random = realRandom
+    G5LinkRtk.live.veh1.ex, G5LinkRtk.live.veh1.ez = 0, 0
+    tick(40)
+    check(G5LinkRtk.live.veh1.ex ~= 0, "error wanders with real noise")
+    check(math.abs(G5LinkRtk.live.veh1.ex) < 0.2, "RTK error stays small")
+    math.random = function() return 0.25 end
+
+    -- rtk.json for the bridge, then persistence across a reload
+    local rj = readFile(dir .. "rtk.json") or ""
+    check(string.find(rj, '"receiver":"SF6000"', 1, true) ~= nil and string.find(rj, '"John Deere RTK Station"', 1, true) ~= nil, "rtk.json has machines and bases")
+    check(string.find(rj, '"modPrice":9900', 1, true) ~= nil, "rtk.json lists the RTK station shop items")
+    keepLive(dir)
+    mod:deleteMap()
+    eq(g_currentMission.g5linkAPI, nil, "API removed on deleteMap")
+    mod:loadMap("test")
+    g_currentMission.missionInfo = {savegameDirectory = "/profile/savegame3"}
+    tick(2)
+    local api2 = g_currentMission.g5linkAPI
+    eq(#api2.getSubscriptions(1), 1, "subscription saved")
+    tick(24)
+    eq(#api2.getBaseStations(1), 2, "both RTK stations found after reload")
+    local surveyed = 0
+    for _, b in ipairs(api2.getBaseStations(1)) do if b.state == "ok" then surveyed = surveyed + 1 end end
+    eq(surveyed, 2, "survey times saved")
+    eq(api2.getVehicleGnss("veh1").rtkActivated, true, "RTK activation saved")
+    check(#api2.getCharges(1) >= 2, "ledger saved")
+    mod:deleteMap()
+    g_server = nil
+    MoneyType, FinanceStats, MessageType, g_messageCenter, g_storeManager, StoreSpecies = nil, nil, nil, nil, nil, nil
 end
 
 ---------------------------------------------------------------------------

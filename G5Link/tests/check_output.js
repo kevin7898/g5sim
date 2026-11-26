@@ -164,5 +164,17 @@ if (fs.existsSync(live)) {
   }
 }
 
+{
+  const f = path.join(OUT, 'rtk', 'telemetry_live.xml');
+  check(fs.existsSync(f), 'rtk live telemetry copy exists');
+  if (fs.existsSync(f)) {
+    const t = telemetryFromXml(fs.readFileSync(f, 'utf8'));
+    eq(t.gnss && t.gnss.level, 'RTK', 'live: gnss level');
+    eq(t.gnss && t.gnss.gates, true, 'live: gates switched on');
+    eq(t.gnss && t.gnss.gate && t.gnss.gate.headland, true, 'live: headland gate');
+    eq(t.gnss && t.gnss.base, 'John Deere RTK Station', 'live: base name');
+  }
+}
+
 console.log(`node checks: ${checks}, failures: ${failures}`);
 process.exit(failures ? 1 : 0);

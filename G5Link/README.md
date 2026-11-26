@@ -100,6 +100,24 @@ a paused game, or when you're on foot.
 built. Work totals are counted by G5Link itself while any work area is active, and reset
 when you tap Reset Counter.
 
+## RTK package (StarFire)
+
+Every machine has a StarFire 6000 receiver running free **SF1**. Better corrections cost game money, like
+Deere's licences: **SF2** and **SF3** subscriptions, **Mobile RTK** (cellular), **SF-RTK** (needs a StarFire
+7000 upgrade), or the one-time **RTK** activation with your own **RTK station**, built from the construction
+menu. Any RTK station placeable works (for example the John Deere RTK Stations pack); G5Link sets their shop
+price and daily upkeep from its price list.
+
+The correction level changes what G5Link reports: with SF1 the position wanders about ±15 cm pass to pass, so
+coverage maps show skips and overlaps, and headland lift points move; RTK holds about ±2.5 cm. The title bar
+shows the level (SF1, SF3, RTK, RTK-X) like the G5. **RTK-X** keeps RTK accuracy for up to 14 game days after
+leaving the station's 3 km radio range. Headland automation needs SF2 and the Grain Cart remote SF3 (switch
+requirements off in StarFire if you prefer).
+
+Manage it on the display (Menu > StarFire) or in the Ops Center (RTK). Subscriptions are charged each game
+month under "GPS corrections". Other mods can read all of it and take over the billing through the G5Link
+API: see `mod/FS25_G5Link/API.md`.
+
 ## Works with other mods
 
 Everything is optional. G5Link checks for each mod and only uses it when it is installed.

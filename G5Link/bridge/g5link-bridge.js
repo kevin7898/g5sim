@@ -44,7 +44,8 @@ const PROVIDERS = path.join(DIR, 'providers.json'); // other mods: soil, Coursep
 const COURSE = path.join(DIR, 'course.json');       // Courseplay course + field boundary (on change)
 const FIELDS = path.join(DIR, 'fields.json');       // map fields with polygons and owners (on change)
 const EQUIPMENT = path.join(DIR, 'equipment.json'); // the farm's machines (every 5 s)
-const ECONOMY = path.join(DIR, 'economy.json');     // prices, input costs, farm finances (every 30 s)
+const ECONOMY = path.join(DIR, 'economy.json');
+const RTK = path.join(DIR, 'rtk.json');             // RTK package: receivers, subscriptions, bases, ledger (on change)     // prices, input costs, farm finances (every 30 s)
 const PROVIDER_STALE_MS = 6000;
 const APP_DIR = path.resolve(__dirname, '..', 'app');
 const STALE_MS = 3000; // no new seq for this long => game considered paused/closed
@@ -127,8 +128,15 @@ function telemetryFromXml(text) {
     controls: controlsFromNode(child(g5, 'controls')),
     headland: (child(g5, 'headland') || {}).attrs || null,
     grainCart: (child(g5, 'grainCart') || {}).attrs || null,
+    gnss: gnssFromNode(child(g5, 'gnss')),
     harvestAuto: (child(g5, 'harvestAuto') || {}).attrs || null,
   };
+}
+
+// RTK package: the driven machine's receiver, correction, error, base, gates and the last rtk command result.
+function gnssFromNode(n) {
+  if (!n) return null;
+  return { ...n.attrs, gate: (child(n, 'gate') || {}).attrs || {}, result: (child(n, 'result') || {}).attrs || null };
 }
 
 // Shortcut key state: lights, beacon, hazard, unloading pipe and fold (absent when the machine has none).
@@ -264,6 +272,7 @@ function setTelemetry(t) {
     try { headland().update(latest, fieldStore(), currentSave(), mapStore()); } catch (e) { console.warn('Headland update failed:', e.message); }
   }
   latest.headlandLink = headland().status;
+  latest.rtkInfo = DEMO ? demoRtkSummary() : rtkState ? { day: rtkState.day, payer: rtkState.payer || null, gates: rtkState.gates, bases: (rtkState.bases || []).length } : null;
   if (DEMO) latest.headland = demoHeadland(latest);
   latest.map = mapStore().status();
   latest.ops = { fields: fieldStore().version, boundary: boundaryStatus() };
@@ -322,6 +331,8 @@ const pollProviders = jsonPoller(PROVIDERS, frame => {
   broadcast();
 });
 const pollFields = jsonPoller(FIELDS, takeGameFields);
+let rtkState = null;
+const pollRtk = jsonPoller(RTK, r => { rtkState = r && typeof r === 'object' ? r : null; });
 const pollEconomy = jsonPoller(ECONOMY, e => { economy = e && typeof e === 'object' ? e : null; });
 const pollEquipment = jsonPoller(EQUIPMENT, e => { equipment = e && Array.isArray(e.vehicles) ? e : { vehicles: [] }; equipmentAt = Date.now(); });
 const pollCourse = jsonPoller(COURSE, c => { course = { key: c.key ?? null, name: c.name, workWidth: c.workWidth, waypoints: c.waypoints || [], field: c.field || [] }; });
@@ -330,7 +341,7 @@ const pollCourse = jsonPoller(COURSE, c => { course = { key: c.key ?? null, name
 const ALLOWED = new Set(['motorToggle', 'cruiseToggle', 'cruiseSet', 'cruiseAdjust',
   'lowerAll', 'turnOnAll', 'implTurnOn', 'resetWork',
   'pipeToggle', 'foldToggle', 'lightsToggle', 'workLightsToggle', 'beaconToggle', 'hazardToggle',
-  'harvestAuto', 'harvestAutoMax', 'tillageDepth', 'tillageDepthAdjust', 'tillageLevel', 'grainCart', 'grainCartNext']);
+  'harvestAuto', 'harvestAutoMax', 'tillageDepth', 'tillageDepthAdjust', 'tillageLevel', 'grainCart', 'grainCartNext', 'rtk']);
 let cmdQueue = [];
 let nextCmdId = 1;
 
@@ -347,7 +358,7 @@ function escAttr(v) {
 
 function writeCommands() {
   const body = cmdQueue.map(c =>
-    `    <cmd id="${c.id}" name="${escAttr(c.name)}" value="${Number(c.value) || 0}" index="${c.index | 0}"/>`
+    `    <cmd id="${c.id}" name="${escAttr(c.name)}" value="${Number(c.value) || 0}" index="${c.index | 0}"${c.arg ? ` arg="${escAttr(c.arg)}"` : ''}/>`
   ).join('\n');
   const xml = `<?xml version="1.0" encoding="utf-8" standalone="no"?>\n<commands>\n${body}\n</commands>\n`;
   const tmp = COMMANDS + '.tmp';
@@ -362,7 +373,9 @@ function writeCommands() {
 
 function queueCommand(cmd) {
   if (!ALLOWED.has(cmd.name)) throw new Error('unknown command ' + cmd.name);
-  const entry = { id: nextCmdId++, name: cmd.name, value: Number(cmd.value) || 0, index: cmd.index | 0 };
+  // arg: "key=value;key=value" text for commands that need more than a number (rtk)
+  const arg = typeof cmd.arg === 'string' ? cmd.arg.slice(0, 200).replace(/[^\w=;.\- ]/g, '') : '';
+  const entry = { id: nextCmdId++, name: cmd.name, value: Number(cmd.value) || 0, index: cmd.index | 0, arg };
   if (DEMO) { demoCommand(entry); return entry; }
   cmdQueue.push(entry);
   if (cmdQueue.length > 30) cmdQueue = cmdQueue.slice(-30);
@@ -406,12 +419,75 @@ function demoCommand(c) {
     case 'tillageDepthAdjust': demo.till.target = Math.max(2, Math.min(38, demo.till.target + c.value)); break;
     case 'tillageLevel': demo.till.level = Math.max(2, Math.min(4, Math.round(c.value))); break;
     case 'grainCart': demoGrainCartCommand(c.index); break;
+    case 'rtk': demoRtkCommand(c); break;
     case 'grainCartNext': break;
     case 'harvestAutoMax': demo.auto.max = Math.max(1, Math.min(40, c.value)); break;
   }
   demo.lastCmd = c.id;
 }
 if (DEMO_COMBINE) { demo.ccSpeed = 6.2; demo.target = 6.2; }
+
+// RTK package, simulated like Rtk.lua: SF1 free, subscriptions, an own base, pull-in, and the GNSS error.
+const RTK_LEVELS = { NONE: [0.8, 600, 1.5], SF1: [0.086, 1800, 0.15], SF2: [0.029, 1800, 0.05], SF3: [0.017, 1800, 0.03], RTK: [0.012, 3600, 0.025] };
+const RTK_PRICES = { SF2: 70, SF3: 120, MRTK: 130, SFRTK: 170, RTK: 2500, SF7000: 9000, BASE: 15000, BASE_UPKEEP: 10 };
+// the demo farm has an RTK station built next to field 23 (already surveyed)
+demo.rtkState = { receiver: 'SF6000', rtk: false, subs: [], bases: [{ id: 'placeable12', name: 'John Deere RTK Station', x: -40, z: 250, farmId: 1, placedAt: -1e9 }],
+  ledger: [], gates: true, prices: { ...RTK_PRICES }, nextBase: 1,
+  ex: 0.05, ez: -0.04, startedAt: 0, rtkAt: null, level: 'SF1', src: 'SF1', accuracy: 1, result: null };
+function demoRtkSummary() { const r = demo.rtkState; return { day: 3, payer: null, gates: r.gates, bases: r.bases.length }; }
+function demoRtkState() {
+  const r = demo.rtkState;
+  return { save: 'demo', gates: r.gates, prices: r.prices, payer: null, baseRange: 3000, surveyMin: 120, gateLevels: { headland: 'SF2', grainCart: 'SF3' },
+    vehicles: [{ id: 'demo1', name: DEMO_COMBINE ? 'Demo S7 Combine' : 'Demo 8R Tractor', farmId: 1, receiver: r.receiver, rtk: r.rtk, subs: r.subs,
+      monthly: r.subs.reduce((a, k) => a + (r.prices[k] || 0), 0), level: r.level, src: r.src },
+    { id: 'demo2', name: 'Demo 8R + 1300 Cart', farmId: 1, receiver: 'SF6000', rtk: false, subs: [], monthly: 0, level: null, src: null }],
+    bases: r.bases.map(b => ({ ...b, state: demo.t - b.placedAt < 20000 ? 'survey' : 'ok', surveyLeftMin: Math.max(0, Math.ceil((20000 - (demo.t - b.placedAt)) / 1000)) })),
+    ledger: r.ledger, day: 3,
+    stationItems: [{ name: 'RTK Station Standalone', xml: 'mods/fs25_jd_rtkstations/rtkstandalone.xml', modPrice: 8800, modUpkeep: 15,
+      price: r.prices.BASE || 8800, upkeep: r.prices.BASE ? r.prices.BASE_UPKEEP : 15 }] };
+}
+function demoRtkCommand(c) {
+  const r = demo.rtkState, a = Object.fromEntries((c.arg || '').split(';').map(kv => kv.split('=')));
+  const charge = (amount, kind, item, text) => r.ledger.push({ period: 4, day: 3, farmId: 1, amount, kind, item, paidBy: 'G5Link', text });
+  let ok = true, error;
+  if (a.action === 'sub') {
+    if (a.on === '1' && a.item === 'SFRTK' && r.receiver !== 'SF7000') { ok = false; error = 'needsSF7000'; }
+    else if (a.on === '1') { if (!r.subs.includes(a.item)) r.subs.push(a.item); if (a.item === 'SF3') r.subs = r.subs.filter(k => k !== 'SF2'); r.startedAt = demo.t; }
+    else r.subs = r.subs.filter(k => k !== a.item);
+  } else if (a.action === 'buy') {
+    if (a.item === 'SF7000' && r.receiver !== 'SF7000') { r.receiver = 'SF7000'; charge(r.prices.SF7000, 'purchase', 'SF7000', 'StarFire 7000 receiver'); }
+    else if (a.item === 'RTK' && !r.rtk) { r.rtk = true; charge(r.prices.RTK, 'purchase', 'RTK', 'RTK activation'); }
+  } else if (a.action === 'gates') r.gates = a.on === '1';
+  else if (a.action === 'price' && r.prices[a.item] !== undefined && Number(a.value) >= 0) r.prices[a.item] = Number(a.value);
+  r.result = { id: c.id, ok, action: a.action, error };
+}
+function demoGnss(t, dt) {
+  const r = demo.rtkState;
+  let level = 'SF1', src = 'SF1', pull = 0;
+  if (r.subs.includes('SFRTK') && r.receiver === 'SF7000') { level = 'RTK'; src = 'SF-RTK'; pull = 30000; }
+  else if (r.subs.includes('SF3')) { level = 'SF3'; src = 'SF3'; pull = 24000; }
+  else if (r.subs.includes('SF2')) { level = 'SF2'; src = 'SF2'; pull = 12000; }
+  const base = r.bases[0], dist = base ? Math.hypot(base.x - demo.x, base.z - demo.z) : null;
+  const baseOk = base && demo.t - base.placedAt >= 20000;
+  if ((r.rtk && baseOk && dist <= 3000) || r.subs.includes('MRTK')) { level = 'RTK'; src = r.rtk && baseOk && dist <= 3000 ? 'RTK' : 'M-RTK'; pull = 0; }
+  const accuracy = pull ? Math.min(1, (demo.t - r.startedAt) / pull) : 1;
+  const [sig, tau] = RTK_LEVELS[level], s1 = RTK_LEVELS.SF1[0], sigma = pull ? s1 + (sig - s1) * accuracy : sig;
+  if (level === 'RTK' && r.level !== 'RTK') { r.ex *= 0.1; r.ez *= 0.1; }
+  const h = dt / 1000, k = Math.sqrt(2 * h / tau) * sigma * DEMO_SPEED;
+  const gauss = () => Math.sqrt(-2 * Math.log(Math.max(1e-9, Math.random()))) * Math.cos(2 * Math.PI * Math.random());
+  r.ex += -r.ex * h / tau + k * gauss(); r.ez += -r.ez * h / tau + k * gauss();
+  Object.assign(r, { level, src, accuracy });
+  const need = { headland: 'SF2', grainCart: 'SF3' }, rank = { NONE: 0, SF1: 1, SF2: 2, SF3: 3, RTK: 4 };
+  const gates = Object.fromEntries(Object.entries(need).map(([f, l]) => [f, !r.gates || (rank[level] >= rank[l] && accuracy >= 1)]));
+  // the G5 only knows the GNSS position
+  t.vehicle.x = +(t.vehicle.x + r.ex).toFixed(2); t.vehicle.z = +(t.vehicle.z + r.ez).toFixed(2);
+  for (const imp of t.implements || []) for (const g of imp.geometry || []) { g.sx += r.ex; g.wx += r.ex; g.hx += r.ex; g.sz += r.ez; g.wz += r.ez; g.hz += r.ez; }
+  t.gnss = { receiver: r.receiver, level, src, accuracy: Math.round(accuracy * 100), p2p: RTK_LEVELS[level][2], ex: +r.ex.toFixed(3), ez: +r.ez.toFixed(3),
+    gate: gates, result: r.result, gates: r.gates };
+  if (base) Object.assign(t.gnss, { base: base.name, baseState: baseOk ? 'ok' : 'survey', baseDist: Math.round(dist),
+    baseBearing: Math.round((Math.atan2(base.x - demo.x, -(base.z - demo.z)) * 180 / Math.PI + 360) % 360), inRange: dist <= 3000 });
+  return t;
+}
 
 // Courseplay Grain Cart add-on, simulated: the cart drives to the left of the combine, follows it under the
 // pipe, fills while the auger is out, and drives off to a truck when told to unload.
@@ -504,6 +580,7 @@ function demoHeadland(t) {
   let h;
   try { h = fieldStore().headland(currentSave()); } catch (e) { return null; }
   if (!h.armed) return { armed: false, state: 'off', source: 'none', v: 0, events: 0 };
+  if (t.gnss && t.gnss.gates && t.gnss.gate && t.gnss.gate.headland === false) return { armed: true, state: 'noSignal', source: 'none', v: 1, events: demo.hlEvents || 0 };
   const P = demoPath;
   let dist = null;
   if (P && demo.pathI !== undefined) {
@@ -611,7 +688,7 @@ function demoTick(dt) {
   if (!gameFields) takeGameFields(demoFields());
   if (!economy) economy = demoEconomy();
   equipment = demoEquipment(); equipmentAt = Date.now();
-  setTelemetry(DEMO_COMBINE ? demoCombine(frame, dt, working, meters) : DEMO_TILLAGE ? demoTillage(frame, dt, working) : frame);
+  setTelemetry(demoGnss(DEMO_COMBINE ? demoCombine(frame, dt, working, meters) : DEMO_TILLAGE ? demoTillage(frame, dt, working) : frame, dt));
 }
 
 // Realistic Seeder snapshot as G5Link writes it (seed monitor fitted, row drive, no depth sensor).
@@ -812,7 +889,7 @@ const server = http.createServer((req, res) => {
     req.on('close', () => clients.delete(res));
     return;
   }
-  if (req.url.startsWith('/api/ops/') || req.url.startsWith('/api/boundary')) {
+  if (req.url.startsWith('/api/ops/') || req.url.startsWith('/api/boundary') || req.url.startsWith('/api/rtk')) {
     const u = new URL(req.url, 'http://x');
     const json = (code, body) => res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' }).end(JSON.stringify(body));
     const store = fieldStore(), save = currentSave();
@@ -847,6 +924,7 @@ const server = http.createServer((req, res) => {
       }
       if (u.pathname === '/api/ops/work-setup') return json(200, { workSetup: store.workSetup(save), clientDefault: store.db(save).settings.client || null,
         farmDefault: gameFields ? gameFields.farmName || null : null });
+      if (u.pathname === '/api/rtk') return json(200, { rtk: DEMO ? demoRtkState() : rtkState });
       if (u.pathname === '/api/ops/headland') return json(200, { headland: store.headland(save), status: headland().status });
       if (u.pathname === '/api/ops/finance') return json(200, { farmFinance: economy && economy.farmFinance || null, equipment: equipment.vehicles });
       if (u.pathname === '/api/boundary') return json(200, { ...boundaryStatus(), path: rec.active ? rec.points : [] });
@@ -937,6 +1015,7 @@ if (DEMO) {
   setInterval(pollFields, 2000);
   setInterval(pollEquipment, 1000);
   setInterval(pollEconomy, 5000);
+  setInterval(pollRtk, 1000);
 }
 }
 

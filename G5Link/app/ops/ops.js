@@ -285,6 +285,17 @@ function draw() {
     }
   }
 
+  // RTK base stations with their radio range
+  for (const b of (S.rtk && S.rtk.bases) || []) {
+    const [px, py] = toScreen(b.x, b.z, s), rr = (S.rtk.baseRange || 3000) * V.ppm * s.dpr;
+    ctx.beginPath(); ctx.arc(px, py, rr, 0, Math.PI * 2);
+    ctx.fillStyle = b.state === 'ok' ? 'rgba(29, 111, 184, .07)' : 'rgba(242, 169, 0, .07)'; ctx.fill();
+    ctx.setLineDash([10 * s.dpr, 8 * s.dpr]); ctx.strokeStyle = b.state === 'ok' ? '#1d6fb8' : '#f2a900'; ctx.lineWidth = 2 * s.dpr; ctx.stroke(); ctx.setLineDash([]);
+    ctx.beginPath(); ctx.moveTo(px, py - 11 * s.dpr); ctx.lineTo(px + 8 * s.dpr, py + 7 * s.dpr); ctx.lineTo(px - 8 * s.dpr, py + 7 * s.dpr); ctx.closePath();
+    ctx.fillStyle = b.state === 'ok' ? '#1d6fb8' : '#f2a900'; ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2 * s.dpr; ctx.stroke();
+    ctx.fillStyle = '#fff'; ctx.font = `700 ${12 * s.dpr}px Noto Sans, sans-serif`; ctx.textAlign = 'center'; ctx.fillText(b.name, px, py + 22 * s.dpr);
+  }
+
   // equipment
   for (const e of sm.equipment || []) {
     const [px, py] = toScreen(e.x, e.z, s), r = 8 * s.dpr;
@@ -441,7 +452,8 @@ async function syncFrames() {
 function showPage(page) {
   S.page = page;
   document.querySelectorAll('#nav [data-page]').forEach(b => b.classList.toggle('on', b.dataset.page === (page === 'field' ? 'land' : page)));
-  ['map', 'land', 'field', 'analyze', 'profit', 'service', 'equipment', 'settings'].forEach(v => { $('view-' + v).hidden = v !== page; });
+  ['map', 'land', 'field', 'analyze', 'profit', 'service', 'rtk', 'equipment', 'settings'].forEach(v => { $('view-' + v).hidden = v !== page; });
+  if (page === 'rtk') loadRtk();
   if (page !== 'profit') S.profitField = null;
   if (page === 'profit') loadProfit();
   if (page !== 'field') { S.field = null; S.detail = null; S.framesOp = null; if (!(S.proposal && S.proposal.newField)) S.proposal = null; }
@@ -462,6 +474,7 @@ function renderAll(withLayers) {
   if (S.page === 'analyze') renderWork();
   if (S.page === 'profit') renderProfit();
   if (S.page === 'service') renderService();
+  if (S.page === 'rtk') renderRtk();
   if (withLayers) renderLayerControls(); else renderLegend();
 }
 
@@ -895,6 +908,73 @@ function renderService() {
 }
 $('serviceTabs').onclick = e => { const b = e.target.closest('[data-sub]'); if (b) { S.serviceSub = b.dataset.sub; renderService(); } };
 $('serviceBody').onclick = e => { const q = e.target.closest('[data-eq]'); if (q) focusMachine(q.dataset.eq); };
+
+// ---------------------------------------------------------------- RTK package (G5Link mod, scripts/Rtk.lua)
+const RTK_SUBS = [['SF2', 'SF2'], ['SF3', 'SF3'], ['MRTK', 'M-RTK'], ['SFRTK', 'SF-RTK']];
+const rtkMoney = v => typeof v === 'number' ? '$' + Math.round(v).toLocaleString() : '---';
+async function loadRtk() {
+  try { S.rtk = (await api('/api/rtk')).rtk; } catch (e) { S.rtk = null; }
+  if (S.page === 'rtk') renderRtk();
+}
+async function rtkCmd(arg) {
+  try { await api('/api/cmd', { name: 'rtk', value: 0, index: 0, arg }); toast('Sent to the game.'); } catch (e) { toast(e.message); }
+  setTimeout(loadRtk, 1500);
+}
+function renderRtk() {
+  document.querySelectorAll('#rtkTabs button').forEach(b => b.classList.toggle('on', b.dataset.sub === (S.rtkSub || 'machines')));
+  const r = S.rtk;
+  if (!r) return setHtml($('rtkBody'), '<p class="note">No RTK data yet. The G5Link mod writes it once a savegame is running.</p>');
+  const p = r.prices || {}, sub = S.rtkSub || 'machines';
+  const total = (r.vehicles || []).reduce((a, v) => a + (v.monthly || 0), 0);
+  if (sub === 'machines') {
+    setHtml($('rtkBody'), `<div class="svc-card"><h3>Machines (${(r.vehicles || []).length}) · ${rtkMoney(total)}/month</h3>
+      ${(r.vehicles || []).map(v => `<div class="rtk-row"><div><b>${esc(v.name)}</b><span>${v.receiver === 'SF7000' ? 'StarFire 7000' : 'StarFire 6000'}${v.rtk ? ' · RTK activated' : ''}${v.level ? ` · now ${esc(v.src || v.level)}` : ''}</span></div>
+        <div class="rtk-subs">${RTK_SUBS.map(([k, n]) => `<button class="chip ${v.subs.includes(k) ? 'on' : ''}" data-rsub="${k}" data-veh="${esc(v.id)}" data-on="${v.subs.includes(k) ? 0 : 1}"
+          ${k === 'SFRTK' && v.receiver !== 'SF7000' && !v.subs.includes(k) ? 'disabled' : ''}>${n}</button>`).join('')}</div>
+        <span class="num">${rtkMoney(v.monthly)}/mo</span>
+        <div class="rtk-buy">${v.rtk ? '' : `<button class="btn" data-rbuy="RTK" data-veh="${esc(v.id)}">RTK ${rtkMoney(p.RTK)}</button>`}${v.receiver === 'SF7000' ? '' : `<button class="btn" data-rbuy="SF7000" data-veh="${esc(v.id)}">SF7000 ${rtkMoney(p.SF7000)}</button>`}</div></div>`).join('') || '<p class="empty">No machines.</p>'}</div>
+      <p class="note">SF1 is free on every receiver. Subscriptions are charged each game month${r.payer ? ` through ${esc(r.payer)}` : ' in the game finances (GPS corrections)'}. SF3 includes SF2. SF-RTK needs a StarFire 7000; RTK by radio needs the RTK activation and your own base station in range.</p>`);
+  } else if (sub === 'bases') {
+    const items = r.stationItems || [];
+    setHtml($('rtkBody'), `<div class="svc-card"><h3>Base Stations (${(r.bases || []).length})</h3>
+      ${(r.bases || []).map(b => `<div class="rtk-row" data-base="${esc(b.id)}"><div><b>${esc(b.name)}</b><span>${b.state === 'survey' ? `Self survey, ${fmt(b.surveyLeftMin, 0)} game min left` : 'OK'} · range ${fmt((r.baseRange || 3000) / 1000, 1)} km</span></div>
+        <span></span><span></span><span></span></div>`).join('') || '<p class="empty">No base station. Build an RTK station from the construction menu in the game.</p>'}</div>
+      <div class="svc-card"><h3>RTK Stations in the Shop (${items.length})</h3>
+      ${items.map(i => `<div class="rtk-row"><div><b>${esc(i.name)}</b><span>Mod price ${rtkMoney(i.modPrice)}, ${rtkMoney(i.modUpkeep)}/day</span></div><span></span>
+        <span class="num">${rtkMoney(i.price)}</span><span>${rtkMoney(i.upkeep)}/day</span></div>`).join('') || '<p class="empty">No RTK station mod installed. Any placeable with "RTK" in its name works, e.g. the John Deere RTK Stations pack.</p>'}
+      <div class="cost-grid rtk-actions"><div class="cost-row"><span>Shop price for every RTK station<small>0 keeps each mod's own price</small></span><input type="number" min="0" step="100" data-rprice="BASE" value="${p.BASE ?? ''}"></div>
+        <div class="cost-row"><span>Daily upkeep</span><input type="number" min="0" step="1" data-rprice="BASE_UPKEEP" value="${p.BASE_UPKEEP ?? ''}"></div></div></div>
+      <p class="note">A base self-surveys for ${fmt(r.surveyMin || 120, 0)} game minutes, then gives RTK to machines with the RTK activation within ${fmt((r.baseRange || 3000) / 1000, 1)} km. Out of range, RTK-X holds RTK accuracy for up to 14 game days.</p>`);
+  } else {
+    const items = [['SF2', 'SF2 per month'], ['SF3', 'SF3 per month'], ['MRTK', 'Mobile RTK per month'], ['SFRTK', 'SF-RTK per month'], ['RTK', 'RTK activation'], ['SF7000', 'StarFire 7000']];
+    setHtml($('rtkBody'), `<div class="svc-card"><h3>Charges</h3>${(r.ledger || []).slice().reverse().map(l => `<div class="rtk-row"><div><b>${esc(l.text || l.item)}</b><span>Day ${l.day} · ${l.kind === 'subscription' ? 'Monthly' : 'Purchase'} · paid by ${esc(l.paidBy)}</span></div><span></span><span class="num">${rtkMoney(l.amount)}</span><span></span></div>`).join('') || '<p class="empty">No charges yet.</p>'}</div>
+      <div class="svc-card"><h3>Prices</h3><div class="cost-grid">${items.map(([k, n]) => `<div class="cost-row"><span>${n}</span><input type="number" min="0" step="1" data-rprice="${k}" value="${p[k] ?? ''}"></div>`).join('')}</div></div>
+      <div class="svc-card"><h3>Feature Requirements</h3><div class="rtk-row"><div><b>Like Deere activations</b><span>Headland automation needs SF2, the Grain Cart remote SF3</span></div><span></span><span></span>
+        <div class="rtk-buy"><button class="chip ${r.gates !== false ? 'on' : ''}" data-rgates="1">On</button><button class="chip ${r.gates === false ? 'on' : ''}" data-rgates="0">Off</button></div></div></div>`);
+  }
+}
+$('rtkTabs').onclick = e => { const b = e.target.closest('[data-sub]'); if (b) { S.rtkSub = b.dataset.sub; renderRtk(); } };
+$('rtkBody').onclick = e => {
+  const b = e.target.closest('button');
+  if (!b || b.disabled) return;
+  const p = (S.rtk && S.rtk.prices) || {};
+  if (b.dataset.rsub) {
+    const on = b.dataset.on === '1';
+    if (on && !window.confirm(`Subscribe to ${b.textContent} for ${rtkMoney(p[b.dataset.rsub])} a month?`)) return;
+    return rtkCmd(`action=sub;vehicle=${b.dataset.veh};item=${b.dataset.rsub};on=${on ? 1 : 0}`);
+  }
+  if (b.dataset.rbuy) {
+    if (!window.confirm(`Buy ${b.dataset.rbuy === 'RTK' ? 'the RTK activation' : 'a StarFire 7000'} for ${rtkMoney(p[b.dataset.rbuy])}?`)) return;
+    return rtkCmd(`action=buy;vehicle=${b.dataset.veh};item=${b.dataset.rbuy}`);
+  }
+  if (b.dataset.rgates) return rtkCmd(`action=gates;on=${b.dataset.rgates}`);
+};
+$('rtkBody').addEventListener('change', e => {
+  const k = e.target.dataset && e.target.dataset.rprice;
+  if (k && e.target.value !== '' && Number(e.target.value) >= 0) rtkCmd(`action=price;item=${k};value=${Math.round(Number(e.target.value))}`);
+});
+setInterval(() => { if (S.page === 'rtk' || (S.rtk && S.rtk.bases && S.rtk.bases.length)) loadRtk(); }, 5000);
+loadRtk();
 
 // Equipment
 function equipmentRows(list) {

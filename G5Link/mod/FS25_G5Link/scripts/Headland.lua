@@ -390,6 +390,14 @@ function G5LinkHeadland:update(vehicle, dt, host)
         self.state = "noImplement"
         return
     end
+    -- RTK package gate: headland automation needs SF2 or better (when gates are on)
+    if G5LinkRtk ~= nil and G5LinkRtk.data ~= nil then
+        local ok, allowed = pcall(G5LinkRtk.allows, G5LinkRtk, vehicle, "headland")
+        if ok and allowed == false then
+            self.state = "noSignal"
+            return
+        end
+    end
     local dirX, _, dirZ = localDirectionToWorld(vehicle.rootNode, 0, 0, 1)
     local len = math.sqrt(dirX * dirX + dirZ * dirZ)
     if not (len > 0) then
@@ -399,6 +407,14 @@ function G5LinkHeadland:update(vehicle, dt, host)
     local heading = math.deg(math.atan2(dirX, dirZ))
     local edge = self:frontEdge(tools[1].impl, dirX, dirZ)
     local vx, _, vz = getWorldTranslation(vehicle.rootNode)
+    -- the G5 only knows the GNSS position: lift points move with the receiver's error
+    local ox, oz = 0, 0
+    if G5LinkRtk ~= nil then
+        local ok, a, b = pcall(G5LinkRtk.offset, G5LinkRtk, vehicle)
+        if ok and type(a) == "number" and type(b) == "number" then ox, oz = a, b end
+    end
+    vx, vz = vx + ox, vz + oz
+    if edge ~= nil then edge.x, edge.z = edge.x + ox, edge.z + oz end
     if edge == nil then
         edge = { x = vx, z = vz, latX = dirZ, latZ = -dirX, width = 0 }
     end
@@ -413,7 +429,7 @@ function G5LinkHeadland:update(vehicle, dt, host)
     self.steer = steer
 
     -- (re)start: new vehicle or just armed
-    if self.vehicle ~= vehicle or self.state == "off" or self.state == "ai" or self.state == "noImplement" then
+    if self.vehicle ~= vehicle or self.state == "off" or self.state == "ai" or self.state == "noImplement" or self.state == "noSignal" then
         self.vehicle = vehicle
         self.state = lowered and "work" or "headland"
         self.entered = false
@@ -431,7 +447,7 @@ function G5LinkHeadland:update(vehicle, dt, host)
     self.source = here ~= nil and ((self.poly and s.useBoundary) and (self.cov and s.useCoverage and "boundary+coverage" or "boundary") or "coverage")
         or (steer.distToLine ~= nil and steer.kind) or "none"
     self.scanCount = ((self.scanCount or 0) + 1) % 5
-    if self.scanCount == 0 then
+    if self.scanCount == 0 or self.dist == nil then
         self.dist = self:scan(edge, dirX, dirZ, steer, vx, vz)   -- for the display, 2 Hz
     end
 

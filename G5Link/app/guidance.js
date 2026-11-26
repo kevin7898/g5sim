@@ -25,6 +25,7 @@
     if (window.G5Bounds) G5Bounds.onTelemetry(d);
     if (window.G5WorkSetup) G5WorkSetup.onTelemetry(d);
     if (window.G5Headland) G5Headland.onTelemetry(d);
+    if (window.G5StarFire) G5StarFire.onTelemetry(d);
     if (d.ops && d.ops.fields !== T.version) loadTracks();
     const v = d.vehicle;
     if (d.state !== 'vehicle' || !v || v.x === undefined) { pose.ok = false; return; }

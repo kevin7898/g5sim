@@ -267,6 +267,13 @@ function G5LinkGrainCart:run(vehicle, cmd)
     if cmd.index == commands.CALL and target == nil then
         return true
     end
+    -- RTK package gate: the grain cart remote (Machine Sync style) needs SF3 or better
+    if G5LinkRtk ~= nil and G5LinkRtk.data ~= nil then
+        local ok, allowed = pcall(G5LinkRtk.allows, G5LinkRtk, vehicle, "grainCart")
+        if ok and allowed == false then
+            return true
+        end
+    end
     pcall(env.GrainCartCommandEvent.sendEvent, ctx.cart, target, cmd.index)
     return true
 end

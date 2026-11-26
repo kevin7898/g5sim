@@ -101,6 +101,7 @@
               <button class="mgc-head" id="mgcHead" aria-label="Show or hide the grain cart keys"><b id="mgcName">Grain Cart</b><em id="mgcFill">--%</em><span id="mgcState">---</span><small id="mgcInfo">---</small><i class="mgc-bar"><i id="mgcBar"></i></i></button>
               <div class="mgc-body" id="mgcBody">
                 <div class="mgc-row"><button class="g5btn" data-gc="call">Call</button><button class="g5btn" data-gc="pause" id="mgcPause">Pause</button><button class="g5btn" data-gc="unload">Unload</button><button class="g5btn" data-gc="away">Away</button></div>
+                <div class="mgc-lock" id="mgcLock" hidden>Needs SF3 or better (StarFire)</div>
                 <div class="mgc-offset"><span>Offset</span><b id="mgcOffset">---</b></div>
                 <div class="mgc-row"><button class="g5btn" data-gc="left" aria-label="Nudge left">◀</button><button class="g5btn" data-gc="forward" aria-label="Nudge forward">▲</button><button class="g5btn" data-gc="back" aria-label="Nudge back">▼</button><button class="g5btn" data-gc="right" aria-label="Nudge right">▶</button><button class="g5btn" data-gc="more">More</button></div>
               </div>
@@ -452,6 +453,7 @@
             <button class="app" data-goto="Implement Details"><span class="app-ico"><svg><use href="#i-hitch"/></svg></span><b>Implement Details</b></button>
             <button class="app" data-goto="Machine Monitor"><span class="app-ico"><svg><use href="#i-engine"/></svg></span><b>Machine Monitor</b></button>
             <button class="app" id="appWorkSetup"><span class="app-ico"><svg><use href="#i-seed"/></svg></span><b>Work Setup</b></button>
+            <button class="app" id="appStarfire"><span class="app-ico"><svg><use href="#i-sat"/></svg></span><b>StarFire</b></button>
             <button class="app" id="appGrainCart"><span class="app-ico"><svg><use href="#i-graincart"/></svg></span><b>Grain Cart</b></button>
             <button class="app" id="appHeadland"><span class="app-ico"><svg><use href="#i-headland"/></svg></span><b>Headland</b></button>
             <button class="app" id="appBoundary"><span class="app-ico"><svg><use href="#i-layers"/></svg></span><b>Boundary</b></button>
@@ -491,6 +493,14 @@
       <div class="window ws-win">
         <div class="win-head"><b>Work Setup</b><button class="win-close" data-close="workSetupWin" aria-label="Close"><svg><use href="#i-x"/></svg></button></div>
         <div class="win-body" id="wsBody"></div>
+      </div>
+    </div>
+
+    <!-- App window: StarFire (RTK package) -->
+    <div class="window-wrap" id="starfireWin" hidden>
+      <div class="window sf-win">
+        <div class="win-head"><b>StarFire</b><button class="win-close" data-close="starfireWin" aria-label="Close"><svg><use href="#i-x"/></svg></button></div>
+        <div class="win-body" id="sfBody"></div>
       </div>
     </div>
 
@@ -590,6 +600,7 @@
 <script src="worksetup.js"></script>
 <script src="headland.js"></script>
 <script src="graincart.js"></script>
+<script src="starfire.js"></script>
 <script src="guidance.js"></script>
 </body>
 </html>

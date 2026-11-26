@@ -196,9 +196,9 @@ $('shade').onclick = () => $('shade').classList.remove('show');
 
 // ------------------------------------------------------------ commands
 const pendingCmds = new Map();
-async function send(name, value = 0, index = 0, el = null) {
+async function send(name, value = 0, index = 0, el = null, arg = '') {
   try {
-    const r = await fetch('/api/cmd', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, value, index }) });
+    const r = await fetch('/api/cmd', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, value, index, arg }) });
     const j = await r.json();
     if (!j.ok) throw new Error(j.error);
     if (el) {
@@ -352,7 +352,7 @@ function contextKeys(d) {
   const hl = d.headland;
   if ((d.implements || []).some(i => i.canLower)) keys.push({ id: 'headland', act: 'headland', icon: 'headland', label: 'HEADLAND',
     on: !!(hl && hl.armed && hl.state === 'work'), amber: !!(hl && hl.armed && hl.state !== 'work'),
-    txt: !hl || !hl.armed ? 'OFF' : hl.state === 'headland' ? 'RAISED' : hl.state === 'manual' ? 'MANUAL' : 'ARMED' });
+    txt: !hl || !hl.armed ? 'OFF' : hl.state === 'headland' ? 'RAISED' : hl.state === 'manual' ? 'MANUAL' : hl.state === 'noSignal' ? 'NEEDS SF2' : 'ARMED' });
   if (d.combine && auto) keys.push({ id: 'auto', cmd: 'harvestAuto', value: -1, icon: 'autospeed', label: 'AUTO SPEED',
     on: auto.on && auto.state === 'active', amber: auto.on && auto.state !== 'active', txt: auto.on ? (AUTO_STATE[auto.state] || 'STBY') : 'OFF' });
   const g = d.grainCart;

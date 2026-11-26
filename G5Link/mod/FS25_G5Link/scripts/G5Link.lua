@@ -16,7 +16,7 @@
 -- one odd vehicle can never break the game loop.
 
 G5Link = {}
-G5Link.VERSION = "0.7.0"
+G5Link.VERSION = "0.8.0"
 G5Link.WRITE_INTERVAL = 250   -- ms between telemetry writes (4 Hz)
 G5Link.CMD_INTERVAL = 250     -- ms between command file polls
 G5Link.MAX_IMPLEMENTS = 8
@@ -92,6 +92,15 @@ function G5Link:loadMap(name)
     if G5LinkGrainCart ~= nil then
         G5LinkGrainCart:reset()
     end
+    if G5LinkRtk ~= nil then
+        G5LinkRtk:reset(true)
+        if g_messageCenter ~= nil and MessageType ~= nil and MessageType.PERIOD_CHANGED ~= nil then
+            pcall(g_messageCenter.subscribe, g_messageCenter, MessageType.PERIOD_CHANGED, G5LinkRtk.onPeriodChanged, G5LinkRtk)
+        end
+        if G5LinkAPI ~= nil then
+            g_currentMission.g5linkAPI = G5LinkAPI
+        end
+    end
 
     if G5LinkProviders ~= nil then
         local ok, err = pcall(G5LinkProviders.loadMap, G5LinkProviders)
@@ -106,6 +115,15 @@ end
 function G5Link:deleteMap()
     -- Leave a final "no session" file so the display shows the idle screen.
     self:writeIdle("unloaded")
+    if G5LinkRtk ~= nil then
+        if g_messageCenter ~= nil and g_messageCenter.unsubscribeAll ~= nil then
+            pcall(g_messageCenter.unsubscribeAll, g_messageCenter, G5LinkRtk)
+        end
+        G5LinkRtk:reset(false)
+    end
+    if g_currentMission ~= nil and g_currentMission.g5linkAPI == G5LinkAPI then
+        g_currentMission.g5linkAPI = nil
+    end
     if G5LinkProviders ~= nil then
         pcall(G5LinkProviders.deleteMap, G5LinkProviders)
     end
@@ -137,6 +155,13 @@ function G5Link:update(dt)
 
     if vehicle ~= nil then
         self:accumulateWork(vehicle, dt)
+    end
+    if G5LinkRtk ~= nil then
+        local ok, err = pcall(G5LinkRtk.update, G5LinkRtk, vehicle, dt, self)
+        if not ok and not self.rtkErrorLogged then
+            self.rtkErrorLogged = true
+            print("G5Link: RTK update failed: " .. tostring(err))
+        end
     end
     if G5LinkHeadland ~= nil then
         local ok, err = pcall(G5LinkHeadland.update, G5LinkHeadland, vehicle, dt, self)
@@ -510,12 +535,19 @@ function G5Link:writeTelemetry(vehicle)
             xml:setFloat(k .. "#hours", round(opTime / 3600000, 1))
         end
 
+        -- GNSS error of the receiver's correction level: everything G5Link reports moves with it (Rtk.lua)
+        local gx, gz = 0, 0
+        if G5LinkRtk ~= nil then
+            local ok, ox, oz = pcall(G5LinkRtk.offset, G5LinkRtk, vehicle)
+            if ok and type(ox) == "number" and type(oz) == "number" then gx, gz = ox, oz end
+        end
+        self.gnssOffset = { gx, gz }
         if vehicle.rootNode ~= nil then
             local x, _, z = getWorldTranslation(vehicle.rootNode)
             local dx, _, dz = localDirectionToWorld(vehicle.rootNode, 0, 0, 1)
             local heading = (180 - math.deg(math.atan2(dx, dz))) % 360
-            xml:setFloat(k .. "#x", round(x, 1))
-            xml:setFloat(k .. "#z", round(z, 1))
+            xml:setFloat(k .. "#x", round(x + gx, 2))
+            xml:setFloat(k .. "#z", round(z + gz, 2))
             xml:setFloat(k .. "#heading", round(heading, 0))
             if g_farmlandManager ~= nil then
                 local fid = call(g_farmlandManager, "getFarmlandIdAtWorldPosition", x, z)
@@ -548,12 +580,13 @@ function G5Link:writeTelemetry(vehicle)
                 if g then
                     local ak = string.format("%s.area(%d)", ik, j - 1)
                     xml:setInt(ak .. "#i", j - 1)
-                    xml:setFloat(ak .. "#sx", round(g[1], 2))
-                    xml:setFloat(ak .. "#sz", round(g[2], 2))
-                    xml:setFloat(ak .. "#wx", round(g[3], 2))
-                    xml:setFloat(ak .. "#wz", round(g[4], 2))
-                    xml:setFloat(ak .. "#hx", round(g[5], 2))
-                    xml:setFloat(ak .. "#hz", round(g[6], 2))
+                    local ox, oz = self.gnssOffset[1], self.gnssOffset[2]
+                    xml:setFloat(ak .. "#sx", round(g[1] + ox, 2))
+                    xml:setFloat(ak .. "#sz", round(g[2] + oz, 2))
+                    xml:setFloat(ak .. "#wx", round(g[3] + ox, 2))
+                    xml:setFloat(ak .. "#wz", round(g[4] + oz, 2))
+                    xml:setFloat(ak .. "#hx", round(g[5] + ox, 2))
+                    xml:setFloat(ak .. "#hz", round(g[6] + oz, 2))
                 end
             end
             if s.seeder ~= nil then
@@ -578,6 +611,13 @@ function G5Link:writeTelemetry(vehicle)
         self:writeCombine(xml, vehicle)
         if G5LinkHeadland ~= nil then
             pcall(G5LinkHeadland.write, G5LinkHeadland, xml)
+        end
+        if G5LinkRtk ~= nil then
+            local ok, err = pcall(G5LinkRtk.write_telemetry, G5LinkRtk, xml, vehicle)
+            if not ok and not self.gnssErrorLogged then
+                self.gnssErrorLogged = true
+                print("G5Link: GNSS telemetry failed: " .. tostring(err))
+            end
         end
         if G5LinkGrainCart ~= nil then
             local ok, err = pcall(G5LinkGrainCart.write, G5LinkGrainCart, xml, vehicle, self, G5Link.WRITE_INTERVAL)
@@ -1251,7 +1291,8 @@ function G5Link:processCommands(vehicle)
                 id = id,
                 name = xml:getString(key .. "#name", ""),
                 value = xml:getFloat(key .. "#value", 0),
-                index = xml:getInt(key .. "#index", 0)
+                index = xml:getInt(key .. "#index", 0),
+                arg = xml:getString(key .. "#arg", "")
             })
         end
     end)
@@ -1269,6 +1310,13 @@ function G5Link:runCommand(vehicle, cmd)
     if name == "resetWork" then
         self:resetWork()
         return
+    end
+    -- RTK commands also come from the Ops Center while on foot (they name the machine)
+    if G5LinkRtk ~= nil then
+        local ok, handled = pcall(G5LinkRtk.run, G5LinkRtk, vehicle, cmd, self)
+        if ok and handled then
+            return
+        end
     end
     if vehicle == nil then
         return

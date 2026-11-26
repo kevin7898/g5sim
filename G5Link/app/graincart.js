@@ -62,7 +62,10 @@
     if (!show) return;
     const legend = $('mapLegend');
     box.style.bottom = (legend && !legend.hidden ? legend.offsetHeight + 20 : 12) + 'px';
+    const locked = window.G5StarFire && !G5StarFire.allows('grainCart');
     box.classList.toggle('collapsed', !!settings.gcCollapsed);
+    $('mgcBody').querySelectorAll('[data-gc]').forEach(b => { if (b.dataset.gc !== 'more') b.disabled = !!locked; });
+    $('mgcLock').hidden = !locked;
     box.classList.toggle('ok', !g.paused && !g.released && (g.kind === 'unloading' || g.kind === 'driving'));
     box.classList.toggle('warn', !!(g.paused || g.released || g.outOfPosition));
     $('mgcName').textContent = g.name + (g.carts > 1 ? ` (1 of ${g.carts})` : '');

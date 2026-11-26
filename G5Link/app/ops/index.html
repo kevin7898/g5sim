@@ -23,6 +23,7 @@
   <button data-page="analyze"><svg viewBox="0 0 24 24"><path d="M4 20V10h3v10zm6 0V4h3v16zm6 0v-7h3v7z"/></svg>Analyze</button>
   <button data-page="profit"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15.9V19h-2v-1.1c-1.7-.3-3-1.3-3.1-3h2c.1.9.8 1.4 2.1 1.4 1.4 0 1.8-.7 1.8-1.2 0-.6-.3-1.2-2-1.6-1.9-.4-3.2-1.2-3.2-2.8 0-1.3 1-2.3 2.4-2.6V7h2v1.1c1.5.4 2.3 1.5 2.3 2.8h-2c0-.9-.5-1.4-1.6-1.4-1 0-1.6.4-1.6 1.1 0 .6.5 1 2 1.4s3.2 1 3.2 3c0 1.4-1 2.4-2.3 2.9z"/></svg>Harvest Profit</button>
   <button data-page="service"><svg viewBox="0 0 24 24"><path d="M21 7.5l-3.2 3.2-2.6-.6-.6-2.6L17.8 4.3A5 5 0 0 0 11.4 11L3 19.4 4.6 21l8.4-8.4a5 5 0 0 0 6.7-6.4z" fill="none" stroke="currentColor" stroke-width="2"/></svg>Service</button>
+  <button data-page="rtk"><svg viewBox="0 0 24 24"><path d="M7 4l4 4-3 3-4-4zM14 11l4 4-3 3-4-4zM10 11l3 3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 16a5 5 0 0 0 4 4M2 16a8 8 0 0 0 6 6" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>RTK</button>
   <button data-page="equipment"><svg viewBox="0 0 24 24"><path d="M5 17a3 3 0 1 0 6 0 3 3 0 0 0-6 0zm11 1a2 2 0 1 0 4 0 2 2 0 0 0-4 0zM4 14V9h7l2-4h5v4h2v6h-2.5M11 17h5" fill="none" stroke="currentColor" stroke-width="2"/></svg>Equipment</button>
   <button data-page="settings"><svg viewBox="0 0 24 24"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm9 4l-2.2-.7-.5-1.3 1-2.1-1.4-1.4-2.1 1-1.3-.5L13.8 3h-2l-.7 2.2-1.3.5-2.1-1L6.3 6.1l1 2.1-.5 1.3L4.6 10v2l2.2.7.5 1.3-1 2.1 1.4 1.4 2.1-1 1.3.5.7 2.2h2l.7-2.2 1.3-.5 2.1 1 1.4-1.4-1-2.1.5-1.3L21 12z" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>Settings</button>
   <span class="save" id="saveName">---</span>
@@ -73,6 +74,12 @@
       <div class="panel-title"><h1>Maintenance</h1></div>
       <div class="subtabs" id="serviceTabs"><button data-sub="summary" class="on">Summary</button><button data-sub="all">All Equipment</button></div>
       <div class="detail" id="serviceBody"></div>
+    </div>
+    <!-- RTK package: receivers, corrections, base stations, billing (from the G5Link mod's rtk.json) -->
+    <div class="view" id="view-rtk" hidden>
+      <div class="panel-title"><h1>RTK</h1></div>
+      <div class="subtabs" id="rtkTabs"><button data-sub="machines" class="on">Machines</button><button data-sub="bases">Base Stations</button><button data-sub="billing">Billing</button></div>
+      <div class="detail" id="rtkBody"></div>
     </div>
     <!-- Equipment -->
     <div class="view" id="view-equipment" hidden>

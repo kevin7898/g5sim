@@ -634,3 +634,26 @@ a.app { text-decoration: none; color: inherit; }
 .mgc-row .g5btn.on { outline: 3px solid var(--warn); outline-offset: -3px; }
 .mgc-offset { display: flex; justify-content: space-between; align-items: baseline; padding: 1px 3px 0; font-size: 13px; font-weight: 600; color: var(--muted); }
 .mgc-offset b { font-size: 15px; color: var(--ink); }
+
+/* StarFire (RTK package) */
+.sf-win { width: 1080px; } .sf-win .win-body { padding: 6px 22px 12px; }
+.sf-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px; background: var(--rule); border: 2px solid var(--frame); }
+.sf-grid div { background: var(--cream); padding: 5px 8px; display: flex; flex-direction: column; min-width: 0; }
+.sf-grid small { font-size: 13px; font-weight: 600; color: var(--muted); }
+.sf-grid b { font-size: 17px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sf-mode { align-self: flex-start; padding: 0 8px; border-radius: 3px; color: #fff !important; background: var(--tile-off); }
+.sf-mode.SF2 { background: #8fb52c; } .sf-mode.SF3 { background: var(--tile-on); } .sf-mode.RTK { background: #1d6fb8; } .sf-mode.NONE { background: var(--stop); }
+.sf-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; }
+.sf-cols h4 { margin: 8px 0 2px; font-size: 16px; color: var(--muted); }
+.sf-row { display: grid; grid-template-columns: 1fr 110px 118px; gap: 8px; align-items: center; padding: 4px 0; border-bottom: 2px solid var(--rule); }
+.sf-row span { display: flex; flex-direction: column; min-width: 0; } .sf-row b { font-size: 16px; color: var(--ink); }
+.sf-row small { font-size: 13px; font-weight: 600; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sf-row em { font-style: normal; font-size: 15px; font-weight: 700; color: var(--ink-2); text-align: right; }
+.sf-row .g5btn { height: 38px; font-size: 15px; font-weight: 700; padding: 0; }
+.sf-row .g5btn.on { outline: 3px solid var(--tile-on); outline-offset: -3px; }
+.sf-row.total { border-bottom: 0; } .sf-row.total em { color: var(--ink); }
+.sf-place { margin-top: 6px; width: 100%; height: 40px; font-size: 15px; font-weight: 700; }
+.sf-foot { display: flex; align-items: center; gap: 14px; margin-top: 8px; font-size: 15px; font-weight: 700; color: var(--ink-2); }
+.sf-foot .seg { height: 36px; width: 160px; } .sf-foot .seg button { font-size: 15px; min-width: 0; }
+.sf-foot small { font-size: 13px; font-weight: 600; color: var(--muted); }
+.mgc-lock { padding: 6px 8px; font-size: 14px; font-weight: 700; color: var(--ink-2); text-align: center; }

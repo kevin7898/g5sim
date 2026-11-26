@@ -22,7 +22,7 @@
   const ftOrM = m => metric('distance') ? `${fmt(m, 1)} m` : `${fmt(m * 3.28084, 0)} ft`;
   const spd = k => k > 0 ? `${fmt(U.speed(k), 1)} ${U.speedUnit()}` : '';
   const STATE = { off: 'Off', work: 'Working', headland: 'In headland', manual: 'Manual (lower to resume)', ai: 'AI worker driving',
-    noImplement: 'No implement to raise' };
+    noImplement: 'No implement to raise', noSignal: 'Needs SF2 or better (StarFire)' };
   const SOURCE = { boundary: 'Field boundary', coverage: 'Previous passes', 'boundary+coverage': 'Boundary and previous passes',
     base: 'Steering assist line end', ev: 'Enhanced Vehicle headland', none: 'None found' };
   const live = () => data.headland || null;

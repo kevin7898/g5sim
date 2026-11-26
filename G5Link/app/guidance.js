@@ -22,6 +22,7 @@
 
   window.onTelemetry = d => {
     if (window.G5Layers) { G5Layers.onTelemetry(d); G5Layers.renderLegend(); }
+    if (window.G5Bounds) G5Bounds.onTelemetry(d);
     const v = d.vehicle;
     if (d.state !== 'vehicle' || !v || v.x === undefined) { pose.ok = false; return; }
     const imps = d.implements || [];
@@ -294,6 +295,19 @@
       ctx.lineWidth = Math.max(1, k[0].s * 0.08);
       ctx.beginPath(); ctx.moveTo(k[0].x, k[0].y); k.slice(1).forEach(v => ctx.lineTo(v.x, v.y)); ctx.closePath();
       ctx.fill(); ctx.stroke();
+    }
+
+    // Ops Center field boundaries (yellow) and a boundary being recorded (red)
+    if (window.G5Bounds) {
+      for (const fb of G5Bounds.fields()) {
+        const visible = (fb.center && near(fb.center.x, fb.center.z)) || fb.polygon.some(q => near(q[0], q[1]));
+        if (!visible) continue;
+        const pts = fb.polygon.map(q => P(q[0], q[1]));
+        pts.push(pts[0]);
+        polyline(pts, 'rgba(255, 238, 63, .9)', 3);
+      }
+      const rp = G5Bounds.path();
+      if (rp.length > 1) { polyline(rp.map(q => P(q[0], q[1])), '#ff3b30', 4); }
     }
 
     // Courseplay field boundary and course (only points near the machine)

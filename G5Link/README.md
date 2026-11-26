@@ -38,6 +38,13 @@ and the legend. Layers: Coverage (blue, dark blue = overlap), and as available Y
 Seeding or Applied Rate, Singulation, Skips, Doubles, Distribution CV, Seed Depth, Soil Moisture, Compaction,
 Yield Potential, Speed, and soil N, P, K and pH. **New Work** in the legend clears the map of that operation.
 
+**Ops Center.** Open `http://<PC address>:8765/ops/` on a laptop, iPad or phone (or Menu > Applications > Ops Center
+on the display). Fields with versioned boundaries from three sources: the game map (import can be switched off per
+savegame in Settings), **driven** with the display's Boundary app (Menu > Applications > Boundary: left edge, center or
+right edge with an offset, any vehicle), and **from coverage** ("Expand from coverage" after working new ground, or
+"Create field from this coverage" on the Work tab). Work records per field and operation (area covered, overlap,
+average yield, moisture, rate, singulation, ...), coverage layers per field, and the farm's equipment on the map.
+
 **Units.** Menu > System > Units: one key for all Metric or all US, and **Unit Settings** for each quantity
 (speed, distance, area, liquid volume, yield and grain, seeding rate, pressure).
 

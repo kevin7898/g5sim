@@ -1,0 +1,116 @@
+'use strict';
+// Tests the Ops Center field store (bridge/fields.js) with the coverage recorder.
+//   node G5Link/tests/fields_test.js
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { CoverageStore } = require('../bridge/coverage.js');
+const { FieldStore, polygonArea, inPolygon } = require('../bridge/fields.js');
+
+let checks = 0, failures = 0;
+function check(cond, label) { checks++; if (!cond) { failures++; console.log('  FAIL ' + label); } }
+function near(a, b, tol, label) { check(typeof a === 'number' && Math.abs(a - b) <= tol, `${label}: expected ~${b}, got ${a}`); }
+
+const SAVE = 'savegame3';
+const rect = (x0, z0, x1, z1) => [[x0, z0], [x1, z0], [x1, z1], [x0, z1]];
+const GAME = { farmId: 1, fields: [
+  { id: 1, name: 'Field 1', areaHa: 1.08, farmland: 11, owner: 1, polygon: rect(0, -6, 100, 102) },
+  { id: 2, name: 'Field 2', areaHa: 1.0, farmland: 12, owner: 0, polygon: rect(200, 0, 300, 100) },
+] };
+
+// A planter 12.19 m wide, one work area, 7.5 m behind the tractor, passes along +X spaced 12 m.
+function frame(x, z, day, rate) {
+  const bx = x - 7.5;
+  return {
+    state: 'vehicle', game: { save: SAVE, day }, vehicle: { x, z, heading: 90, speed: 10 },
+    implements: [{ name: 'Planter', width: 12.19, areas: [true], turnedOn: true,
+      geometry: [{ i: 0, sx: bx, sz: z - 6.095, wx: bx, wz: z + 6.095, hx: bx - 1, hz: z - 6.095 }],
+      seeder: { kind: 'planter', crop: 'SOYBEAN', unit: 'seedsPerAcre', rate, actual: rate, skips: 1, doubles: 0.5 },
+      fills: [{ title: 'Seeds', type: 'SEEDS', level: 900, cap: 1000 }] }],
+  };
+}
+function plant(cov, { toX, day, rate, z0 = 0, passes = 9, fromX = 7.5 }) {
+  for (let k = 0; k < passes; k++) {
+    const z = z0 + k * 12;
+    for (let x = fromX; x <= toX; x += 0.7) cov.onFrame(frame(x, z, day, rate));
+    cov.onFrame({ state: 'onfoot' });
+  }
+}
+
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'g5fields-'));
+try {
+  const cov = new CoverageStore({ dir: tmp, persist: true });
+  const store = new FieldStore({ dir: tmp, persist: true, coverage: cov });
+
+  // --- game import
+  store.importGame(SAVE, GAME);
+  let list = store.list(SAVE);
+  check(list.length === 2 && list[0].source === 'game', 'two game fields imported');
+  near(list[0].areaHa, 1.08, 1e-9, 'game field area from polygon');
+  store.importGame(SAVE, GAME);
+  check(store.field(SAVE, 1).boundaries.length === 1, 'unchanged game polygon adds no version');
+
+  // --- import switched off on another save: nothing appears until a boundary is driven
+  store.setSettings('hardcore', { importGame: false });
+  store.importGame('hardcore', GAME);
+  check(store.list('hardcore').length === 0, 'no game fields when import is off');
+  const hc = store.addBoundary('hardcore', { source: 'driven', polygon: rect(1, -5, 99, 101) });
+  check(hc.field === '1', 'a driven boundary inside a game field takes that field id');
+  check(store.list('hardcore')[0].name === 'Field 1', 'and its name');
+
+  // --- driven boundary replaces the game one; an outside boundary is a new field
+  const r1 = store.addBoundary(SAVE, { source: 'driven', polygon: rect(0, -6, 100, 102) });
+  check(r1.field === '1' && r1.v === 2, 'driven boundary is version 2 of field 1');
+  check(store.list(SAVE).find(f => f.id === '1').source === 'driven', 'driven boundary is active');
+  const r2 = store.addBoundary(SAVE, { source: 'driven', polygon: rect(500, 500, 560, 560), name: 'Back 40' });
+  check(r2.field === 'u1' && store.field(SAVE, 'u1').name === 'Back 40', 'boundary outside any field makes a new named field');
+  const r2b = store.addBoundary(SAVE, { source: 'driven', polygon: rect(10, 10, 60, 60), newField: true });
+  check(r2b.field === 'u2', 'an explicit new field is not merged into the game field it lies in');
+  store.removeBoundary(SAVE, 'u2', 1);
+  store.setActive(SAVE, '1', 1);
+  check(store.list(SAVE).find(f => f.id === '1').source === 'game', 'operator can switch back to the game version');
+  store.setActive(SAVE, '1', 2);
+
+  // --- coverage: plant field 1, and 30 m of new ground past its east edge
+  plant(cov, { toX: 137.5, day: 41, rate: 140000 });
+  const recs = store.records(SAVE, '1');
+  check(recs.length === 1 && recs[0].kind === 'seeding' && recs[0].title === 'Seeding · Soybeans', 'one seeding record for field 1');
+  near(recs[0].coveredHa, 1.08, 0.02, 'covered area inside field 1');
+  near(recs[0].avg.rate, 140000, 1, 'area-weighted rate');
+  check(recs[0].firstDay === 41 && recs[0].lastDay === 41, 'record days');
+  const all = store.records(SAVE);
+  const outside = all.find(r => r.field === null);
+  check(outside && outside.swathHa > 0.25, 'work outside every field is listed as Outside fields');
+
+  // --- expand field 1 from coverage
+  const prop = store.fromCoverage(SAVE, { fieldId: '1' });
+  check(prop !== null, 'coverage proposal made');
+  near(prop.areaHa, 1.08 + 0.324, 0.05, 'expanded area includes the new ground');
+  near(prop.addedHa, 0.324, 0.05, 'added area');
+  check(inPolygon(prop.polygon, 120, 50) && inPolygon(prop.polygon, 50, 50), 'new polygon covers old and new ground');
+  check(!inPolygon(prop.polygon, 250, 50), 'and not field 2');
+  check(prop.polygon.length <= 12, `outline simplified (${prop.polygon.length} points)`);
+  const r3 = store.addBoundary(SAVE, { fieldId: '1', source: 'coverage', polygon: prop.polygon });
+  check(r3.v === 3 && store.list(SAVE).find(f => f.id === '1').source === 'coverage', 'coverage boundary saved as version 3');
+  near(store.records(SAVE, '1')[0].coveredHa, 1.08 + 0.324, 0.05, 'records follow the new boundary');
+
+  // --- a brand-new field traced from a point on isolated coverage
+  plant(cov, { fromX: 1007.5, toX: 1067.5, day: 42, rate: 140000, z0: 1000, passes: 4 });
+  const newProp = store.fromCoverage(SAVE, { x: 1030, z: 1010 });
+  check(newProp && newProp.field === null, 'proposal is for a new field');
+  near(newProp && polygonArea(newProp.polygon) / 10000, 60 * 48.19 / 10000, 0.03, 'new field area');
+
+  // --- persistence
+  cov.flush(Date.now(), true);
+  const cov2 = new CoverageStore({ dir: tmp, persist: true });
+  const store2 = new FieldStore({ dir: tmp, persist: true, coverage: cov2 });
+  check(store2.list(SAVE).length === 3, 'fields reloaded');
+  check(store2.field(SAVE, '1').boundaries.length === 3, 'boundary versions reloaded');
+  near(store2.records(SAVE, '1')[0].coveredHa, 1.08 + 0.324, 0.05, 'records rebuilt after reload');
+  store2.removeBoundary(SAVE, 'u1', 1);
+  check(!store2.field(SAVE, 'u1'), 'removing the last boundary removes the custom field');
+} finally {
+  fs.rmSync(tmp, { recursive: true, force: true });
+}
+console.log(`field checks: ${checks}, failures: ${failures}`);
+process.exit(failures ? 1 : 0);

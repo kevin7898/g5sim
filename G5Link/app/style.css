@@ -468,3 +468,28 @@ svg { display: block; }
 .pl-lower .lower-col { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .pl-rows { min-height: 150px; }
 #unitsWin, #confirm, #numpad { z-index: 50; }   /* can open on top of the full-screen Menu */
+
+/* ---------------------------------------------------------------- Boundary app */
+.map-rec { position: absolute; left: 50%; top: 134px; transform: translateX(-50%); z-index: 3; background: rgba(150, 12, 12, .9); color: #fff;
+  padding: 4px 14px 6px; border-radius: 4px; display: flex; flex-direction: column; align-items: center; cursor: pointer; }
+.map-rec[hidden] { display: none; }
+.map-rec b { font-size: 15px; } .map-rec span { font-size: 17px; font-weight: 700; }
+.bd-win .win-body { padding: 10px 20px 18px; }
+.bd-win .set-row .seg { width: 380px; }
+.bd-win .seg button { font-size: 16px; }
+.bd-win .seg button:disabled { opacity: .45; }
+.bd-win .hint { font-size: 15px; font-weight: 600; color: var(--muted); margin: 10px 0; }
+.bd-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.bd-actions .g5btn { min-width: 140px; height: 52px; font-size: 18px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+.bd-actions .g5btn svg { width: 20px; height: 20px; }
+.bd-state { display: flex; align-items: center; gap: 10px; font-size: 20px; margin: 6px 0 12px; }
+.bd-state i { width: 16px; height: 16px; border-radius: 50%; background: #d2262c; }
+.bd-state.rec i { animation: bdblink 1s steps(2) infinite; } .bd-state.paused i { background: var(--warn); }
+.bd-state span { margin-left: auto; font-weight: 700; color: var(--muted); }
+@keyframes bdblink { 50% { opacity: .2; } }
+.bd-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; background: var(--rule); }
+.bd-grid div { background: var(--cream); padding: 8px 10px; } .bd-grid small { display: block; font-size: 13px; font-weight: 700; color: var(--muted); }
+.bd-grid b { font-size: 22px; }
+a.app { text-decoration: none; color: inherit; }
+#boundaryWin { z-index: 50; }
+.g5btn:disabled { opacity: .45; }

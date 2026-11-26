@@ -137,6 +137,20 @@ from `FieldPathPrivateIntegration.lua`:
 - **Not yet checked in game:** the work-area node positions and orientation on real implements, and the 100° pass rule
   on real headland turns.
 
+## Ops Center (app/ops/, bridge/fields.js)
+
+- The mod writes `fields.json` (map fields from `g_fieldManager.fields`: polygon from `getPolygonPoints()` nodes,
+  `areaHa`, `farmland.id`, owner from `g_farmlandManager:getFarmlandOwner`) when anything changes, checked every
+  10 s, and `equipment.json` every 5 s (motorized vehicles of the player's farm from `vehicleSystem.vehicles`).
+- The bridge keeps fields per savegame in `maps/<save>/ops-fields.json`: versioned boundaries with a source (game,
+  driven, coverage). The newest driven or coverage version is active unless the operator picks one. A boundary with
+  no field id lands in the game field its centre lies in, unless "New Field" was chosen.
+- Records are computed when asked from the recorded swaths and the active boundaries (unique area on the 1 m grid).
+- Expand from coverage: field interior plus covered cells outside other fields, closed by 2 cells, flood-filled from
+  the field, outer edge traced and simplified (1.2 m). Saving is always a separate, explicit step.
+- Reference: `research/deere-ops-center-notes.md` (structure of the real Operations Center; captures local only).
+- **Not yet checked in game:** `fields.json` content on real maps (polygon node order, owner values), and equipment.
+
 ## Design reference (how the look was matched)
 
 The look was matched to the real G5 Universal in the Deere Display and CommandARM Simulator

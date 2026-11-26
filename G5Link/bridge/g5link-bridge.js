@@ -40,10 +40,13 @@ const TELEMETRY = path.join(DIR, 'telemetry.xml');
 const COMMANDS = path.join(DIR, 'commands.xml');
 const PROVIDERS = path.join(DIR, 'providers.json'); // other mods: soil, Courseplay, AutoDrive, mud (1 Hz)
 const COURSE = path.join(DIR, 'course.json');       // Courseplay course + field boundary (on change)
+const FIELDS = path.join(DIR, 'fields.json');       // map fields with polygons and owners (on change)
+const EQUIPMENT = path.join(DIR, 'equipment.json'); // the farm's machines (every 5 s)
 const PROVIDER_STALE_MS = 6000;
 const APP_DIR = path.resolve(__dirname, '..', 'app');
 const STALE_MS = 3000; // no new seq for this long => game considered paused/closed
 const { CoverageStore } = require('./coverage.js');
+const { FieldStore, simplifyRing } = require('./fields.js');
 
 // ---------------------------------------------------------------- tiny XML parser
 // Handles the flat, attribute-only XML the mod writes. Not a general parser.
@@ -170,6 +173,65 @@ function mapStore() {
   return maps;
 }
 
+// ---------------------------------------------------------------- Ops Center: fields, equipment, boundary recording
+let ops = null;
+function fieldStore() {
+  if (!ops) ops = new FieldStore({ dir: DIR, persist: !DEMO, coverage: mapStore() });
+  return ops;
+}
+const currentSave = () => (latest.game && latest.game.save) || 'unsaved';
+let gameFields = null, gameFieldsSave = null;          // fields.json waits until the savegame is known
+let equipment = { vehicles: [] }, equipmentAt = 0;
+function takeGameFields(json) {
+  gameFields = json; gameFieldsSave = null;
+  if (latest.state === 'vehicle' || latest.state === 'onfoot') importGameFields();
+}
+function importGameFields() {
+  if (!gameFields || gameFieldsSave === currentSave()) return;
+  gameFieldsSave = currentSave();
+  fieldStore().importGame(gameFieldsSave, gameFields);
+}
+
+// Driven boundary: positions of the vehicle (or offset to the implement edge) while recording.
+let rec = { active: false };
+function boundaryFrame(t) {
+  if (!rec.active || rec.paused || !t.vehicle || typeof t.vehicle.x !== 'number') return;
+  const h = (t.vehicle.heading || 0) * Math.PI / 180, r = { x: Math.cos(h), z: Math.sin(h) };
+  const side = rec.side === 'left' ? -1 : rec.side === 'right' ? 1 : 0;
+  const x = t.vehicle.x + r.x * rec.offset * side, z = t.vehicle.z + r.z * rec.offset * side;
+  const last = rec.points[rec.points.length - 1];
+  if (last && Math.hypot(x - last[0], z - last[1]) < 1) return;
+  if (last) rec.length += Math.hypot(x - last[0], z - last[1]);
+  if (rec.points.length < 20000) rec.points.push([+x.toFixed(2), +z.toFixed(2)]);
+}
+function boundaryStatus() {
+  if (!rec.active) return { active: false, saved: rec.saved || null };
+  const first = rec.points[0], last = rec.points[rec.points.length - 1];
+  return { active: true, paused: !!rec.paused, points: rec.points.length, length: Math.round(rec.length), side: rec.side, offset: rec.offset,
+    fieldId: rec.fieldId, name: rec.name, gap: first && last ? Math.round(Math.hypot(first[0] - last[0], first[1] - last[1])) : null };
+}
+function boundaryCommand(c) {
+  const a = c.action;
+  if (a === 'start') {
+    rec = { active: true, paused: false, points: [], length: 0, side: ['left', 'right'].includes(c.side) ? c.side : 'center',
+      offset: Math.max(0, Math.min(30, Number(c.offset) || 0)), fieldId: c.fieldId ? String(c.fieldId) : null, name: c.name ? String(c.name).slice(0, 60) : null,
+      newField: !c.fieldId };
+    return boundaryStatus();
+  }
+  if (!rec.active) throw new Error('not recording');
+  if (a === 'pause') rec.paused = true;
+  else if (a === 'resume') rec.paused = false;
+  else if (a === 'cancel') rec = { active: false };
+  else if (a === 'finish') {
+    if (rec.points.length < 3 || rec.length < 30) throw new Error('drive at least 30 m around the field before saving');
+    const polygon = simplifyRing(rec.points, 0.5);
+    const r = fieldStore().addBoundary(currentSave(), { fieldId: rec.fieldId, name: rec.name, source: 'driven', polygon, newField: rec.newField });
+    rec = { active: false, saved: r };
+    return { active: false, saved: r };
+  } else throw new Error('unknown action');
+  return boundaryStatus();
+}
+
 function setTelemetry(t) {
   const fresh = t.seq !== lastSeq;
   if (fresh) {
@@ -179,8 +241,10 @@ function setTelemetry(t) {
   latest = { ...t, ...currentExtras(), link: 'live' };
   if (fresh) {
     try { mapStore().onFrame(latest); } catch (e) { console.warn('Map recording failed:', e.message); }
+    try { boundaryFrame(latest); importGameFields(); } catch (e) { console.warn('Field update failed:', e.message); }
   }
   latest.map = mapStore().status();
+  latest.ops = { fields: fieldStore().version, boundary: boundaryStatus() };
   broadcast();
 }
 
@@ -235,6 +299,8 @@ const pollProviders = jsonPoller(PROVIDERS, frame => {
   latest = { ...latest, ...currentExtras() };
   broadcast();
 });
+const pollFields = jsonPoller(FIELDS, takeGameFields);
+const pollEquipment = jsonPoller(EQUIPMENT, e => { equipment = e && Array.isArray(e.vehicles) ? e : { vehicles: [] }; equipmentAt = Date.now(); });
 const pollCourse = jsonPoller(COURSE, c => { course = { key: c.key ?? null, name: c.name, workWidth: c.workWidth, waypoints: c.waypoints || [], field: c.field || [] }; });
 
 // ---------------------------------------------------------------- commands
@@ -395,6 +461,8 @@ function demoTick(dt) {
     },
   });
   setExtras(demoProviders(working));
+  if (!gameFields) takeGameFields(demoFields());
+  equipment = demoEquipment(); equipmentAt = Date.now();
   setTelemetry(DEMO_COMBINE ? demoCombine(frame, dt, working, meters) : frame);
 }
 
@@ -484,6 +552,28 @@ function demoCourse() {
     field: [[x0, z0], [x1, z0], [x1, z1], [x0, z1]].map(q => q.map(n => +n.toFixed(1))) };
 }
 if (DEMO) course = demoCourse();
+// Demo map fields: Field 23 covers the first ten passes only, so the last four show up as
+// work outside the field (as after cultivating new ground) for "Expand from coverage".
+function demoFields() {
+  const h = DEMO_H * Math.PI / 180, f = { x: Math.sin(h), z: -Math.cos(h) }, r = { x: Math.cos(h), z: Math.sin(h) };
+  const pt = (L, off) => [+(-120 + f.x * L + r.x * off).toFixed(1), +(340 + f.z * L + r.z * off).toFixed(1)];
+  const edge = DEMO_W * 0.95 * 10 - DEMO_W / 2;      // ~ the first ten passes
+  return { farmId: 1, fields: [
+    { id: 23, name: 'Field 23', farmland: 23, owner: 1, polygon: [pt(-8, -DEMO_W / 2), pt(DEMO_LEN + 8, -DEMO_W / 2), pt(DEMO_LEN + 8, edge), pt(-8, edge)] },
+    { id: 24, name: 'Field 24', farmland: 24, owner: 1, polygon: [pt(-8, -60), pt(DEMO_LEN + 8, -60), pt(DEMO_LEN + 8, -20), pt(-8, -20)] },
+    { id: 25, name: 'Field 25', farmland: 25, owner: 0, polygon: [pt(DEMO_LEN + 60, 0), pt(DEMO_LEN + 260, 0), pt(DEMO_LEN + 260, 150), pt(DEMO_LEN + 60, 150)] },
+  ] };
+}
+function demoEquipment() {
+  return { farmId: 1, vehicles: [
+    { id: 'demo1', name: DEMO_COMBINE ? 'Demo S7 Combine' : 'Demo 8R Tractor', kind: DEMO_COMBINE ? 'combine' : 'tractor', x: +demo.x.toFixed(1), z: +demo.z.toFixed(1),
+      heading: Math.round(demo.heading), speed: +demo.speed.toFixed(1), motorOn: demo.motorOn, ai: false, inUse: true, fuelPct: Math.round(demo.fuel / 680 * 100),
+      hours: 1287.4, damage: 12, field: 23, implements: [DEMO_COMBINE ? 'Demo HD40F Header' : 'Demo 1775NT Planter'] },
+    { id: 'demo2', name: 'Demo 9RX Tractor', kind: 'tractor', x: -160, z: 300, heading: 180, speed: 0, motorOn: false, ai: false, inUse: false, fuelPct: 64, hours: 2210.3, damage: 31, field: null, implements: ['Demo 2730 Ripper'] },
+    { id: 'demo3', name: 'Demo R4045 Sprayer', kind: 'sprayer', x: -170, z: 360, heading: 90, speed: 0, motorOn: false, ai: false, inUse: false, fuelPct: 88, hours: 640.0, damage: 5, field: null, implements: [] },
+    { id: 'demo4', name: 'Demo Semi Truck', kind: 'truck', x: -190, z: 330, heading: 0, speed: 0, motorOn: false, ai: false, inUse: false, fuelPct: 41, hours: 3301.9, damage: 18, field: null, implements: ['Demo Grain Trailer'] },
+  ] };
+}
 function demoProviders(working) {
   const s = demo.t / 1000;
   const providers = {
@@ -526,7 +616,9 @@ const MIME = {
 
 function serveStatic(req, res) {
   const urlPath = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-  const rel = urlPath === '/' ? 'index.html' : urlPath.replace(/^\/+/, '');
+  if (urlPath === '/ops') { res.writeHead(302, { Location: '/ops/' }).end(); return; }
+  let rel = urlPath === '/' ? 'index.html' : urlPath.replace(/^\/+/, '');
+  if (rel.endsWith('/')) rel += 'index.html';
   const file = path.resolve(APP_DIR, rel);
   if (!file.startsWith(APP_DIR + path.sep)) { res.writeHead(403).end(); return; }
   fs.readFile(file, (err, data) => {
@@ -544,6 +636,45 @@ const server = http.createServer((req, res) => {
     clients.add(res);
     req.on('close', () => clients.delete(res));
     return;
+  }
+  if (req.url.startsWith('/api/ops/') || req.url.startsWith('/api/boundary')) {
+    const u = new URL(req.url, 'http://x');
+    const json = (code, body) => res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' }).end(JSON.stringify(body));
+    const store = fieldStore(), save = currentSave();
+    const post = fn => {
+      let body = '';
+      req.on('data', d => { body += d; if (body.length > 512 * 1024) req.destroy(); });
+      req.on('end', () => {
+        try { json(200, { ok: true, ...(fn(JSON.parse(body || '{}')) || {}) }); }
+        catch (e) { json(400, { ok: false, error: e.message }); }
+      });
+    };
+    if (req.method === 'GET') {
+      if (u.pathname === '/api/ops/summary') {
+        const v = latest.vehicle;
+        return json(200, { save, farmId: gameFields ? gameFields.farmId : null, settings: store.db(save).settings, fields: store.list(save), version: store.version,
+          equipment: equipment.vehicles, equipmentAge: equipmentAt ? Date.now() - equipmentAt : null,
+          here: v && typeof v.x === 'number' ? { x: v.x, z: v.z, heading: v.heading, name: v.name } : null,
+          game: latest.game || {}, link: latest.link, maps: mapStore().list().ops });
+      }
+      if (u.pathname === '/api/ops/field') {
+        const f = store.field(save, u.searchParams.get('id'));
+        return f ? json(200, { field: f, records: store.records(save, f.id) }) : json(404, { error: 'no such field' });
+      }
+      if (u.pathname === '/api/ops/records') return json(200, { records: store.records(save) });
+      if (u.pathname === '/api/boundary') return json(200, { ...boundaryStatus(), path: rec.active ? rec.points : [] });
+      return json(404, { error: 'unknown route' });
+    }
+    if (req.method === 'POST') {
+      if (u.pathname === '/api/boundary') return post(c => boundaryCommand(c));
+      if (u.pathname === '/api/ops/settings') return post(c => ({ settings: store.setSettings(save, c) }));
+      if (u.pathname === '/api/ops/boundary') return post(c => store.addBoundary(save, { fieldId: c.fieldId, name: c.name, source: c.source, polygon: c.polygon, note: c.note, newField: !!c.newField }));
+      if (u.pathname === '/api/ops/active') return post(c => { store.setActive(save, c.fieldId, Number(c.v)); });
+      if (u.pathname === '/api/ops/rename') return post(c => { store.rename(save, c.fieldId, c.name); });
+      if (u.pathname === '/api/ops/remove-boundary') return post(c => { store.removeBoundary(save, c.fieldId, Number(c.v)); });
+      if (u.pathname === '/api/ops/from-coverage') return post(c => ({ proposal: store.fromCoverage(save, c.fieldId ? { fieldId: c.fieldId } : { x: Number(c.x), z: Number(c.z) }) }));
+    }
+    return json(404, { error: 'unknown route' });
   }
   if (req.url.startsWith('/api/map/')) {
     const u = new URL(req.url, 'http://x');
@@ -607,6 +738,8 @@ if (DEMO) {
   setInterval(pollTelemetry, 100);
   setInterval(pollProviders, 500);
   setInterval(pollCourse, 1000);
+  setInterval(pollFields, 2000);
+  setInterval(pollEquipment, 1000);
 }
 }
 

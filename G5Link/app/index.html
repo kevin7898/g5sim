@@ -88,6 +88,7 @@
               <div class="ml-rows" id="mlRows"></div>
               <button class="ml-new" id="mlNew"><b>+</b><span>New Work</span></button>
             </div>
+            <div class="map-rec" id="mapRec" hidden></div>
             <div class="map-ai" id="mapAi" hidden><b id="mapAiName">---</b><span id="mapAiTxt"></span></div>
           </div>
           <div class="side">
@@ -335,6 +336,8 @@
             <button class="app" data-goto="Work Monitor"><span class="app-ico"><svg><use href="#i-work"/></svg></span><b>Work Monitor</b></button>
             <button class="app" data-goto="Implement Details"><span class="app-ico"><svg><use href="#i-hitch"/></svg></span><b>Implement Details</b></button>
             <button class="app" data-goto="Machine Monitor"><span class="app-ico"><svg><use href="#i-engine"/></svg></span><b>Machine Monitor</b></button>
+            <button class="app" id="appBoundary"><span class="app-ico"><svg><use href="#i-layers"/></svg></span><b>Boundary</b></button>
+            <a class="app" href="/ops/"><span class="app-ico"><svg><use href="#i-sat"/></svg></span><b>Ops Center</b></a>
             <button class="app" data-goto="Planter"><span class="app-ico"><svg><use href="#i-seed"/></svg></span><b>Planter</b></button>
             <button class="app" data-goto="Harvesting"><span class="app-ico"><svg><use href="#i-work"/></svg></span><b>Harvesting</b></button>
             <button class="app" data-goto="Field"><span class="app-ico"><svg><use href="#i-sat"/></svg></span><b>Field</b></button>
@@ -362,6 +365,14 @@
           <button class="g5btn smv-cancel" id="smvCancel"><svg><use href="#i-x"/></svg>Cancel</button>
           <button class="g5btn smv-ok" id="smvOk"><svg><use href="#i-check"/></svg>OK</button>
         </div>
+      </div>
+    </div>
+
+    <!-- App window: Boundary (record a field edge by driving) -->
+    <div class="window-wrap" id="boundaryWin" hidden>
+      <div class="window narrow bd-win">
+        <div class="win-head"><b>Boundary</b><button class="win-close" data-close="boundaryWin" aria-label="Close"><svg><use href="#i-x"/></svg></button></div>
+        <div class="win-body" id="bdBody"></div>
       </div>
     </div>
 
@@ -430,8 +441,10 @@
     </div>
   </div>
 </div>
+<script src="shared.js"></script>
 <script src="app.js"></script>
 <script src="layers.js"></script>
+<script src="boundary.js"></script>
 <script src="guidance.js"></script>
 </body>
 </html>

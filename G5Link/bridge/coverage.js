@@ -167,7 +167,7 @@ class CoverageStore {
         try { rec = JSON.parse(line); } catch (e) { continue; }   // a torn last line after a crash
         if (rec.meta) { op = new Operation(rec.meta.id, rec.meta); m.set(op.id, op); continue; }
         if (op && Array.isArray(rec.q)) {
-          op.addFrame({ p: rec.p, h: rec.h, q: rec.q, v: rec.v || {} }, false);
+          op.addFrame({ p: rec.p, h: rec.h, d: rec.d, q: rec.q, v: rec.v || {} }, false);
           this.pass.id = Math.max(this.pass.id, (rec.p || 0) + 1);
         }
       }
@@ -325,7 +325,8 @@ class CoverageStore {
       if (!quads.length) return;
       const areaM2 = quads.reduce((s, q) => s + quadArea(q), 0);
       const op = this.getOp(opId, opMeta);
-      op.addFrame({ p: this.pass.id, h: Math.round(v.heading || 0), q: quads, v: this.valuesOf(t, impl, opMeta, key, areaM2) }, this.persist);
+      const day = t.game && typeof t.game.day === 'number' ? t.game.day : undefined;
+      op.addFrame({ p: this.pass.id, h: Math.round(v.heading || 0), d: day, q: quads, v: this.valuesOf(t, impl, opMeta, key, areaM2) }, this.persist);
     });
     if (!workedThisFrame) this.pass.working = false;
     this.current = currentOp;

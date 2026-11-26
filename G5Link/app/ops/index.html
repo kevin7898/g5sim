@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="G5Link Ops">
+<title>G5Link Ops Center</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="ops.css">
+</head>
+<body>
+<header class="top">
+  <b class="brand">G5Link <span>Ops Center</span></b>
+  <span class="save" id="saveName">---</span>
+  <span class="link" id="linkState">---</span>
+  <a class="to-display" href="/">G5 Display</a>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button data-tab="fields" class="on">Fields</button>
+  <button data-tab="work">Work</button>
+  <button data-tab="equipment">Equipment</button>
+  <button data-tab="settings">Settings</button>
+</nav>
+
+<main class="main">
+  <section class="panel" id="panel">
+    <div class="view" id="view-fields">
+      <div class="panel-head"><input id="fieldSearch" type="search" placeholder="Search fields"><span id="fieldCount"></span></div>
+      <div class="list" id="fieldList"></div>
+    </div>
+    <div class="view" id="view-field" hidden>
+      <div class="panel-head"><button class="back" id="fieldBack">‹ Fields</button><button class="small" id="fieldRename">Rename</button></div>
+      <div class="detail" id="fieldDetail"></div>
+    </div>
+    <div class="view" id="view-work" hidden>
+      <div class="panel-head"><b>Work records</b><span id="workCount"></span></div>
+      <div class="list" id="workList"></div>
+    </div>
+    <div class="view" id="view-equipment" hidden>
+      <div class="panel-head"><b>Equipment</b><span id="equipCount"></span></div>
+      <div class="list" id="equipList"></div>
+    </div>
+    <div class="view" id="view-settings" hidden>
+      <div class="panel-head"><b>Settings</b></div>
+      <div class="detail" id="settingsBody"></div>
+    </div>
+  </section>
+
+  <section class="mapwrap">
+    <canvas id="map"></canvas>
+    <div class="map-tools">
+      <button id="zoomIn" aria-label="Zoom in">+</button>
+      <button id="zoomOut" aria-label="Zoom out">−</button>
+      <button id="zoomFit" aria-label="Fit map">⤢</button>
+    </div>
+    <div class="map-layer" id="mapLayer" hidden>
+      <select id="layerOp" aria-label="Operation"></select>
+      <select id="layerKey" aria-label="Layer"></select>
+    </div>
+    <div class="map-legend" id="mapLegend" hidden></div>
+    <div class="map-hint" id="mapHint" hidden></div>
+  </section>
+</main>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="../shared.js"></script>
+<script src="ops.js"></script>
+</body>
+</html>

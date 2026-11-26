@@ -16,13 +16,16 @@
 -- one odd vehicle can never break the game loop.
 
 G5Link = {}
-G5Link.VERSION = "0.4.0"
+G5Link.VERSION = "0.5.0"
 G5Link.WRITE_INTERVAL = 250   -- ms between telemetry writes (4 Hz)
 G5Link.CMD_INTERVAL = 250     -- ms between command file polls
 G5Link.MAX_IMPLEMENTS = 8
 G5Link.PROVIDER_INTERVAL = 1000  -- ms between providers.json writes (soil, Courseplay, AutoDrive, mud)
 G5Link.COURSE_MAX_POINTS = 4000   -- waypoints kept in course.json
 G5Link.SEEDER_INTERVAL = 1000    -- ms between Realistic Seeder snapshots (getSnapshot builds presets each call)
+G5Link.FARM_INTERVAL = 5000      -- ms between equipment.json writes (Ops Center)
+G5Link.FIELD_CHECK_INTERVAL = 10000  -- ms between field ownership checks (fields.json rewritten on change)
+G5Link.MAX_VEHICLES = 120
 
 local function call(obj, fname, ...)
     if obj == nil then
@@ -68,6 +71,11 @@ function G5Link:loadMap(name)
     self.providerSeq = 0
     self.lastCourseKey = false
     self.seederCache = {}
+    self.equipmentPath = self.dir .. "equipment.json"
+    self.fieldsPath = self.dir .. "fields.json"
+    self.farmTimer = 0
+    self.fieldTimer = G5Link.FIELD_CHECK_INTERVAL  -- first check on the first update (fields are empty during loadMap)
+    self.fieldsKey = nil
 
     self.writeTimer = 0
     self.cmdTimer = 0
@@ -132,6 +140,25 @@ function G5Link:update(dt)
     if self.cmdTimer >= G5Link.CMD_INTERVAL then
         self.cmdTimer = 0
         self:processCommands(vehicle)
+    end
+
+    self.farmTimer = self.farmTimer + dt
+    if self.farmTimer >= G5Link.FARM_INTERVAL then
+        self.farmTimer = 0
+        local ok, err = pcall(self.writeEquipment, self)
+        if not ok and not self.farmErrorLogged then
+            self.farmErrorLogged = true
+            print("G5Link: equipment write failed: " .. tostring(err))
+        end
+    end
+    self.fieldTimer = self.fieldTimer + dt
+    if self.fieldTimer >= G5Link.FIELD_CHECK_INTERVAL then
+        self.fieldTimer = 0
+        local ok, err = pcall(self.writeFields, self)
+        if not ok and not self.fieldErrorLogged then
+            self.fieldErrorLogged = true
+            print("G5Link: fields write failed: " .. tostring(err))
+        end
     end
 
     if G5LinkProviders ~= nil then
@@ -765,7 +792,126 @@ function G5Link:getFieldIdAt(x, z)
     if type(id) == "number" and id > 0 then
         return id
     end
+    -- base game: FieldManager:getFieldAtWorldPosition (patterns/field-detection.md, used by Realistic Seeder too)
+    local field = call(g_fieldManager, "getFieldAtWorldPosition", x, z)
+    if type(field) == "table" and type(field.fieldId) == "number" and field.fieldId > 0 then
+        return field.fieldId
+    end
     return nil
+end
+
+-- The local player's farm (as Realistic Harvesting's RHM_Api.getActiveFarmId resolves it).
+function G5Link:getFarmId()
+    local id = call(g_localPlayer, "getFarmId")
+    if type(id) ~= "number" or id == 0 then
+        id = call(g_currentMission and g_currentMission.player, "getFarmId")
+    end
+    if type(id) ~= "number" or id == 0 then
+        id = call(g_currentMission, "getFarmId")
+    end
+    if type(id) ~= "number" or id == 0 then
+        id = 1
+    end
+    return id
+end
+
+-- fields.json for the Ops Center: every map field with its polygon (Field:getPolygonPoints nodes, read with
+-- getWorldTranslation as FieldManager does), area, farmland and owner. Rewritten only when something changes.
+function G5Link:writeFields()
+    local fm = g_fieldManager
+    if fm == nil or type(fm.fields) ~= "table" or #fm.fields == 0 then
+        return  -- empty during loading; retried on the next check
+    end
+    local farmId = self:getFarmId()
+    local out = {farmId = farmId, fields = {}}
+    local keyParts = {tostring(farmId)}
+    for _, field in ipairs(fm.fields) do
+        local id = field.fieldId
+        if type(id) == "number" then
+            local farmlandId = type(field.farmland) == "table" and field.farmland.id or nil
+            local owner = farmlandId and call(g_farmlandManager, "getFarmlandOwner", farmlandId) or nil
+            local poly = {}
+            local points = call(field, "getPolygonPoints") or field.polygonPoints or {}
+            for _, node in ipairs(points) do
+                local x, z = nodePos(node)
+                if x ~= nil then
+                    poly[#poly + 1] = {round(x, 1), round(z, 1)}
+                end
+            end
+            out.fields[#out.fields + 1] = {
+                id = id, name = type(field.name) == "string" and field.name or nil,
+                areaHa = type(field.areaHa) == "number" and round(field.areaHa, 3) or nil,
+                farmland = farmlandId, owner = owner, x = round(field.posX or 0, 1), z = round(field.posZ or 0, 1),
+                polygon = poly
+            }
+            keyParts[#keyParts + 1] = tostring(id) .. ":" .. tostring(owner) .. ":" .. tostring(#poly)
+        end
+    end
+    local key = table.concat(keyParts, "|")
+    if key == self.fieldsKey then
+        return
+    end
+    if self:writeTextFile(self.fieldsPath, G5Json.encode(out)) then
+        self.fieldsKey = key
+    end
+end
+
+local function vehicleKind(v)
+    if v.spec_combine ~= nil then return "combine" end
+    local tn = type(v.typeName) == "string" and string.lower(v.typeName) or ""
+    if string.find(tn, "truck") then return "truck" end
+    if string.find(tn, "car") or string.find(tn, "pickup") then return "car" end
+    if string.find(tn, "sprayer") then return "sprayer" end
+    if string.find(tn, "forage") then return "forageHarvester" end
+    if string.find(tn, "loader") or string.find(tn, "telehandler") then return "loader" end
+    return "tractor"
+end
+
+-- equipment.json for the Ops Center: the farm's motorized machines (VehicleSystem.vehicles).
+function G5Link:writeEquipment()
+    local vs = g_currentMission and g_currentMission.vehicleSystem
+    local list = vs and vs.vehicles
+    if type(list) ~= "table" then
+        return
+    end
+    local farmId = self:getFarmId()
+    local current = call(g_localPlayer, "getCurrentVehicle")
+    local out = {farmId = farmId, day = g_currentMission.environment and g_currentMission.environment.currentDay or nil,
+        time = math.floor(g_currentMission.time or 0), vehicles = {}}
+    for _, v in ipairs(list) do
+        if #out.vehicles >= G5Link.MAX_VEHICLES then
+            break
+        end
+        if type(v) == "table" and v.spec_motorized ~= nil and call(v, "getOwnerFarmId") == farmId and v.rootNode ~= nil then
+            local x, z = nodePos(v.rootNode)
+            if x ~= nil then
+                local e = {id = tostring(v.uniqueId or v.id or #out.vehicles + 1), name = call(v, "getFullName") or "Vehicle",
+                    kind = vehicleKind(v), x = round(x, 1), z = round(z, 1),
+                    speed = round(call(v, "getLastSpeed") or 0, 1), motorOn = bool(call(v, "getIsMotorStarted")),
+                    ai = bool(call(v, "getIsAIActive")), inUse = v == current}
+                local okDir, dx, _, dz = pcall(localDirectionToWorld, v.rootNode, 0, 0, 1)
+                if okDir and type(dx) == "number" then
+                    e.heading = round((180 - math.deg(math.atan2(dx, dz))) % 360, 0)
+                end
+                local fuel, cap = self:getFuel(v)
+                if fuel ~= nil and cap ~= nil and cap > 0 then
+                    e.fuelPct = round(fuel / cap * 100, 0)
+                end
+                local opTime = call(v, "getOperatingTime")
+                if type(opTime) == "number" then e.hours = round(opTime / 3600000, 1) end
+                local damage = call(v, "getDamageAmount")
+                if type(damage) == "number" then e.damage = round(damage * 100, 0) end
+                e.field = self:getFieldIdAt(x, z)
+                local implNames = {}
+                for _, impl in ipairs(self:getImplements(v)) do
+                    implNames[#implNames + 1] = call(impl, "getFullName") or "Implement"
+                end
+                e.implements = implNames
+                out.vehicles[#out.vehicles + 1] = e
+            end
+        end
+    end
+    self:writeTextFile(self.equipmentPath, G5Json.encode(out))
 end
 
 -- createFile / fileWrite / delete: Giants file API (see BitmapUtil.writeBitmapToFile).

@@ -521,6 +521,21 @@ do
     g_currentMission.missionInfo = {savegameDirectory = "C:/Users/me/Documents/My Games/FarmingSimulator2025/savegame9/"}
     g_currentMission.realisticSeederAPI = seederApi(planter)
 
+    -- map fields (FieldManager) and the farm's machines (VehicleSystem) for the Ops Center files
+    local fieldNodes = {addNode(0, 0), addNode(100, 0), addNode(100, 100), addNode(0, 100)}
+    g_fieldManager = {fields = {{fieldId = 7, name = "Field 7", areaHa = 1.0, farmland = {id = 23}, posX = 50, posZ = 50,
+        getPolygonPoints = function(self) return fieldNodes end}},
+        getFieldAtWorldPosition = function(self, x, z) if x >= 0 and x <= 100 and z >= 0 and z <= 100 then return self.fields[1] end return nil end}
+    g_farmlandManager.getFarmlandOwner = function(self, id) return id == 23 and 1 or 0 end
+    g_localPlayer.getFarmId = function(self) return 1 end
+    tractor.spec_motorized = {}
+    tractor.uniqueId = "veh-1"
+    tractor.getOwnerFarmId = function(self) return 1 end
+    local stranger = makeVehicle({name = "Neighbour Tractor"})
+    stranger.spec_motorized = {}
+    stranger.getOwnerFarmId = function(self) return 2 end
+    g_currentMission.vehicleSystem = {vehicles = {tractor, planter, stranger}}
+
     mod:loadMap("test")
     seederCalls = 0
     tick(4)
@@ -544,6 +559,18 @@ do
     eq(t0["g5.implements.implement(0).seeder#cv"], nil, "no CV on a planter")
     check(seederCalls <= 2, "seeder snapshot read at most once per second (" .. seederCalls .. " calls in 1 s)")
     eq(t0["g5.vehicle#name"] ~= nil, true, "tractor not treated as a seeder")
+    local fj = readFile(dir .. "fields.json") or ""
+    check(string.find(fj, '"id":7', 1, true) ~= nil, "fields.json lists map field 7")
+    check(string.find(fj, '"owner":1', 1, true) ~= nil, "fields.json has the owner")
+    check(string.find(fj, '[100,100]', 1, true) ~= nil, "fields.json has the polygon")
+    writeFile(dir .. "fields.json", "SENTINEL")
+    tick(41)                                            -- > 10 s: ownership unchanged, so no rewrite
+    eq(readFile(dir .. "fields.json"), "SENTINEL", "fields.json only rewritten on change")
+    local ej = readFile(dir .. "equipment.json") or ""
+    check(string.find(ej, '"id":"veh-1"', 1, true) ~= nil, "equipment.json lists the farm's tractor")
+    check(string.find(ej, "Neighbour", 1, true) == nil, "equipment.json leaves out other farms' machines")
+    check(string.find(ej, '"inUse":true', 1, true) ~= nil, "equipment.json marks the machine in use")
+    check(string.find(ej, '"implements":["Test Planter"]', 1, true) ~= nil, "equipment.json lists attached implements")
     local t = telemetry(dir)
     eq(t["g5#state"], "vehicle", "state")
     eq(t["g5.vehicle#name"], "Test Tractor", "vehicle name")
@@ -557,7 +584,7 @@ do
     eq(t["g5.implements.implement(0).fill(0)#title"], "Seeds", "fill title")
     eq(t["g5.combine#tank"], nil, "no combine block for a tractor")
     eq(t["g5.rh#version"], nil, "no Realistic Harvesting block")
-    near(tonumber(t["g5.work#area"]), 12.19 * 10 / 3.6 * 1.0, 1, "worked area after 1 s")
+    near(tonumber(t["g5.work#area"]), 12.19 * 10 / 3.6 * 11.25, 1, "worked area after 11.25 s (45 ticks)")
 
     -- fuel accounting: burn 0.5 L
     ts.fuel = 499.5

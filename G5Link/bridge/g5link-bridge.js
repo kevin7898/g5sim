@@ -31,9 +31,10 @@ function opt(name, fallback) {
 }
 const DEMO_OPT = opt('demo', false);
 const DEMO = DEMO_OPT !== false;
-const DEMO_COMBINE = DEMO_OPT === 'combine';
+const DEMO_BIG = DEMO_OPT === 'bigfield';           // stress test: a 1500 ac odd-shaped field, 4 headland laps (demo-bigfield.js)
+const DEMO_COMBINE = DEMO_OPT === 'combine' || DEMO_BIG;
 const DEMO_TILLAGE = DEMO_OPT === 'tillage';
-const DEMO_SPEED = Math.max(1, Math.min(20, Number(opt('demo-speed', 1)) || 1)); // demo time multiplier
+const DEMO_SPEED = Math.max(1, Math.min(60, Number(opt('demo-speed', 1)) || 1)); // demo time multiplier
 const PORT = Number(opt('port', 8765));
 const DEFAULT_DIR = path.join(os.homedir(), 'Documents', 'My Games', 'FarmingSimulator2025',
   'modSettings', 'FS25_G5Link');
@@ -534,7 +535,7 @@ if (DEMO_COMBINE) { demo.ccSpeed = 6.2; demo.target = 6.2; }
 const RTK_LEVELS = { NONE: [0.8, 600, 1.5], SF1: [0.086, 1800, 0.15], SF2: [0.029, 1800, 0.05], SF3: [0.017, 1800, 0.03], RTK: [0.012, 3600, 0.025] };
 const RTK_PRICES = { SF2: 70, SF3: 120, MRTK: 130, SFRTK: 170, RTK: 2500, AUTOTRAC: 1500, SF3000: 4000, SF6000: 7000, SF7000: 9000, SHOP_GPS: 1, BASE: 15000, BASE_UPKEEP: 10 };
 // the demo farm has an RTK station built next to field 23 (already surveyed)
-demo.rtkState = { receiver: 'SF6000', rtk: false, subs: [], bases: [{ id: 'placeable12', name: 'John Deere RTK Station', x: -40, z: 250, farmId: 1, placedAt: -1e9 }],
+demo.rtkState = { receiver: 'SF6000', rtk: false, subs: [], bases: [{ id: 'placeable12', name: 'John Deere RTK Station', x: DEMO_BIG ? 0 : -40, z: DEMO_BIG ? -1600 : 250, farmId: 1, placedAt: -1e9 }],
   ledger: [], gates: true, prices: { ...RTK_PRICES }, nextBase: 1,
   ex: 0.05, ez: -0.04, startedAt: 0, rtkAt: null, level: 'SF1', src: 'SF1', accuracy: 1, result: null };
 function demoRtkSummary() { const r = demo.rtkState; return { day: 3, payer: null, gates: r.gates, bases: r.bases.length }; }
@@ -638,10 +639,11 @@ const DEMO_SETTINGS = [
 ];
 function demoCombine(t, dt, working, meters) {
   const width = 12.19;
-  const yieldT = Math.max(2, 6.6 + 1.4 * Math.sin(demo.x / 45) + 0.7 * Math.sin(demo.z / 23 + demo.t / 20000)); // t/ha
+  const big = DEMO_BIG && require('./demo-bigfield.js');
+  const yieldT = big ? big.yieldAt(demo.x, demo.z) : Math.max(2, 6.6 + 1.4 * Math.sin(demo.x / 45) + 0.7 * Math.sin(demo.z / 23 + demo.t / 20000)); // t/ha
   const haph = working ? width * demo.speed / 10 : 0;
   const tph = yieldT * haph;
-  const moisture = 14.2 + 1.6 * Math.sin(demo.t / 45000);
+  const moisture = big ? big.moistureAt(demo.x, demo.z, demo.t) : 14.2 + 1.6 * Math.sin(demo.t / 45000);
   const load = demo.motorOn ? (working ? 38 + tph * 1.25 : 22) : 0;
   const target = 85;
   const lossSettings = working ? 0.35 : 0;
@@ -836,7 +838,9 @@ function demoSeeder(working) {
 // Demo field: back-and-forth passes along 92°, slightly narrow on every other pass so the
 // coverage shows overlap, with half-circle turns (implement raised) at both ends.
 const DEMO_W = 12.19, DEMO_LEN = 320, DEMO_H = 92;
-const demoPath = (() => {
+const BIG = DEMO_BIG ? require('./demo-bigfield.js').build({ width: 12.19 }) : null;
+if (BIG) console.log(`Big field demo: ${(BIG.ha * 2.47105).toFixed(0)} ac, ${BIG.headlands} headland laps, ${BIG.blocks} blocks, ${BIG.passes} passes, ${(BIG.path[BIG.path.length - 1].s / 1000).toFixed(0)} km to drive`);
+const demoPath = BIG ? BIG.path : (() => {
   const h = DEMO_H * Math.PI / 180, f = { x: Math.sin(h), z: -Math.cos(h) }, r = { x: Math.cos(h), z: Math.sin(h) };
   const pts = [];
   let off = 0;
@@ -894,6 +898,8 @@ function demoCourse() {
     const flags = p.work && (!prev || !prev.work) ? 1 : p.work && next && !next.work ? 2 : 0;
     return [+p.x.toFixed(1), +p.z.toFixed(1), flags];
   });
+  if (BIG) return { key: 'demo-course', name: 'Field 23 (1500 ac) demo course', workWidth: DEMO_W, waypoints,
+    field: BIG.field.filter((q, i) => i % 3 === 0).map(q => q.map(n => +n.toFixed(1))) };
   const xs = demoPath.map(p => p.x), zs = demoPath.map(p => p.z), m = 18;
   const x0 = Math.min(...xs) - m, x1 = Math.max(...xs) + m, z0 = Math.min(...zs) - m, z1 = Math.max(...zs) + m;
   return { key: 'demo-course', name: 'Field 23 demo course', workWidth: DEMO_W, waypoints,
@@ -906,6 +912,8 @@ function demoFields() {
   const h = DEMO_H * Math.PI / 180, f = { x: Math.sin(h), z: -Math.cos(h) }, r = { x: Math.cos(h), z: Math.sin(h) };
   const pt = (L, off) => [+(-120 + f.x * L + r.x * off).toFixed(1), +(340 + f.z * L + r.z * off).toFixed(1)];
   const edge = DEMO_W * 0.95 * 10 - DEMO_W / 2;      // ~ the first ten passes
+  if (BIG) return { farmId: 1, farmName: 'Demo Farm', fields: [
+    { id: 23, name: 'Field 23', farmland: 23, owner: 1, polygon: BIG.field.filter((q, i) => i % 3 === 0).map(q => q.map(n => +n.toFixed(1))) }] };
   return { farmId: 1, farmName: 'Demo Farm', fields: [
     { id: 23, name: 'Field 23', farmland: 23, owner: 1, polygon: [pt(-8, -DEMO_W / 2), pt(DEMO_LEN + 8, -DEMO_W / 2), pt(DEMO_LEN + 8, edge), pt(-8, edge)] },
     { id: 24, name: 'Field 24', farmland: 24, owner: 1, polygon: [pt(-8, -60), pt(DEMO_LEN + 8, -60), pt(DEMO_LEN + 8, -20), pt(-8, -20)] },
@@ -969,10 +977,14 @@ function demoProviders(working) {
   if (DEMO_COMBINE) {
     providers.courseplay = {
       sourceMode: 'vehicle-functions', active: true, fieldworkActive: working, drivingToFieldwork: false,
-      progress: Math.min(1, (demo.work.area / 10000) / 7.5), waitingForUnload: demo.unloading, maneuvering: false,
-      courseName: 'Field 23 demo course',
-      course: { name: 'Field 23 demo course', workWidth: 12.19, headlands: 0, waypointCount: 630, remainingTurns: 8,
-        remainingDistance: Math.max(0, 6200 - demo.work.distance) },
+      progress: BIG ? +(demo.pathS / BIG.path[BIG.path.length - 1].s).toFixed(4) : Math.min(1, (demo.work.area / 10000) / 7.5),
+      waitingForUnload: demo.unloading, maneuvering: demo.turning,
+      courseName: BIG ? 'Field 23 (1500 ac) demo course' : 'Field 23 demo course',
+      course: BIG
+        ? { name: 'Field 23 (1500 ac) demo course', workWidth: 12.19, headlands: BIG.headlands, waypointCount: BIG.path.length,
+          remainingTurns: BIG.path[demo.pathI || 0].turnsLeft, remainingDistance: Math.round(BIG.path[BIG.path.length - 1].s - demo.pathS) }
+        : { name: 'Field 23 demo course', workWidth: 12.19, headlands: 0, waypointCount: 630, remainingTurns: 8,
+          remainingDistance: Math.max(0, 6200 - demo.work.distance) },
     };
   } else {
     providers.autodrive = { sourceMode: 'vehicle-state', active: false, task: '', destination: 'Grain Bins', remainingDriveTime: 0 };
@@ -1153,7 +1165,12 @@ server.listen(PORT, '0.0.0.0', () => {
 
 if (DEMO) {
   let last = Date.now();
-  setInterval(() => { const now = Date.now(); demoTick((now - last) * DEMO_SPEED); last = now; }, 250);
+  setInterval(() => {
+    const now = Date.now();
+    let dt = (now - last) * DEMO_SPEED; last = now;
+    // at high --demo-speed, step in pieces of <= 1.5 s game time so coverage gets a frame every few metres
+    while (dt > 0) { const step = Math.min(dt, 1500); demoTick(step); dt -= step; }
+  }, 250);
 } else {
   loadExistingCommandIds();
   setInterval(pollTelemetry, 100);

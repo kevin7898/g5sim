@@ -220,6 +220,31 @@ Motorized = {actionEventToggleMotorState = function(v) record("motorToggle", v) 
 AttacherJoints = {actionEventLowerAllImplements = function(v) record("lowerAll", v) end}
 TurnOnVehicle = {actionEventTurnOnAll = function(v) record("turnOnAll", v) end}
 
+-- bit32 exists in FS25's Lua; plain Lua 5.1 needs a stand-in (non-negative integers only)
+local function bitop(a, b, f)
+    local r, m = 0, 1
+    while a > 0 or b > 0 do
+        if f(a % 2, b % 2) then r = r + m end
+        a, b, m = math.floor(a / 2), math.floor(b / 2), m * 2
+    end
+    return r
+end
+bit32 = {
+    band = function(a, b) return bitop(a, b, function(x, y) return x == 1 and y == 1 end) end,
+    bor = function(a, b) return bitop(a, b, function(x, y) return x == 1 or y == 1 end) end,
+    bnot = function(a) return 4294967295 - a end,
+}
+-- Light, pipe and fold action events (names from Lights.lua, Pipe.lua, Foldable.lua)
+Lights = {LIGHT_TYPE_DEFAULT = 0, LIGHT_TYPE_WORK_BACK = 1, LIGHT_TYPE_WORK_FRONT = 2, LIGHT_TYPE_HIGHBEAM = 3,
+    TURNLIGHT_OFF = 0, TURNLIGHT_LEFT = 1, TURNLIGHT_RIGHT = 2, TURNLIGHT_HAZARD = 3,
+    actionEventToggleLights = function(v) record("lightsToggle", v) v.spec_lights.lightsTypesMask = 1 end,
+    actionEventToggleBeaconLights = function(v) record("beaconToggle", v)
+        v.spec_lights.beaconLightsActive = not v.spec_lights.beaconLightsActive end,
+    actionEventToggleTurnLightHazard = function(v) record("hazardToggle", v) v.spec_lights.turnLightState = 3 end,
+}
+Pipe = {actionEventTogglePipe = function(v) record("pipeToggle", v) v.spec_pipe.targetState = 2 end}
+Foldable = {actionEventFoldAll = function(v) record("foldToggle", v) v.spec_foldable.foldMoveDirection = -1 end}
+
 ---------------------------------------------------------------------------
 -- Mock vehicles
 ---------------------------------------------------------------------------
@@ -762,6 +787,159 @@ do
     local t = telemetry(dir)
     eq(t["g5#state"], "vehicle", "still writes telemetry")
     eq(t["g5.vehicle#rpm"], nil, "no motor values from a broken motor")
+    mod:deleteMap()
+end
+
+---------------------------------------------------------------------------
+-- Scenario 5: combine shortcut controls and Harvest Automation
+---------------------------------------------------------------------------
+do
+    local dir = newScenario("combine_controls", {})
+    local combine, cs = makeVehicle({name = "Test S7 Combine", combine = true, speed = 6})
+    local header = makeImplement(12.19, 1)
+    combine.spec_lights = {numLightTypes = 4, lightsTypesMask = 0, turnLightState = 0, beaconLights = {{}}, beaconLightsActive = false}
+    combine.getCanToggleLight = function(self) return true end
+    combine.setLightsTypesMask = function(self, m) record("setLightsTypesMask", m) self.spec_lights.lightsTypesMask = m end
+    combine.spec_pipe = {numStates = 2, currentState = 1, targetState = 1}
+    header.spec_foldable = {hasFoldingParts = true, foldMoveDirection = 0}
+    header.getIsUnfolded = function(self) return true end
+    combine.children = {combine, header}
+    g_localPlayer = {getCurrentVehicle = function(self) return combine end}
+    RHM_Api = rhApi()
+    mod:loadMap("test")
+    tick(4)
+    local t = telemetry(dir)
+    eq(t["g5.controls#beacon"], "false", "beacon state")
+    eq(t["g5.controls#hazard"], "false", "hazard state")
+    eq(t["g5.controls.pipe#open"], "false", "pipe closed")
+    eq(t["g5.controls.fold#unfolded"], "true", "header unfolded")
+    eq(t["g5.harvestAuto#on"], "false", "automation off")
+
+    cs.cc = Drivable.CRUISECONTROL_STATE_ACTIVE
+    cs.ccSpeed = 8.0
+    writeFile(dir .. "commands.xml", table.concat({
+        '<?xml version="1.0" encoding="utf-8" standalone="no"?>', "<commands>",
+        '    <cmd id="1" name="pipeToggle" value="0" index="0"/>',
+        '    <cmd id="2" name="foldToggle" value="0" index="0"/>',
+        '    <cmd id="3" name="beaconToggle" value="0" index="0"/>',
+        '    <cmd id="4" name="hazardToggle" value="0" index="0"/>',
+        '    <cmd id="5" name="workLightsToggle" value="0" index="0"/>',
+        '    <cmd id="6" name="harvestAutoMax" value="9" index="0"/>',
+        '    <cmd id="7" name="harvestAuto" value="1" index="0"/>',
+        "</commands>", ""}, "\n"))
+    tick(2)
+    local pc = called("pipeToggle")
+    check(pc ~= nil and pc.args[1] == combine, "pipeToggle on the combine")
+    local fc = called("foldToggle")
+    check(fc ~= nil and fc.args[1] == header, "foldToggle on the header")
+    check(called("beaconToggle") ~= nil and called("hazardToggle") ~= nil, "beacon and hazard ran")
+    eq(combine.spec_lights.lightsTypesMask, 6, "work lights front and back on")
+    tick(8)   -- 2 s: two automation steps of at most 0.5 km/h toward RH's 5.8 km/h
+    check(cs.ccSpeed < 8 and cs.ccSpeed > 5.8, "automation stepped cruise speed down toward the recommended speed: " .. cs.ccSpeed)
+    local steps = 0
+    for _, c in ipairs(calls) do if c.name == "setCruiseControlMaxSpeed" then
+        steps = steps + 1
+        check(math.abs(c.args[1] - 8 + 0.5 * steps) < 0.001, "each step is 0.5 km/h")
+    end end
+    t = telemetry(dir)
+    keepLive(dir)
+    eq(t["g5.harvestAuto#state"], "active", "automation active")
+    eq(t["g5.harvestAuto#source"], "rh", "automation follows Realistic Harvesting")
+    near(tonumber(t["g5.harvestAuto#target"]), 5.8, 0.001, "target is RH recommended speed")
+    eq(t["g5.controls.pipe#open"], "true", "pipe opening")
+    eq(t["g5.controls#beacon"], "true", "beacon on")
+    eq(t["g5.controls#workFront"], "true", "front work lights on")
+
+    tick(12)
+    near(cs.ccSpeed, 5.8, 0.001, "settles on the recommended speed")
+    -- work lights toggle back off, cruise off puts automation on standby
+    writeFile(dir .. "commands.xml", '<?xml version="1.0"?>\n<commands>\n    <cmd id="8" name="workLightsToggle" value="0" index="0"/>\n</commands>\n')
+    cs.cc = Drivable.CRUISECONTROL_STATE_OFF
+    tick(6)
+    eq(combine.spec_lights.lightsTypesMask, 0, "work lights off")
+    eq(telemetry(dir)["g5.harvestAuto#state"], "cruiseOff", "standby while cruise is off")
+    -- leaving the combine switches automation off
+    local tractor = makeVehicle({})
+    g_localPlayer = {getCurrentVehicle = function(self) return tractor end}
+    tick(6)
+    eq(telemetry(dir)["g5.harvestAuto#on"], "false", "automation off after changing vehicle")
+    eq(telemetry(dir)["g5.controls.pipe#open"], nil, "no pipe on a plain tractor")
+    mod:deleteMap()
+end
+
+---------------------------------------------------------------------------
+-- Scenario 6: tillage tools (game specs) and FieldPath Realistic Tillage depth
+---------------------------------------------------------------------------
+do
+    local dir = newScenario("tillage", {})
+    local tractor = makeVehicle({name = "Test 8R Tractor"})
+    local disc = makeImplement(9.1, 1)
+    disc.spec_cultivator = {useDeepMode = false}
+    local plow = makeImplement(3.0, 1)
+    plow.spec_plow = {}
+    plow.spec_realisticTillage = {initialized = true, implementClass = "plow", depthCm = 25, targetDepthCm = 25,
+        minDepthCm = 2, maxDepthCm = 38, depthLimited = false}
+    plow.rtSetTillageDepth = function(self, v) record("rtSetTillageDepth", v) self.spec_realisticTillage.depthCm = v return true end
+    plow.rtChangeTillageDepth = function(self, d) record("rtChangeTillageDepth", d)
+        self.spec_realisticTillage.depthCm = self.spec_realisticTillage.depthCm + d end
+    local ripper = makeImplement(4.5, 1)
+    ripper.spec_cultivator = {isSubsoiler = true, useDeepMode = true}
+    ripper.spec_realisticTillage = {initialized = true, implementClass = "ripper", depthCm = 0 / 0}  -- NaN depth must not be written
+    -- vanilla WorkMode cultivator: state 1 deep, state 2 shallow
+    local wmCult = makeImplement(6, 1)
+    wmCult.spec_cultivator = {useDeepMode = true}
+    wmCult.spec_workMode = {state = 1, workModes = {{name = "Deep", useDeepMode = true}, {name = "Shallow", useDeepMode = false}}}
+    wmCult.getIsWorkModeChangeAllowed = function(self) return true end
+    wmCult.setWorkMode = function(self, st) record("setWorkMode", st) self.spec_workMode.state = st
+        self.spec_cultivator.useDeepMode = self.spec_workMode.workModes[st].useDeepMode end
+    -- Cultivator Settings, selectable in game without work modes (config 5)
+    local csCult = makeImplement(5, 1)
+    csCult.spec_cultivator = {useDeepMode = true, isSubsoiler = false}
+    csCult.spec_CultivatorSettings = {mode = 3, config = 5, useWorkModes = false, dirtyFlag = 7}
+    csCult.raiseDirtyFlags = function(self, f) record("raiseDirtyFlags", f) end
+    -- Cultivator Settings fixed by the shop configuration (config 2 = shallow)
+    local csLocked = makeImplement(4, 1)
+    csLocked.spec_cultivator = {useDeepMode = false}
+    csLocked.spec_CultivatorSettings = {mode = 2, config = 2, useWorkModes = false}
+    tractor.children = {tractor, disc, plow, ripper, wmCult, csCult, csLocked}
+    g_localPlayer = {getCurrentVehicle = function(self) return tractor end}
+    mod:loadMap("test")
+    tick(4)
+    local t = telemetry(dir)
+    eq(t["g5.implements.implement(0).tillage#type"], "disc", "shallow cultivator reads as disc")
+    eq(t["g5.implements.implement(0).tillage#deep"], "false", "disc is shallow")
+    eq(t["g5.implements.implement(0).tillage#depth"], nil, "no depth without Realistic Tillage")
+    eq(t["g5.implements.implement(1).tillage#type"], "plow", "plow type")
+    eq(t["g5.implements.implement(1).tillage#depth"], "25.000000", "plow depth from Realistic Tillage")
+    eq(t["g5.implements.implement(1).tillage#canSet"], "true", "plow depth settable")
+    eq(t["g5.implements.implement(2).tillage#type"], "subsoiler", "subsoiler type")
+    eq(t["g5.implements.implement(2).tillage#depth"], nil, "NaN depth skipped")
+    eq(t["g5.implements.implement(3).tillage#type"], "cultivator", "WorkMode cultivator stays a cultivator")
+    eq(t["g5.implements.implement(3).tillage#levels"], "shallow,normal", "WorkMode levels")
+    eq(t["g5.implements.implement(3).tillage#level"], "normal", "WorkMode level now")
+    eq(t["g5.implements.implement(4).tillage#modeSource"], "cultivatorSettings", "Cultivator Settings detected")
+    eq(t["g5.implements.implement(4).tillage#levels"], "shallow,normal,deep", "Cultivator Settings levels")
+    eq(t["g5.implements.implement(5).tillage#locked"], "true", "shop-configured level is locked")
+    eq(t["g5.implements.implement(5).tillage#level"], "shallow", "locked level")
+    writeFile(dir .. "commands.xml", table.concat({
+        '<?xml version="1.0" encoding="utf-8" standalone="no"?>', "<commands>",
+        '    <cmd id="1" name="tillageDepth" value="22" index="0"/>',
+        '    <cmd id="2" name="tillageDepthAdjust" value="-2" index="0"/>',
+        '    <cmd id="3" name="tillageDepth" value="6" index="0"/>',
+        '    <cmd id="4" name="tillageLevel" value="4" index="0"/>',
+        "</commands>", ""}, "\n"))
+    tick(4)
+    keepLive(dir)
+    eq(plow.spec_realisticTillage.depthCm, 6, "depth set to 22, -2, then 6")
+    local wmCalls = {}
+    for _, c in ipairs(calls) do if c.name == "setWorkMode" then wmCalls[#wmCalls + 1] = c.args[1] end end
+    eq(wmCalls[1], 1, "22 cm puts the WorkMode cultivator in its deep state")
+    eq(wmCalls[2], 2, "6 cm puts it in its shallow state")
+    eq(wmCalls[3], 1, "deep level on a two-level tool uses its deepest state")
+    eq(csCult.spec_CultivatorSettings.mode, 4, "Cultivator Settings mode set to deep")
+    check(called("raiseDirtyFlags") ~= nil, "Cultivator Settings dirty flag raised")
+    eq(csLocked.spec_CultivatorSettings.mode, 2, "locked Cultivator Settings tool not changed")
+    eq(telemetry(dir)["g5.implements.implement(1).tillage#depth"], "6.000000", "new depth reported")
     mod:deleteMap()
 end
 

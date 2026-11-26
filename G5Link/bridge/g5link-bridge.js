@@ -10,6 +10,7 @@
 //   node g5link-bridge.js                 watch the game (default folder)
 //   node g5link-bridge.js --demo          fake data, no game needed (tractor + planter)
 //   node g5link-bridge.js --demo combine  fake combine with Realistic Harvesting data
+//   node g5link-bridge.js --demo tillage  fake tractor + field cultivator (Cultivator Settings, Realistic Tillage depth)
 //   node g5link-bridge.js --demo --demo-speed 8   run the demo 8x faster (to see maps fill quickly)
 //   node g5link-bridge.js --dir <folder>  custom modSettings/FS25_G5Link folder
 //   node g5link-bridge.js --port 8765
@@ -31,6 +32,7 @@ function opt(name, fallback) {
 const DEMO_OPT = opt('demo', false);
 const DEMO = DEMO_OPT !== false;
 const DEMO_COMBINE = DEMO_OPT === 'combine';
+const DEMO_TILLAGE = DEMO_OPT === 'tillage';
 const DEMO_SPEED = Math.max(1, Math.min(20, Number(opt('demo-speed', 1)) || 1)); // demo time multiplier
 const PORT = Number(opt('port', 8765));
 const DEFAULT_DIR = path.join(os.homedir(), 'Documents', 'My Games', 'FarmingSimulator2025',
@@ -115,10 +117,19 @@ function telemetryFromXml(text) {
       fills: children(n, 'fill').map(f => f.attrs),
       geometry: children(n, 'area').map(a => a.attrs),
       seeder: seederFromNode(child(n, 'seeder')),
+      tillage: (child(n, 'tillage') || {}).attrs || null,
     })),
     combine: (child(g5, 'combine') || {}).attrs || null,
     rh: rhFromNode(child(g5, 'rh')),
+    controls: controlsFromNode(child(g5, 'controls')),
+    harvestAuto: (child(g5, 'harvestAuto') || {}).attrs || null,
   };
+}
+
+// Shortcut key state: lights, beacon, hazard, unloading pipe and fold (absent when the machine has none).
+function controlsFromNode(n) {
+  if (!n) return null;
+  return { ...n.attrs, pipe: (child(n, 'pipe') || {}).attrs || null, fold: (child(n, 'fold') || {}).attrs || null };
 }
 
 // Realistic Seeder block (per implement): attributes plus per-row readings.
@@ -309,7 +320,9 @@ const pollCourse = jsonPoller(COURSE, c => { course = { key: c.key ?? null, name
 
 // ---------------------------------------------------------------- commands
 const ALLOWED = new Set(['motorToggle', 'cruiseToggle', 'cruiseSet', 'cruiseAdjust',
-  'lowerAll', 'turnOnAll', 'implTurnOn', 'resetWork']);
+  'lowerAll', 'turnOnAll', 'implTurnOn', 'resetWork',
+  'pipeToggle', 'foldToggle', 'lightsToggle', 'workLightsToggle', 'beaconToggle', 'hazardToggle',
+  'harvestAuto', 'harvestAutoMax', 'tillageDepth', 'tillageDepthAdjust', 'tillageLevel']);
 let cmdQueue = [];
 let nextCmdId = 1;
 
@@ -354,6 +367,9 @@ const demo = {
   t: 0, speed: 0, target: 11.5, motorOn: true, cc: 1, ccSpeed: 11.5, fuel: 512, def: 64,
   lowered: true, turnedOn: true, heading: 92, x: -120, z: 340, seed: 2800,
   tank: 3200, unloading: false, massKg: 0, lostKg: 0,
+  lights: false, workLights: true, beacon: false, hazard: false, unfolded: true,
+  auto: { on: false, max: 10, state: 'off', target: null, timer: 0 }, recSpeed: null,
+  till: { level: 3, depth: 15, target: 15 },
   work: { area: 0, time: 0, distance: 0, totalDistance: 0, fuelUsed: 0, totalFuel: 0 },
 };
 function demoCommand(c) {
@@ -365,6 +381,22 @@ function demoCommand(c) {
     case 'lowerAll': demo.lowered = !demo.lowered; break;
     case 'turnOnAll': case 'implTurnOn': demo.turnedOn = !demo.turnedOn; break;
     case 'resetWork': Object.keys(demo.work).forEach(k => { demo.work[k] = 0; }); break;
+    case 'lightsToggle': demo.lights = !demo.lights; break;
+    case 'workLightsToggle': demo.workLights = !demo.workLights; break;
+    case 'beaconToggle': demo.beacon = !demo.beacon; break;
+    case 'hazardToggle': demo.hazard = !demo.hazard; break;
+    case 'pipeToggle': if (DEMO_COMBINE) demo.unloading = !demo.unloading; break;
+    case 'foldToggle': demo.unfolded = !demo.unfolded; if (!demo.unfolded) demo.lowered = false; break;
+    case 'harvestAuto': {
+      const on = c.value === 1 ? true : c.value === 0 ? false : !demo.auto.on;
+      demo.auto = { ...demo.auto, on: on && DEMO_COMBINE, state: on && DEMO_COMBINE ? 'standby' : 'off', target: null, timer: 1000 };
+      break;
+    }
+    case 'tillageDepth': demo.till.target = Math.max(2, Math.min(38, c.value));
+      demo.till.level = c.value <= 10 ? 2 : c.value <= 22 ? 3 : 4; break;
+    case 'tillageDepthAdjust': demo.till.target = Math.max(2, Math.min(38, demo.till.target + c.value)); break;
+    case 'tillageLevel': demo.till.level = Math.max(2, Math.min(4, Math.round(c.value))); break;
+    case 'harvestAutoMax': demo.auto.max = Math.max(1, Math.min(40, c.value)); break;
   }
   demo.lastCmd = c.id;
 }
@@ -391,7 +423,7 @@ function demoCombine(t, dt, working, meters) {
   demo.massKg += kg; demo.lostKg += kg * loss / 100;
   const cap = 14100;
   if (demo.unloading) { demo.tank = Math.max(0, demo.tank - 450 * dt / 1000); if (demo.tank === 0) demo.unloading = false; }
-  else { demo.tank += kg / 0.78; if (demo.tank >= cap) { demo.tank = cap; demo.unloading = true; } }
+  else { demo.tank += kg / 0.78; if (demo.tank >= cap) { demo.tank = cap; demo.unloading = true; } }  // the driver opens the pipe when full
   const rank = loss < 1 ? 'A' : loss < 2.5 ? 'B' : loss < 5 ? 'C' : 'D';
   t.vehicle.name = 'Demo S7 Combine';
   t.vehicle.load = Math.round(Math.min(100, load));
@@ -400,6 +432,8 @@ function demoCombine(t, dt, working, meters) {
     width, areas: [working], fills: [], geometry: demoAreas(1, width, 4.5),
   }];
   t.combine = { name: 'Demo S7 Combine', tank: Math.round(demo.tank), tankCap: cap, crop: 'WHEAT', cropTitle: 'Wheat', turnedOn: demo.turnedOn };
+  t.controls = { ...t.controls, pipe: { state: demo.unloading ? 2 : 1, target: demo.unloading ? 2 : 1, states: 2, open: demo.unloading } };
+  t.controls.fold.name = 'Demo HD40F Header';
   t.rh = {
     version: 'demo', crop: 'WHEAT', mode: 'MANUAL', harvesting: working, ai: false, moistureHigh: moisture > 14.5, tier: 3,
     yield: +yieldT.toFixed(2), lastYield: +yieldT.toFixed(2), tph: +tph.toFixed(2), haph: +haph.toFixed(2),
@@ -407,7 +441,7 @@ function demoCombine(t, dt, working, meters) {
     moisture: +moisture.toFixed(1), moistureLimit: 14.5, weeds: 0.04,
     loss: +loss.toFixed(2), lossOverload: +lossOverload.toFixed(2), lossMoisture: +lossMoisture.toFixed(2),
     lossSettings, lossSlope: 0, lossWear: 0, rank,
-    load: +load.toFixed(1), targetLoad: target, recSpeed: +(demo.speed * Math.min(1.25, target / Math.max(1, load))).toFixed(1),
+    load: +load.toFixed(1), targetLoad: target, recSpeed: demo.recSpeed = +(demo.speed * Math.min(1.25, target / Math.max(1, load))).toFixed(1),
     efficiency: 0.94,
     settings: DEMO_SETTINGS.map(([name, value, opt, tol]) => ({ name, value, opt, tol, min: opt - 20, max: opt + 20 })),
     trip: {
@@ -418,12 +452,48 @@ function demoCombine(t, dt, working, meters) {
   };
   return t;
 }
+// Harvest Automation as the mod runs it: cruise speed steps toward RH's recommended speed, 0.5 km/h per second.
+function demoAuto(dt) {
+  const a = demo.auto;
+  if (!a.on) return;
+  a.timer += dt;
+  if (a.timer < 1000) return;
+  a.timer = 0;
+  if (!demo.cc) { a.state = 'cruiseOff'; return; }
+  if (!demo.turnedOn) { a.state = 'notThreshing'; return; }
+  if (!demo.lowered || demo.turning || demo.recSpeed === null) { a.state = 'noCrop'; return; }
+  a.target = Math.max(1, Math.min(a.max, demo.recSpeed));
+  const step = Math.max(-0.5, Math.min(0.5, a.target - demo.ccSpeed));
+  if (Math.abs(step) >= 0.05) demo.ccSpeed = +(demo.ccSpeed + step).toFixed(1);
+  a.state = 'active';
+}
+// Tractor + field cultivator: Cultivator Settings levels and Realistic Tillage depth (actual depth eases to the set point).
+const LEVEL_NAMES = { 2: 'shallow', 3: 'normal', 4: 'deep' };
+function demoTillage(t, dt, working) {
+  const k = demo.till;
+  k.depth += (k.target - k.depth) * Math.min(1, dt / 2500);
+  const draft = (working ? 1 : 0) * (0.6 + k.depth / 30 + (k.level === 4 ? 0.25 : 0));
+  t.vehicle.name = 'Demo 8R 410 Tractor';
+  t.vehicle.load = t.vehicle.motorOn ? Math.round(Math.min(100, 24 + draft * 52 + 4 * Math.sin(demo.t / 2600))) : 0;
+  t.implements = [{
+    name: 'Demo 2230FH Field Cultivator', canLower: true, lowered: demo.lowered && !demo.turning, canTurnOn: false, turnedOn: false,
+    width: 12.19, areas: [working], fills: [], geometry: demoAreas(1, 12.19, -7.5),
+    tillage: {
+      type: 'cultivator', deep: k.level > 2, subsoil: k.level === 4, level: LEVEL_NAMES[k.level], levels: 'shallow,normal,deep',
+      modeSource: 'cultivatorSettings', locked: false, changeAllowed: true,
+      depth: +k.depth.toFixed(1), target: k.target, min: 2, max: 38, limited: working && t.vehicle.load > 96, canSet: true, source: 'realisticTillage',
+    },
+  }];
+  t.controls.fold.name = 'Demo 2230FH Field Cultivator';
+  return t;
+}
 function demoTick(dt) {
   demo.t += dt;
+  if (DEMO_COMBINE) demoAuto(dt);
   const target = !demo.motorOn ? 0 : demo.cc ? demo.ccSpeed : 6 + 4 * Math.sin(demo.t / 9000);
   demo.speed += (target - demo.speed) * Math.min(1, dt / 1500);
   const meters = demo.speed / 3.6 * dt / 1000;
-  const working = demo.lowered && demo.turnedOn && demo.speed > 0.3 && !demo.turning;
+  const working = demo.lowered && demo.unfolded && demo.turnedOn && demo.speed > 0.3 && !demo.turning;
   const burn = demo.motorOn ? (working ? 38 : 12) / 3600 * dt / 1000 : 0; // l per tick
   demo.fuel = Math.max(0, demo.fuel - burn);
   demo.def = Math.max(0, demo.def - burn * 0.05);
@@ -458,6 +528,11 @@ function demoTick(dt) {
       fills: [{ title: 'Seeds', type: 'SEEDS', level: +demo.seed.toFixed(1), cap: 2800 }, { title: 'Liquid Fertilizer', type: 'LIQUIDFERTILIZER', level: 1600, cap: 2271 }],
       seeder: demoSeeder(working),
     }],
+    controls: {
+      lights: demo.lights, workFront: demo.workLights, workBack: demo.workLights, hazard: demo.hazard, beacon: demo.beacon,
+      pipe: null, fold: { unfolded: demo.unfolded, moving: false, name: 'Demo 1775NT Planter' },
+    },
+    harvestAuto: DEMO_COMBINE ? { on: demo.auto.on, state: demo.auto.state, max: demo.auto.max, target: demo.auto.target ?? undefined, source: demo.auto.on ? 'rh' : undefined } : { on: false, state: 'off', max: 10 },
     work: {
       recording: working, area: Math.round(demo.work.area), time: Math.round(demo.work.time / 1000),
       distance: Math.round(demo.work.distance), totalDistance: Math.round(demo.work.totalDistance),
@@ -468,7 +543,7 @@ function demoTick(dt) {
   if (!gameFields) takeGameFields(demoFields());
   if (!economy) economy = demoEconomy();
   equipment = demoEquipment(); equipmentAt = Date.now();
-  setTelemetry(DEMO_COMBINE ? demoCombine(frame, dt, working, meters) : frame);
+  setTelemetry(DEMO_COMBINE ? demoCombine(frame, dt, working, meters) : DEMO_TILLAGE ? demoTillage(frame, dt, working) : frame);
 }
 
 // Realistic Seeder snapshot as G5Link writes it (seed monitor fitted, row drive, no depth sensor).
@@ -598,9 +673,9 @@ function demoEconomy() {
 }
 function demoEquipment() {
   return { farmId: 1, vehicles: [
-    { id: 'demo1', name: DEMO_COMBINE ? 'Demo S7 Combine' : 'Demo 8R Tractor', kind: DEMO_COMBINE ? 'combine' : 'tractor', x: +demo.x.toFixed(1), z: +demo.z.toFixed(1),
+    { id: 'demo1', name: DEMO_COMBINE ? 'Demo S7 Combine' : DEMO_TILLAGE ? 'Demo 8R 410 Tractor' : 'Demo 8R Tractor', kind: DEMO_COMBINE ? 'combine' : 'tractor', x: +demo.x.toFixed(1), z: +demo.z.toFixed(1),
       heading: Math.round(demo.heading), speed: +demo.speed.toFixed(1), motorOn: demo.motorOn, ai: false, inUse: true, fuelPct: Math.round(demo.fuel / 680 * 100),
-      hours: 1287.4, damage: 12, field: 23, implements: [DEMO_COMBINE ? 'Demo HD40F Header' : 'Demo 1775NT Planter'], ads: { state: 'READY', hours: 212.4, interval: 250 } },
+      hours: 1287.4, damage: 12, field: 23, implements: [DEMO_COMBINE ? 'Demo HD40F Header' : DEMO_TILLAGE ? 'Demo 2230FH Field Cultivator' : 'Demo 1775NT Planter'], ads: { state: 'READY', hours: 212.4, interval: 250 } },
     { id: 'demo2', name: 'Demo 9RX Tractor', kind: 'tractor', x: -160, z: 300, heading: 180, speed: 0, motorOn: false, ai: false, inUse: false, fuelPct: 64, hours: 2210.3, damage: 31, field: null, implements: ['Demo 2730 Ripper'], ads: { state: 'READY', hours: 268.0, interval: 250 } },
     { id: 'demo3', name: 'Demo R4045 Sprayer', kind: 'sprayer', x: -170, z: 360, heading: 90, speed: 0, motorOn: false, ai: false, inUse: false, fuelPct: 88, hours: 640.0, damage: 5, field: null, implements: [], ads: { state: 'MAINTENANCE', hours: 0.4, interval: 200 } },
     { id: 'demo4', name: 'Demo Semi Truck', kind: 'truck', x: -190, z: 330, heading: 0, speed: 0, motorOn: false, ai: false, inUse: false, fuelPct: 41, hours: 3301.9, damage: 18, field: null, implements: ['Demo Grain Trailer'] },

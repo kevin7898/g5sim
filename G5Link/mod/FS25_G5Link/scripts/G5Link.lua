@@ -16,7 +16,7 @@
 -- one odd vehicle can never break the game loop.
 
 G5Link = {}
-G5Link.VERSION = "0.6.2"
+G5Link.VERSION = "0.7.0"
 G5Link.WRITE_INTERVAL = 250   -- ms between telemetry writes (4 Hz)
 G5Link.CMD_INTERVAL = 250     -- ms between command file polls
 G5Link.MAX_IMPLEMENTS = 8
@@ -131,6 +131,13 @@ function G5Link:update(dt)
 
     if vehicle ~= nil then
         self:accumulateWork(vehicle, dt)
+    end
+    if G5LinkControls ~= nil then
+        local ok, err = pcall(G5LinkControls.update, G5LinkControls, vehicle, dt, self)
+        if not ok and not self.autoErrorLogged then
+            self.autoErrorLogged = true
+            print("G5Link: harvest automation failed: " .. tostring(err))
+        end
     end
 
     self.writeTimer = self.writeTimer + dt
@@ -302,6 +309,12 @@ function G5Link:getImplementState(impl)
         end
     end
     s.seeder = self:getSeeder(impl)
+    if G5LinkControls ~= nil then
+        local ok, t = pcall(G5LinkControls.getTillage, G5LinkControls, impl)
+        if ok then
+            s.tillage = t
+        end
+    end
 
     s.fills = {}
     local fillUnits = call(impl, "getFillUnits")
@@ -537,6 +550,9 @@ function G5Link:writeTelemetry(vehicle)
                     print("G5Link: Realistic Seeder read failed: " .. tostring(err))
                 end
             end
+            if s.tillage ~= nil then
+                pcall(G5LinkControls.writeTillage, G5LinkControls, xml, ik .. ".tillage", s.tillage)
+            end
             for j, f in ipairs(s.fills) do
                 local fk = string.format("%s.fill(%d)", ik, j - 1)
                 xml:setString(fk .. "#title", f.title)
@@ -547,6 +563,13 @@ function G5Link:writeTelemetry(vehicle)
         end
 
         self:writeCombine(xml, vehicle)
+        if G5LinkControls ~= nil then
+            local ok, err = pcall(G5LinkControls.write, G5LinkControls, xml, vehicle, self)
+            if not ok and not self.controlsErrorLogged then
+                self.controlsErrorLogged = true
+                print("G5Link: controls read failed: " .. tostring(err))
+            end
+        end
     end
 
     local w = self.work
@@ -1226,6 +1249,12 @@ function G5Link:runCommand(vehicle, cmd)
     end
     if vehicle == nil then
         return
+    end
+    if G5LinkControls ~= nil then
+        local ok, handled = pcall(G5LinkControls.run, G5LinkControls, vehicle, cmd)
+        if ok and handled then
+            return
+        end
     end
 
     if name == "motorToggle" then

@@ -117,5 +117,31 @@ if (fs.existsSync(live)) {
   check(false, 'combine live telemetry copy exists');
 }
 
+{
+  const f = path.join(OUT, 'combine_controls', 'telemetry_live.xml');
+  check(fs.existsSync(f), 'controls live telemetry copy exists');
+  if (fs.existsSync(f)) {
+    const t = telemetryFromXml(fs.readFileSync(f, 'utf8'));
+    eq(t.controls && t.controls.beacon, true, 'live: beacon on');
+    eq(t.controls && t.controls.workFront, true, 'live: front work lights');
+    eq(t.controls && t.controls.pipe && t.controls.pipe.open, true, 'live: pipe open');
+    eq(t.controls && t.controls.fold && t.controls.fold.unfolded, true, 'live: header unfolded');
+    eq(t.harvestAuto && t.harvestAuto.state, 'active', 'live: automation state');
+    eq(t.harvestAuto && t.harvestAuto.target, 5.8, 'live: automation target');
+  }
+}
+
+{
+  const f = path.join(OUT, 'tillage', 'telemetry_live.xml');
+  check(fs.existsSync(f), 'tillage live telemetry copy exists');
+  if (fs.existsSync(f)) {
+    const t = telemetryFromXml(fs.readFileSync(f, 'utf8'));
+    eq(t.implements[0].tillage && t.implements[0].tillage.type, 'disc', 'live: disc tillage type');
+    eq(t.implements[1].tillage && t.implements[1].tillage.depth, 6, 'live: plow depth');
+    eq(t.implements[4].tillage && t.implements[4].tillage.levels, 'shallow,normal,deep', 'live: Cultivator Settings levels');
+    eq(t.implements[1].tillage && t.implements[1].tillage.canSet, true, 'live: plow depth settable');
+  }
+}
+
 console.log(`node checks: ${checks}, failures: ${failures}`);
 process.exit(failures ? 1 : 0);

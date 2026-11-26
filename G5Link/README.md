@@ -24,11 +24,17 @@ files in `Documents\My Games\FarmingSimulator2025\modSettings\FS25_G5Link\`.
 | **Implement Details** | Every attached implement: lowered and turned-on state, working width, section status, fill levels with bars, a Turn On/Off key |
 | **Machine Monitor** | Engine speed and load, ground speed, gear, fuel and DEF, fuel per hour, time to empty, engine hours, condition, farmland, AI worker |
 | **Harvesting** | For combines: grain tank level. With the [Realistic Harvesting](https://github.com/exekx/FS25_RealisticHarvesting) mod also yield, moisture and its limit, throughput, productivity, grain loss (total and by cause, with an A to D grade), engine load against target, RH's recommended speed, fuel rate, the harvest settings against RH's optimum band, and field totals |
+| **Harvest Automation** | For combines: Speed Automation (the mod steps cruise speed toward Realistic Harvesting's recommended speed, 0.5 km/h per second, up to a max speed you set; without RH it holds about 95 % engine load), its state, RH's harvest-settings mode and efficiency, 5/15/30-minute trends of ground speed against target, engine load against target, throughput and grain loss (green bands show when automation was on), the grain tank with time to full and an auger key, and averages for the field |
+| **Tillage** | For plows, cultivators, discs, rippers, power harrows, mulchers, rollers and weeders: speed, work rate, area, engine load, working depth, fuel rate and fuel per area. **TruSet-style depth**: a depth set point with − / + keys, a keypad and three editable presets (Seedbed, Secondary, Primary), plus Shallow / Normal / Deep. Cultivators with [Cultivator Settings](https://github.com/jason0611/FS25_CultivatorSettings) or the game's own work modes switch level by depth (up to 10 cm shallow, up to 22 cm normal, deeper is deep). With FieldPath Realistic Tillage the tool takes the exact depth, and the page warns when the tractor cannot pull it |
 | **Planter** | With FieldPath Realistic Seeder: target and actual rate, singulation, skips, doubles (or distribution CV on drills), seed depth, established population, yield potential, a row-by-row rate chart, downforce and closing, soil moisture and compaction |
 | **Field** | Soil under the machine from [Realistic Soil & Fertilizer](https://github.com/Realistic-Farming/FS25_SoilFertilizer): N, P and K with Good/Fair/Poor, pH, organic matter, compaction, yield potential, last crop, weed, pest and disease pressure, rotation. Ground from Mud System Physics: wheel slip, mud, tire pressure. AI driver from Courseplay or AutoDrive: state, progress, distance and turns left |
 
+**Shortcut keys follow the machine too.** The four free keys show what the machine has, in this order:
+Auto Speed (combines), Auger (combines, forage harvesters, auger wagons), Fold, Work Lights, Beacon,
+Hazard, Lights. They call the same game functions as the keyboard.
+
 **Run pages follow the machine.** Only the pages that fit what you are driving are offered: Harvesting
-for a combine (instead of Tractor), Planter when a Realistic Seeder implement is attached, Implement
+and Harvest Automation for a combine (instead of Tractor), Tillage with a tillage tool, Planter when a Realistic Seeder implement is attached, Implement
 Details and Work Monitor with an implement, Field when soil, ground or AI-driver data exists.
 
 **Map layers.** The bridge records coverage from each implement's real work areas (section by section) and
@@ -36,7 +42,7 @@ saves it per savegame and operation in `modSettings/FS25_G5Link/maps/`. Tap the 
 layer chip, for **Select Map View**: pick the operation (Harvest · Wheat, Seeding · Corn, ...), the primary layer
 and the legend. Layers: Coverage (blue, dark blue = overlap), and as available Yield, Moisture, Grain Loss,
 Seeding or Applied Rate, Singulation, Skips, Doubles, Distribution CV, Seed Depth, Soil Moisture, Compaction,
-Yield Potential, Speed, and soil N, P, K and pH. **New Work** in the legend clears the map of that operation.
+Yield Potential, Tillage Depth, Speed, and soil N, P, K and pH. Tillage maps are kept per tool (Tillage · Plow, Tillage · Disc, ...). **New Work** in the legend clears the map of that operation.
 
 **Operations Center.** Open `http://<PC address>:8765/ops/` on a laptop, iPad or phone (or Menu > Applications >
 Ops Center on the display). Laid out like the real Operations Center:
@@ -110,6 +116,7 @@ Run `start-demo.bat` (or `node bridge/g5link-bridge.js --demo` on any computer) 
 printed address. A simulated tractor and planter drive around, and every key works.
 
 For a combine with Realistic Harvesting data, run `node bridge/g5link-bridge.js --demo combine`.
+For a tractor and field cultivator with Cultivator Settings and Realistic Tillage depth, run `--demo tillage`.
 
 ## Options
 
@@ -133,7 +140,7 @@ node g5link-bridge.js --dir "D:\path\..."   custom modSettings\FS25_G5Link folde
 ## Project layout
 
 ```
-mod/FS25_G5Link/   the FS25 mod (modDesc.xml, scripts/G5Link.lua, icon.dds)
+mod/FS25_G5Link/   the FS25 mod (modDesc.xml, scripts/G5Link.lua, scripts/Controls.lua, icon.dds)
 bridge/            g5link-bridge.js (Node, no dependencies) + .bat launchers
 app/               the display web app (served by the bridge)
 tools/             make_icon.py, package.py

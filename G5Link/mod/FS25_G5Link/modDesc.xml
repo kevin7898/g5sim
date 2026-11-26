@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <modDesc descVersion="104">
     <author>kevin7898</author>
-    <version>0.7.0.0</version>
+    <version>0.8.0.0</version>
     <title>
         <en>G5Link - Display Bridge</en>
     </title>
@@ -22,6 +22,7 @@ Requires the G5Link bridge running on the same PC. See README for setup.]]></en>
         <sourceFile filename="scripts/providers/adapters/CourseplayAdapter.lua"/>
         <sourceFile filename="scripts/providers/Providers.lua"/>
         <sourceFile filename="scripts/Json.lua"/>
+        <sourceFile filename="scripts/Controls.lua"/>
         <sourceFile filename="scripts/G5Link.lua"/>
     </extraSourceFiles>
 </modDesc>

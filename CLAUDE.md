@@ -28,6 +28,7 @@ mod writes telemetry to a file, a Node bridge streams it to a browser or iPad, a
 ```bash
 node G5Link/bridge/g5link-bridge.js --demo          # fake tractor + planter, every key works
 node G5Link/bridge/g5link-bridge.js --demo combine  # fake combine with Realistic Harvesting data
+node G5Link/bridge/g5link-bridge.js --demo tillage  # fake tractor + cultivator (Cultivator Settings, Realistic Tillage)
 node G5Link/bridge/g5link-bridge.js --demo --demo-speed 8  # demo 8x faster, to fill maps quickly
 node G5Link/bridge/g5link-bridge.js --dir <folder>  # read a real modSettings/FS25_G5Link folder
 LUA=<lua5.1> LUAC=<luac5.1> sh G5Link/tests/run.sh   # Lua syntax + mocked-engine smoke test + bridge parse
@@ -43,7 +44,7 @@ python3 G5Link/tools/make_icon.py                   # regenerate mod icon.dds
 
 ## Layout
 
-- `G5Link/mod/FS25_G5Link/`: modDesc.xml, scripts/G5Link.lua, scripts/Json.lua, scripts/providers/ (FieldPath adapters), icon.dds
+- `G5Link/mod/FS25_G5Link/`: modDesc.xml, scripts/G5Link.lua, scripts/Controls.lua (shortcut controls, harvest automation, tillage), scripts/Json.lua, scripts/providers/ (FieldPath adapters), icon.dds
 - `G5Link/bridge/`: g5link-bridge.js, coverage.js (map recording), fields.js (Ops Center fields and records),
   start-bridge.bat, start-demo.bat
 - `G5Link/app/`: index.html, style.css, app.js (pages, windows, commands, units), layers.js (map layers, legend,

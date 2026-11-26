@@ -45,6 +45,8 @@
     { id: 'cv', key: 'cv', kinds: ['seeding'], good: 'low', label: () => 'Distribution CV', ...pct },
     { id: 'depth', key: 'depth', kinds: ['seeding'], good: 'none', label: () => 'Seed Depth',
       unit: () => metric('distance') ? 'mm' : 'in', conv: v => metric('distance') ? v : v / 25.4, digits: () => metric('distance') ? 0 : 2 },
+    { id: 'tillDepth', key: 'tillDepth', kinds: ['tillage'], good: 'none', label: () => 'Tillage Depth',
+      unit: () => metric('distance') ? 'cm' : 'in', conv: v => metric('distance') ? v : v / 2.54, digits: () => 1 },
     { id: 'soilMoisture', key: 'soilMoisture', kinds: ['seeding'], good: 'none', label: () => 'Soil Moisture', ...pct },
     { id: 'compaction', key: 'compaction', good: 'low', label: () => 'Compaction', ...pct },
     { id: 'yieldPotential', key: 'yieldPotential', kinds: ['seeding'], good: 'high', label: () => 'Yield Potential', ...pct },

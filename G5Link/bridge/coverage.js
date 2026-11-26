@@ -27,7 +27,10 @@ const title = s => CROP_NAMES[String(s || '').toUpperCase()] || String(s || '').
 
 // Value keys a frame can carry. The display maps these to layers and colors.
 const VALUE_KEYS = ['speed', 'yield', 'moisture', 'loss', 'rate', 'seedLph', 'skips', 'doubles', 'singulation', 'cv', 'depth',
-  'soilMoisture', 'compaction', 'yieldPotential', 'soilN', 'soilP', 'soilK', 'soilPH'];
+  'soilMoisture', 'compaction', 'yieldPotential', 'soilN', 'soilP', 'soilK', 'soilPH', 'tillDepth'];
+// Tillage tool types the mod reports (Controls.lua getTillage).
+const TILL_NAMES = { plow: 'Plow', cultivator: 'Field Cultivator', disc: 'Disc', subsoiler: 'Ripper', ripper: 'Ripper',
+  powerHarrow: 'Power Harrow', harrow: 'Harrow', spader: 'Spader', mulcher: 'Mulcher', roller: 'Roller', weeder: 'Weeder', ridgeformer: 'Ridge Former' };
 
 function quadArea(q) {
   let a = 0;
@@ -203,6 +206,10 @@ class CoverageStore {
         rateUnit: impl.seeder ? (impl.seeder.unit === 'poundsPerAcre' ? 'lb/ac' : 'seeds/ac') : 'L/ha' };
     }
     const product = fills.find(f => f.level > 0) || fills[0];
+    if (impl.tillage && impl.tillage.type && !(product && impl.turnedOn)) {
+      const tool = TILL_NAMES[impl.tillage.type] || title(impl.tillage.type);
+      return { kind: 'tillage', product: impl.tillage.type, title: 'Tillage · ' + tool };
+    }
     if (product && impl.turnedOn) {
       return { kind: 'application', product: product.type || product.title, title: 'Application · ' + (product.title || title(product.type)), rateUnit: 'L/ha' };
     }
@@ -241,6 +248,7 @@ class CoverageStore {
       set('moisture', t.rh.moisture, 1);
       set('loss', t.rh.loss, 2);
     }
+    if (impl.tillage) set('tillDepth', impl.tillage.depth, 1);   // cm, from Realistic Tillage
     const sd = impl.seeder;
     if (sd) {
       set('rate', num(sd.actual) ?? sd.rate, 0);
@@ -382,4 +390,4 @@ class CoverageStore {
   }
 }
 
-module.exports = { CoverageStore, VALUE_KEYS, quadArea };
+module.exports = { CoverageStore, VALUE_KEYS, TILL_NAMES, quadArea };

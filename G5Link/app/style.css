@@ -217,6 +217,8 @@ svg { display: block; }
 .sk span.nostrip { background: transparent; }
 .sk.on span { color: #4ee166; }
 .sk.empty { flex: 1; min-width: 0; cursor: default; }
+.sk-ctx { display: contents; }
+.sk.amber span { color: #ffb400; }
 .sk.empty::after { content: ''; margin-top: auto; height: 18px; width: 100%; background: #000; }
 .sk.menu { width: 96px; background: var(--green); color: #fff; border-radius: 0; }
 .sk.menu svg { width: 36px; height: 36px; margin-top: 10px; }
@@ -501,3 +503,67 @@ a.app { text-decoration: none; color: inherit; }
 .ws-right select.ws-in { width: 220px; } .ws-right > select.ws-in:only-child { width: 360px; }
 .ws-note { font-style: normal; font-weight: 700; font-size: 17px; color: var(--ink-2); min-width: 90px; }
 #workSetupWin { z-index: 50; }
+
+/* Harvest Automation */
+.ha-top { display: grid; grid-template-columns: 1.35fr 1fr; border-bottom: 3px solid var(--rule); flex: none; }
+.ha-card { padding: 8px 14px 6px; display: flex; flex-direction: column; gap: 6px; }
+.ha-card + .ha-card { border-left: 3px solid var(--rule); }
+.ha-card .lower-head { display: flex; justify-content: space-between; align-items: center; font-size: 17px; font-weight: 700; color: var(--ink-2); }
+.ha-state { font-size: 13px; font-weight: 700; padding: 1px 8px; border-radius: 3px; color: #fff; background: var(--tile-off); }
+.ha-state.on { background: var(--tile-on); } .ha-state.stby { background: var(--warn); color: #1e1e1b; }
+.ha-row { display: flex; gap: 12px; align-items: stretch; }
+.ha-toggle { width: 96px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 15px; font-weight: 700; }
+.ha-toggle svg { width: 34px; height: 34px; }
+.ha-toggle.on { outline: 3px solid var(--tile-on); outline-offset: -3px; }
+.ha-toggle.on span { color: var(--tile-on); }
+.ha-kv { flex: 1; display: flex; flex-direction: column; justify-content: center; min-width: 0; }
+.ha-kv small { font-size: 14px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.ha-kv b { font-size: 26px; font-weight: 700; color: var(--ink); white-space: nowrap; }
+.ha-kv .g5btn { font-size: 20px; font-weight: 700; padding: 4px 6px; }
+.ha-msg { margin: 0; min-height: 18px; font-size: 14px; font-weight: 600; color: var(--muted); }
+.ha-trends-head { display: flex; justify-content: space-between; align-items: center; padding: 6px 14px 0; font-size: 17px; font-weight: 700; color: var(--ink-2); }
+.ha-trends-head .seg { height: 30px; }
+.ha-trends-head .seg button { flex: none; padding: 0 12px; font-size: 14px; min-width: 0; white-space: nowrap; }
+.ha-trends { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 6px 12px; padding: 6px 14px 10px; }
+.ha-chart { display: flex; flex-direction: column; min-height: 0; }
+.ha-chart header { display: flex; justify-content: space-between; align-items: baseline; font-size: 14px; font-weight: 700; color: var(--ink-2); }
+.ha-chart header b { font-size: 17px; color: var(--ink); }
+.ha-chart header small { font-weight: 600; color: var(--muted); }
+.ha-chart svg { flex: 1; min-height: 0; width: 100%; background: var(--cream); border: 2px solid var(--frame); }
+.ha-chart .grid { stroke: var(--rule); stroke-width: 1; }
+.ha-chart .line { fill: none; stroke: var(--green); stroke-width: 2.2; vector-effect: non-scaling-stroke; }
+.ha-chart .ref { fill: none; stroke: var(--warn); stroke-width: 1.8; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }
+.ha-chart .auto { fill: rgba(50, 176, 75, .14); stroke: none; }
+.ha-chart .axis { font-size: 11px; fill: var(--muted); }
+.ha-tank { height: 120px; }
+.ha-auger { margin-top: 10px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 16px; font-weight: 700; padding: 6px 0; }
+.ha-auger svg { width: 30px; height: 30px; }
+.ha-auger.on { outline: 3px solid var(--tile-on); outline-offset: -3px; }
+
+/* Tillage (TruSet depth) */
+.tl-lower { grid-template-columns: 1.1fr 1fr; }
+.tl-lower .lower-col { padding: 8px 14px; gap: 7px; min-height: 0; }
+.tl-lower .lower-head { display: flex; justify-content: space-between; align-items: center; font-size: 17px; font-weight: 700; color: var(--ink-2); }
+.tl-set { display: flex; gap: 8px; height: 62px; }
+.tl-step { width: 70px; font-size: 34px; font-weight: 700; line-height: 1; }
+.tl-setpoint { flex: 1; border: 2px solid var(--frame); border-radius: 3px; background: var(--cream); color: var(--ink); display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.tl-setpoint small { font-size: 13px; font-weight: 600; color: var(--muted); }
+.tl-setpoint b { font-size: 30px; font-weight: 800; }
+.tl-presets { display: flex; gap: 6px; }
+.tl-presets .g5btn { flex: 1; padding: 4px 2px; font-size: 14px; font-weight: 700; line-height: 1.15; }
+.tl-presets .g5btn small { display: block; font-size: 13px; font-weight: 600; color: var(--muted); }
+.tl-presets .g5btn.on { outline: 3px solid var(--tile-on); outline-offset: -3px; }
+.tl-presets.editing .g5btn { border-style: dashed; }
+.tl-levels { height: 40px; }
+.tl-levels button { font-size: 16px; min-width: 0; }
+.tl-levels button:disabled { color: var(--muted); opacity: .55; }
+.tl-edit { padding: 2px 10px; font-size: 13px; font-weight: 700; }
+.tl-tools { display: flex; flex-direction: column; gap: 4px; overflow: hidden; }
+.tl-tool { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 4px 0; border-bottom: 2px solid var(--rule); font-size: 14px; font-weight: 600; color: var(--ink-2); }
+.tl-tool b { font-size: 15px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tl-tool span { text-align: right; white-space: nowrap; }
+.tl-tool .lvl { justify-self: end; font-size: 12px; font-weight: 700; padding: 0 6px; border-radius: 3px; color: #fff; background: var(--tile-off); }
+.tl-tool .lvl.on { background: var(--tile-on); } .tl-tool .lvl.warn { background: var(--warn); color: #1e1e1b; }
+.tl-gauge { position: relative; width: 60px; height: 170px; border: 3px solid var(--frame); background: linear-gradient(#e7d7b4, #8a5a2b); }
+.tl-gauge .act { position: absolute; left: 0; right: 0; top: 0; height: 0; background: rgba(30, 30, 27, .55); border-bottom: 3px solid var(--ink); transition: height .3s linear; }
+.tl-gauge .tgt { position: absolute; left: -10px; right: -10px; height: 0; border-top: 3px dashed var(--tile-on); top: 0; }

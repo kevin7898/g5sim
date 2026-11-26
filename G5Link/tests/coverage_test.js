@@ -146,5 +146,22 @@ try {
   fs.rmSync(tmp, { recursive: true, force: true });
 }
 
+const eq = (a, b, label) => check(a === b, `${label}: expected ${b}, got ${a}`);
+// Tillage: operation named by tool type, depth recorded per frame
+{
+  const store = new CoverageStore({ persist: false });
+  const t = frame({ x: 0, z: 0, heading: 90 });
+  const impl = t.implements[0];
+  impl.fills = []; impl.turnedOn = false; impl.seeder = null;
+  impl.tillage = { type: 'plow', depth: 24.5 };
+  const op = store.operationOf(t, impl);
+  eq(op.kind, 'tillage', 'tillage kind');
+  eq(op.title, 'Tillage · Plow', 'tillage title names the tool');
+  eq(store.valuesOf(t, impl, op, 'k', 10).tillDepth, 24.5, 'tillage depth value');
+  impl.tillage = { type: 'disc' };
+  eq(store.operationOf(t, impl).product, 'disc', 'disc is its own tillage map');
+  eq(store.valuesOf(t, impl, op, 'k', 10).tillDepth, undefined, 'no depth without Realistic Tillage');
+}
+
 console.log(`coverage checks: ${checks}, failures: ${failures}`);
 process.exit(failures ? 1 : 0);

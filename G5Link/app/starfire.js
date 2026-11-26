@@ -21,7 +21,23 @@
     try { S.state = (await (await fetch('/api/rtk')).json()).rtk; } catch (e) { /* offline */ }
     render();
   }
-  function rtk(arg, el) { send('rtk', 0, 0, el, arg); setTimeout(load, 900); }
+  // Sends an rtk command and checks that the game answers: the mod acknowledges every command id
+  // (telemetry lastCmd) and reports the RTK result (gnss.result).
+  async function rtk(arg, el) {
+    const id = await send('rtk', 0, 0, el, arg);
+    if (id === null || id === undefined) return;
+    S.pending = { id, at: Date.now(), arg };
+    setTimeout(load, 900);
+    setTimeout(() => {
+      const p = S.pending;
+      if (!p || p.id !== id) return;
+      S.pending = null;
+      const d = data, g = d.gnss || {};
+      if (d.link !== 'live') shade('The game is not running or paused, so the command waits until it is.', 'warn', 6000);
+      else if ((d.lastCmd || 0) < id) shade('The game did not pick up the command. Check that the G5Link mod is active in this savegame.', 'warn', 6000);
+      else if (!g.result || Number(g.result.id) < id) shade(`The game read the command but did not answer. The G5Link mod in your mods folder may be older than the display (mod ${d.version || '?'}). Install FS25_G5Link.zip from the latest download.`, 'warn', 8000);
+    }, 6000);
+  }
 
   function mine() {
     const st = S.state;
@@ -34,7 +50,7 @@
     if ($('starfireWin').hidden) return;
     const g = data.gnss, st = S.state || {}, me = mine(), prices = st.prices || {};
     const subs = new Set(me ? me.subs : []);
-    const head = !g ? '<p class="hint">No receiver data. Get in a machine.</p>' : `
+    const head = !g ? `<p class="hint">${data.state === 'vehicle' ? `No receiver data from the game. The G5Link mod (${esc(data.version || '?')}) may be older than this display: install the latest FS25_G5Link.zip.` : 'No receiver data. Get in a machine.'}</p>` : `
       <div class="sf-grid">
         <div><small>Receiver${g.hwSource === 'shop' ? ' (shop option)' : ''}</small><b title="${esc(g.hwOption || '')}">${esc(g.receiverName || g.receiver)}</b></div>
         <div><small>Correction</small><b class="sf-mode ${g.level}">${esc(g.src || g.level)}</b></div>
@@ -48,7 +64,7 @@
       const blocked = rc === 'NONE' || (k === 'SFRTK' && rc !== 'SF7000') || (rc === 'SF3000' && (k === 'SF3' || k === 'MRTK'));
       const on = subs.has(k), needs7000 = blocked;
       return `<div class="sf-row"><span><b>${label}</b><small>${note}</small></span><em>${money(prices[k])}/month</em>
-        <button class="g5btn ${on ? 'on' : ''}" data-sub="${k}" data-on="${on ? 0 : 1}" ${needs7000 && !on ? 'disabled' : ''}>${on ? 'Cancel' : 'Subscribe'}</button></div>`;
+        <button class="g5btn ${on ? 'on' : ''}" data-sub="${k}" data-on="${on ? 0 : 1}" ${needs7000 && !on ? 'disabled' : ''}>${on ? 'Cancel' : needs7000 ? (rc === 'NONE' ? 'No receiver' : k === 'SFRTK' ? 'Needs 7000' : 'Needs 6000') : 'Subscribe'}</button></div>`;
     }).join('');
     const bases = (st.bases || []);
     setHtml($('sfBody'), `${head}
@@ -57,7 +73,7 @@
           <div class="sf-row total"><span><b>This machine</b></span><em>${money(me ? me.monthly : 0)}/month</em><span></span></div></div>
         <div><h4>Activations</h4>
           <div class="sf-row"><span><b>RTK</b><small>Use your own base station by radio</small></span><em>${money(prices.RTK)}</em>
-            <button class="g5btn" data-buy="RTK" ${me && (me.rtk || me.receiver === 'NONE') ? 'disabled' : ''}>${me && me.rtk ? (me.hwSource === 'shop' ? 'In option' : 'Active') : 'Buy'}</button></div>
+            <button class="g5btn" data-buy="RTK" ${me && (me.rtk || me.receiver === 'NONE') ? 'disabled' : ''}>${me && me.rtk ? (me.hwSource === 'shop' ? 'In option' : 'Active') : me && me.receiver === 'NONE' ? 'No receiver' : 'Buy'}</button></div>
           <div class="sf-row"><span><b>StarFire 7000</b><small>Needed for SF-RTK</small></span><em>${money(prices.SF7000)}</em>
             ${me && me.hwSource === 'shop' ? `<em class="sf-shop">In the shop</em>` : `<button class="g5btn" data-buy="SF7000" ${me && me.receiver === 'SF7000' ? 'disabled' : ''}>${me && me.receiver === 'SF7000' ? 'Fitted' : 'Upgrade'}</button>`}</div>
           ${me && me.hwSource === 'shop' ? `<p class="hint">GPS on this machine is a shop option${me.hwOption ? ': ' + esc(me.hwOption) : ''}. Change the receiver with Customize in the shop.</p>` : ''}
@@ -105,7 +121,11 @@
     const r = g && g.result;
     if (r && r.id && r.id !== S.lastResult) {
       S.lastResult = r.id;
-      if (r.ok === false) shade(ERR[r.error] || `Not done: ${r.error || 'refused'}`, 'warn', 4000);
+      if (S.pending && Number(r.id) >= S.pending.id) {
+        S.pending = null;
+        if (r.ok !== false) shade({ buy: 'Done. It is on this machine now.', sub: 'Subscription updated.', gates: 'Saved.', price: 'Price saved.' }[r.action] || 'Done.', 'info', 3000);
+      }
+      if (r.ok === false) shade(ERR[r.error] || `Not done: ${r.error || 'refused'}`, 'warn', 6000);
       load();
     }
     if (!$('starfireWin').hidden) { if (Date.now() - S.at > 5000) load(); else render(); }

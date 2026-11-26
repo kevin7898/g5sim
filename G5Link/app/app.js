@@ -200,13 +200,20 @@ async function send(name, value = 0, index = 0, el = null, arg = '') {
   try {
     const r = await fetch('/api/cmd', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, value, index, arg }) });
     const j = await r.json();
-    if (!j.ok) throw new Error(j.error);
+    if (!j.ok) {
+      // the bridge answered but refused it: say why (an older bridge doesn't know newer commands)
+      shade(/unknown command/.test(j.error || '') ? `Command not sent: the bridge doesn't know "${name}". Update the G5Link bridge on the PC.`
+        : `Command not sent: ${j.error || 'refused'}`, 'warn', 5000);
+      return null;
+    }
     if (el) {
       el.classList.add('pending'); pendingCmds.set(j.id, el);
       setTimeout(() => { el.classList.remove('pending'); pendingCmds.delete(j.id); }, 3000);
     }
+    return j.id;
   } catch (e) {
     shade('Command not sent: G5Link bridge unreachable', 'warn', 3000);
+    return null;
   }
 }
 document.addEventListener('click', e => {

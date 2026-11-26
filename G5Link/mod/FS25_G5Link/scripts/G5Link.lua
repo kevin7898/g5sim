@@ -1317,6 +1317,12 @@ function G5Link:runCommand(vehicle, cmd)
         if ok and handled then
             return
         end
+        if not ok then
+            -- never fail silently: log it and tell the display
+            print("G5Link: RTK command '" .. tostring(cmd.arg) .. "' failed: " .. tostring(handled))
+            G5LinkRtk.lastResult = { ok = false, error = "script: " .. tostring(handled), action = "error", id = cmd.id }
+            return
+        end
     end
     if vehicle == nil then
         return

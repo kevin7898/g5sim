@@ -882,7 +882,10 @@ function G5LinkRtk:run(vehicle, cmd, host)
             ok = true
         end
     end
+    if a.action == nil or (ok == nil and res == nil) then res = res or "unknownAction" end
     self.lastResult = { ok = ok == true, error = ok and nil or res, action = a.action, id = cmd.id }
+    print(string.format("G5Link: RTK %s %s -> %s%s", tostring(a.action), tostring(a.item or ""), ok and "ok" or "refused",
+        ok and "" or (" (" .. tostring(res) .. ")")))
     self.dirty = true
     return true
 end

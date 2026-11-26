@@ -66,8 +66,13 @@
     box.classList.toggle('ok', !g.paused && !g.released && (g.kind === 'unloading' || g.kind === 'driving'));
     box.classList.toggle('warn', !!(g.paused || g.released || g.outOfPosition));
     $('mgcName').textContent = g.name + (g.carts > 1 ? ` (1 of ${g.carts})` : '');
-    $('mgcState').textContent = stateText(g) + (g.dist !== undefined ? ' · ' + lenTxt(g.dist) : '');
-    $('mgcFill').textContent = g.cap ? fmt(g.fill / g.cap * 100, 0) + '%' : '--%';
+    const pct = g.cap ? g.fill / g.cap * 100 : null;
+    $('mgcState').textContent = stateText(g);
+    $('mgcInfo').textContent = [g.dist !== undefined ? lenTxt(g.dist) + ' away' : null,
+      g.cap ? `${HU.tank(g.fill)} of ${HU.tank(g.cap)}` : null].filter(Boolean).join(' · ') || '---';
+    $('mgcFill').textContent = pct === null ? '--%' : fmt(pct, 0) + '%';
+    $('mgcBar').style.width = (pct ?? 0).toFixed(1) + '%';
+    $('mgcBar').classList.toggle('full', pct !== null && pct >= 95);
     $('mgcPause').textContent = g.paused ? 'Resume' : 'Pause';
     $('mgcPause').classList.toggle('on', !!g.paused);
   }

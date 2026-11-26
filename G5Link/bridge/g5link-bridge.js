@@ -429,7 +429,7 @@ if (DEMO_COMBINE) { demo.ccSpeed = 6.2; demo.target = 6.2; }
 
 // RTK package, simulated like Rtk.lua: SF1 free, subscriptions, an own base, pull-in, and the GNSS error.
 const RTK_LEVELS = { NONE: [0.8, 600, 1.5], SF1: [0.086, 1800, 0.15], SF2: [0.029, 1800, 0.05], SF3: [0.017, 1800, 0.03], RTK: [0.012, 3600, 0.025] };
-const RTK_PRICES = { SF2: 70, SF3: 120, MRTK: 130, SFRTK: 170, RTK: 2500, SF7000: 9000, BASE: 15000, BASE_UPKEEP: 10 };
+const RTK_PRICES = { SF2: 70, SF3: 120, MRTK: 130, SFRTK: 170, RTK: 2500, SF3000: 4000, SF6000: 7000, SF7000: 9000, SHOP_GPS: 1, BASE: 15000, BASE_UPKEEP: 10 };
 // the demo farm has an RTK station built next to field 23 (already surveyed)
 demo.rtkState = { receiver: 'SF6000', rtk: false, subs: [], bases: [{ id: 'placeable12', name: 'John Deere RTK Station', x: -40, z: 250, farmId: 1, placedAt: -1e9 }],
   ledger: [], gates: true, prices: { ...RTK_PRICES }, nextBase: 1,
@@ -438,9 +438,12 @@ function demoRtkSummary() { const r = demo.rtkState; return { day: 3, payer: nul
 function demoRtkState() {
   const r = demo.rtkState;
   return { save: 'demo', gates: r.gates, prices: r.prices, payer: null, baseRange: 3000, surveyMin: 120, gateLevels: { headland: 'SF2', grainCart: 'SF3' },
-    vehicles: [{ id: 'demo1', name: DEMO_COMBINE ? 'Demo S7 Combine' : 'Demo 8R Tractor', farmId: 1, receiver: r.receiver, rtk: r.rtk, subs: r.subs,
+    vehicles: [{ id: 'demo1', name: DEMO_COMBINE ? 'Demo S7 Combine' : 'Demo 8R Tractor', farmId: 1, receiver: r.receiver,
+      receiverName: r.receiver === 'SF7000' ? 'StarFire 7000' : 'StarFire 6000', hwSource: 'g5link', rtk: r.rtk, subs: r.subs,
       monthly: r.subs.reduce((a, k) => a + (r.prices[k] || 0), 0), level: r.level, src: r.src },
-    { id: 'demo2', name: 'Demo 8R + 1300 Cart', farmId: 1, receiver: 'SF6000', rtk: false, subs: [], monthly: 0, level: null, src: null }],
+    { id: 'demo2', name: 'Demo 9RX Tractor', farmId: 1, receiver: 'SF3000', receiverName: 'StarFire 3000', hwSource: 'shop', hwOption: 'StarFire 3000', rtk: false, subs: [], monthly: 0, level: null, src: null },
+    { id: 'demo3', name: 'Demo R4045 Sprayer', farmId: 1, receiver: 'SF7000', receiverName: 'StarFire 7000', hwSource: 'shop', hwOption: 'StarFire 7000 RTK', rtk: true, subs: ['SFRTK'], monthly: 170, level: null, src: null },
+    { id: 'demo4', name: 'Demo Semi Truck', farmId: 1, receiver: 'NONE', receiverName: 'No GPS receiver', hwSource: 'shop', hwOption: 'No', rtk: false, subs: [], monthly: 0, level: null, src: null }],
     bases: r.bases.map(b => ({ ...b, state: demo.t - b.placedAt < 20000 ? 'survey' : 'ok', surveyLeftMin: Math.max(0, Math.ceil((20000 - (demo.t - b.placedAt)) / 1000)) })),
     ledger: r.ledger, day: 3,
     stationItems: [{ name: 'RTK Station Standalone', xml: 'mods/fs25_jd_rtkstations/rtkstandalone.xml', modPrice: 8800, modUpkeep: 15,
@@ -482,7 +485,7 @@ function demoGnss(t, dt) {
   // the G5 only knows the GNSS position
   t.vehicle.x = +(t.vehicle.x + r.ex).toFixed(2); t.vehicle.z = +(t.vehicle.z + r.ez).toFixed(2);
   for (const imp of t.implements || []) for (const g of imp.geometry || []) { g.sx += r.ex; g.wx += r.ex; g.hx += r.ex; g.sz += r.ez; g.wz += r.ez; g.hz += r.ez; }
-  t.gnss = { receiver: r.receiver, level, src, accuracy: Math.round(accuracy * 100), p2p: RTK_LEVELS[level][2], ex: +r.ex.toFixed(3), ez: +r.ez.toFixed(3),
+  t.gnss = { receiver: r.receiver, receiverName: r.receiver === 'SF7000' ? 'StarFire 7000' : 'StarFire 6000', hwSource: 'g5link', rtkActivated: r.rtk, level, src, accuracy: Math.round(accuracy * 100), p2p: RTK_LEVELS[level][2], ex: +r.ex.toFixed(3), ez: +r.ez.toFixed(3),
     gate: gates, result: r.result, gates: r.gates };
   if (base) Object.assign(t.gnss, { base: base.name, baseState: baseOk ? 'ok' : 'survey', baseDist: Math.round(dist),
     baseBearing: Math.round((Math.atan2(base.x - demo.x, -(base.z - demo.z)) * 180 / Math.PI + 360) % 360), inRange: dist <= 3000 });

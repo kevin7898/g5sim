@@ -176,5 +176,15 @@ if (fs.existsSync(live)) {
   }
 }
 
+{
+  const f = path.join(OUT, 'gps_options', 'telemetry_live.xml');
+  check(fs.existsSync(f), 'gps options live telemetry copy exists');
+  if (fs.existsSync(f)) {
+    const t = telemetryFromXml(fs.readFileSync(f, 'utf8'));
+    eq(t.gnss && t.gnss.receiver, 'SF3000', 'live: receiver from shop option');
+    eq(t.gnss && t.gnss.hwSource, 'shop', 'live: hardware source');
+  }
+}
+
 console.log(`node checks: ${checks}, failures: ${failures}`);
 process.exit(failures ? 1 : 0);

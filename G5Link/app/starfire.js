@@ -7,7 +7,8 @@
   const S = { state: null, at: 0, lastResult: 0 };
   const SUBS = [['SF2', 'SF2', 'Pass to pass ±5 cm'], ['SF3', 'SF3', 'Pass to pass ±3 cm'],
     ['MRTK', 'Mobile RTK', 'RTK over the cell network, ±2.5 cm'], ['SFRTK', 'SF-RTK', 'RTK from satellite, needs StarFire 7000']];
-  const ERR = { needsSF7000: 'SF-RTK needs a StarFire 7000 receiver.', notServer: 'Only the host can change subscriptions.',
+  const ERR = { needsSF7000: 'SF-RTK needs a StarFire 7000 receiver.', needsSF6000: 'This needs a StarFire 6000 or newer.',
+    needsReceiver: 'This machine has no GPS receiver. Fit one in the shop (Customize).', changeInShop: 'This machine\'s GPS is a shop option: change it in the shop (Customize).', notServer: 'Only the host can change subscriptions.',
     unknownSubscription: 'Unknown subscription.', badPosition: 'No position for the base station.' };
   const money = v => (typeof v === 'number' ? '$' + Math.round(v).toLocaleString() : '---');
   const cm = m => metric('distance') ? `±${fmt(m * 100, 1)} cm` : `±${fmt(m * 39.37, 1)} in`;
@@ -35,7 +36,7 @@
     const subs = new Set(me ? me.subs : []);
     const head = !g ? '<p class="hint">No receiver data. Get in a machine.</p>' : `
       <div class="sf-grid">
-        <div><small>Receiver</small><b>${g.receiver === 'SF7000' ? 'StarFire 7000' : 'StarFire 6000'}</b></div>
+        <div><small>Receiver${g.hwSource === 'shop' ? ' (shop option)' : ''}</small><b title="${esc(g.hwOption || '')}">${esc(g.receiverName || g.receiver)}</b></div>
         <div><small>Correction</small><b class="sf-mode ${g.level}">${esc(g.src || g.level)}</b></div>
         <div><small>Accuracy</small><b>${fmt(g.accuracy, 0)}%</b></div>
         <div><small>Pass to Pass</small><b>${cm(g.p2p || 0)}</b></div>
@@ -43,7 +44,9 @@
         <div><small>Base Station</small><b>${g.base ? `${esc(g.base)} · ${g.baseState === 'survey' ? 'Surveying' : lenTxt(g.baseDist) + ' ' + compass(g.baseBearing)}${g.inRange === false ? ' (out of range)' : ''}` : 'None'}</b></div>
       </div>`;
     const subRows = SUBS.map(([k, label, note]) => {
-      const on = subs.has(k), needs7000 = k === 'SFRTK' && me && me.receiver !== 'SF7000';
+      const rc = me ? me.receiver : 'SF6000';
+      const blocked = rc === 'NONE' || (k === 'SFRTK' && rc !== 'SF7000') || (rc === 'SF3000' && (k === 'SF3' || k === 'MRTK'));
+      const on = subs.has(k), needs7000 = blocked;
       return `<div class="sf-row"><span><b>${label}</b><small>${note}</small></span><em>${money(prices[k])}/month</em>
         <button class="g5btn ${on ? 'on' : ''}" data-sub="${k}" data-on="${on ? 0 : 1}" ${needs7000 && !on ? 'disabled' : ''}>${on ? 'Cancel' : 'Subscribe'}</button></div>`;
     }).join('');
@@ -54,9 +57,11 @@
           <div class="sf-row total"><span><b>This machine</b></span><em>${money(me ? me.monthly : 0)}/month</em><span></span></div></div>
         <div><h4>Activations</h4>
           <div class="sf-row"><span><b>RTK</b><small>Use your own base station by radio</small></span><em>${money(prices.RTK)}</em>
-            <button class="g5btn" data-buy="RTK" ${me && me.rtk ? 'disabled' : ''}>${me && me.rtk ? 'Active' : 'Buy'}</button></div>
+            <button class="g5btn" data-buy="RTK" ${me && (me.rtk || me.receiver === 'NONE') ? 'disabled' : ''}>${me && me.rtk ? (me.hwSource === 'shop' ? 'In option' : 'Active') : 'Buy'}</button></div>
           <div class="sf-row"><span><b>StarFire 7000</b><small>Needed for SF-RTK</small></span><em>${money(prices.SF7000)}</em>
-            <button class="g5btn" data-buy="SF7000" ${me && me.receiver === 'SF7000' ? 'disabled' : ''}>${me && me.receiver === 'SF7000' ? 'Fitted' : 'Upgrade'}</button></div>
+            ${me && me.hwSource === 'shop' ? `<em class="sf-shop">In the shop</em>` : `<button class="g5btn" data-buy="SF7000" ${me && me.receiver === 'SF7000' ? 'disabled' : ''}>${me && me.receiver === 'SF7000' ? 'Fitted' : 'Upgrade'}</button>`}</div>
+          ${me && me.hwSource === 'shop' ? `<p class="hint">GPS on this machine is a shop option${me.hwOption ? ': ' + esc(me.hwOption) : ''}. Change the receiver with Customize in the shop.</p>` : ''}
+          ${me && me.receiver === 'NONE' ? '<p class="hint">No GPS receiver: corrections, headland automation and the Grain Cart remote need one.</p>' : me && me.receiver === 'SF3000' ? '<p class="hint">StarFire 3000: SF1 and SF2, RTK by radio, RTK-X 15 min.</p>' : ''}
           <h4>Base Stations</h4>
           ${bases.length ? bases.map(b => `<div class="sf-row"><span><b>${esc(b.name)}</b><small>${b.state === 'survey' ? `Self survey, ${days(b.surveyLeftMin)} left` : 'OK'} · range ${lenTxt(st.baseRange || 3000)}</small></span><em></em><span></span></div>`).join('')
             : `<p class="hint">No base station. Build an RTK station from the construction menu${(st.stationItems || []).length ? '' : ' (needs an RTK station mod, e.g. John Deere RTK Stations)'}.</p>`}

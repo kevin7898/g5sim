@@ -28,9 +28,13 @@ G5LinkRtk.LEVELS = {
 G5LinkRtk.LEVEL = { NONE = 1, SF1 = 2, SF2 = 3, SF3 = 4, RTK = 5 }
 
 -- Receivers: which satellite corrections they can run, and how long RTK-X holds RTK after losing it.
+-- maxSat: best satellite correction it runs; mrtk: can use Mobile RTK; none: no receiver at all.
 G5LinkRtk.RECEIVERS = {
-    SF6000 = { name = "StarFire 6000", sfRtk = false, rtkxGameMin = 14 * 24 * 60 },
-    SF7000 = { name = "StarFire 7000", sfRtk = true, rtkxGameMin = 14 * 24 * 60 },
+    NONE = { name = "No GPS receiver", none = true, maxSat = "NONE", sfRtk = false, mrtk = false, rtkxGameMin = 0 },
+    SF3000 = { name = "StarFire 3000", maxSat = "SF2", sfRtk = false, mrtk = false, rtkxGameMin = 15 },
+    SF6000 = { name = "StarFire 6000", maxSat = "SF3", sfRtk = false, mrtk = true, rtkxGameMin = 14 * 24 * 60 },
+    SF7000 = { name = "StarFire 7000", maxSat = "SF3", sfRtk = true, mrtk = true, rtkxGameMin = 14 * 24 * 60 },
+    OTHER = { name = "Third-party GPS", maxSat = "SF3", sfRtk = false, mrtk = true, rtkxGameMin = 15 },
 }
 G5LinkRtk.DEFAULT_RECEIVER = "SF6000"
 G5LinkRtk.SUBSCRIPTIONS = { "SF2", "SF3", "MRTK", "SFRTK" }       -- monthly, per machine
@@ -38,6 +42,8 @@ G5LinkRtk.SUB_NAMES = { SF2 = "SF2", SF3 = "SF3", MRTK = "Mobile RTK", SFRTK = "
 G5LinkRtk.DEFAULT_PRICES = {
     SF2 = 70, SF3 = 120, MRTK = 130, SFRTK = 170,                  -- per month
     RTK = 2500, SF7000 = 9000,                                     -- one time
+    SF3000 = 4000, SF6000 = 7000,                                  -- GPS shop options on machines (with SF7000 and RTK)
+    SHOP_GPS = 1,                                                  -- 1 = price GPS shop options from this list, 0 = the mods' own
     BASE = 15000, BASE_UPKEEP = 10,                                -- shop price and daily upkeep set on RTK station placeables (0 = the mod's own)
 }
 G5LinkRtk.BASE_PATTERNS = { "rtk", "basestation", "base station" }  -- placeable name / xml file, lower case
@@ -289,6 +295,93 @@ end
 -- Machines, subscriptions, bases
 ---------------------------------------------------------------------------
 
+---------------------------------------------------------------------------
+-- Equipment check: GPS hardware from the machine's shop configuration
+---------------------------------------------------------------------------
+-- Mods offer GPS as a shop option: their own receivers (StarFire 3000/6000/7000 globes, RTK), Buyable GPS
+-- (a GPS yes/no option on every vehicle), realGPS and others. storeItem.configurations[configName] holds
+-- the option items {name, price, dailyUpkeep, isYesNoOption}; vehicle.configurations[configName] is the
+-- index fitted (ConfigurationUtil.getConfigItemByConfigId does the same lookup).
+G5LinkRtk.GPS_CONFIG_WORDS = { "gps", "starfire", "rtk", "receiver", "globe", "guidance", "autotrac", "lenk" }
+G5LinkRtk.GPS_ITEM_WORDS = { "starfire", "gps", "rtk", "receiver", "globe", "trimble", "novatel", "topcon", "raven", "ag leader",
+    "agleader", "leica", "hemisphere", "autopilot", "autotrac", "fendt guide", "s10", "xcn" }
+G5LinkRtk.NONE_WORDS = { "no gps", "without", "none", "no receiver", "ohne", "kein", "aucun", "sans" }
+
+local function lower(v) return string.lower(tostring(v or "")) end
+local function hasWord(text, words)
+    for _, w in ipairs(words) do
+        if string.find(text, w, 1, true) ~= nil then return true end
+    end
+    return false
+end
+local function yesNoText(key)
+    if g_i18n == nil then return nil end
+    local ok, t = pcall(g_i18n.getText, g_i18n, key)
+    return ok and type(t) == "string" and lower(t) or nil
+end
+
+-- Is a configuration (name + items) a GPS option?
+function G5LinkRtk.isGpsConfig(configName, items)
+    if hasWord(lower(configName), G5LinkRtk.GPS_CONFIG_WORDS) then return true end
+    for _, it in ipairs(items or {}) do
+        if hasWord(lower(it.name), G5LinkRtk.GPS_ITEM_WORDS) then return true end
+    end
+    return false
+end
+
+-- What one option item fits: receiver id ("NONE", "SF3000", "SF6000", "SF7000", "OTHER"), RTK included.
+function G5LinkRtk.classifyGpsItem(item, configName)
+    local n = lower(item.name)
+    local no = yesNoText("configuration_valueNo")
+    local yes = yesNoText("configuration_valueYes")
+    if (no ~= nil and n == no) or n == "no" or hasWord(n, G5LinkRtk.NONE_WORDS) then return "NONE", false end
+    local rtk = string.find(n, "rtk", 1, true) ~= nil and string.find(n, "no rtk", 1, true) == nil
+    if string.find(n, "7000", 1, true) or string.find(n, "7500", 1, true) or string.find(n, "sf-rtk", 1, true) then return "SF7000", rtk end
+    if string.find(n, "6000", 1, true) then return "SF6000", rtk end
+    if string.find(n, "3000", 1, true) then return "SF3000", rtk end
+    if string.find(n, "starfire", 1, true) then return "SF6000", rtk end
+    if (yes ~= nil and n == yes) or n == "yes" then
+        -- a yes/no GPS option (e.g. Buyable GPS): a receiver with no brand
+        return "OTHER", rtk or string.find(lower(configName), "rtk", 1, true) ~= nil
+    end
+    return "OTHER", rtk
+end
+
+-- GPS hardware fitted to a vehicle: {receiver, rtk, option, configName} or nil when it has no GPS option.
+function G5LinkRtk:hardwareOf(vehicle)
+    if vehicle == nil or type(vehicle.configurations) ~= "table" or g_storeManager == nil then return nil end
+    local store = call(g_storeManager, "getItemByXMLFilename", vehicle.configFileName)
+    if store == nil or type(store.configurations) ~= "table" then return nil end
+    local found = nil
+    for configName, items in pairs(store.configurations) do
+        if type(items) == "table" and G5LinkRtk.isGpsConfig(configName, items) then
+            local idx = vehicle.configurations[configName]
+            local item = idx ~= nil and items[idx] or nil
+            if item ~= nil then
+                local receiver, rtk = G5LinkRtk.classifyGpsItem(item, configName)
+                -- several GPS options (receiver + separate RTK yes/no): combine them
+                if found == nil then
+                    found = { receiver = receiver, rtk = rtk, option = tostring(item.name or ""), configName = configName }
+                else
+                    if string.find(lower(configName), "rtk", 1, true) ~= nil and receiver ~= "NONE" then
+                        found.rtk = true
+                    elseif found.receiver == "NONE" or (found.receiver == "OTHER" and receiver ~= "NONE") then
+                        found.receiver = receiver
+                    end
+                    found.rtk = found.rtk or rtk
+                    found.option = found.option .. ", " .. tostring(item.name or "")
+                end
+            end
+        end
+    end
+    return found
+end
+
+-- Effective receiver and RTK: shop hardware when the machine has a GPS option, else what G5Link sold.
+local function recv(e) return e.hwReceiver or e.receiver end
+local function hasRtk(e) return e.hwRtk == true or e.rtk == true end
+G5LinkRtk.receiverOf, G5LinkRtk.hasRtkOf = recv, hasRtk
+
 function G5LinkRtk:entry(uid, vehicle)
     local d = self.data
     local e = d.vehicles[uid]
@@ -299,6 +392,17 @@ function G5LinkRtk:entry(uid, vehicle)
     if vehicle ~= nil then
         e.name = call(vehicle, "getFullName") or e.name
         e.farmId = call(vehicle, "getOwnerFarmId") or e.farmId
+        -- equipment check, refreshed every 5 s (the shop's Customize can change it)
+        local now = (g_currentMission and g_currentMission.time) or 0
+        if e.hwCheckedAt == nil or now - e.hwCheckedAt >= 5000 or now < e.hwCheckedAt then
+            e.hwCheckedAt = now
+            local ok, hw = pcall(self.hardwareOf, self, vehicle)
+            if ok and hw ~= nil then
+                e.hwReceiver, e.hwRtk, e.hwOption = hw.receiver, hw.rtk, hw.option
+            else
+                e.hwReceiver, e.hwRtk, e.hwOption = nil, nil, nil
+            end
+        end
     end
     return e
 end
@@ -316,7 +420,11 @@ function G5LinkRtk:setSubscription(uid, sub, on, vehicle, dir)
     if not isServer() then return false, "notServer" end
     if self.data.prices[sub] == nil or G5LinkRtk.SUB_NAMES[sub] == nil then return false, "unknownSubscription" end
     local e = self:entry(uid, vehicle)
-    if on and sub == "SFRTK" and not G5LinkRtk.RECEIVERS[e.receiver].sfRtk then return false, "needsSF7000" end
+    local r = G5LinkRtk.RECEIVERS[recv(e)] or G5LinkRtk.RECEIVERS.SF6000
+    if on and r.none then return false, "needsReceiver" end
+    if on and sub == "SFRTK" and not r.sfRtk then return false, "needsSF7000" end
+    if on and sub == "SF3" and r.maxSat == "SF2" then return false, "needsSF6000" end
+    if on and sub == "MRTK" and not r.mrtk then return false, "needsSF6000" end
     if (e.subs[sub] == true) == on then return true end
     e.subs[sub] = on or nil
     if on and sub == "SF3" then e.subs.SF2 = nil end        -- SF3 covers SF2
@@ -330,9 +438,11 @@ function G5LinkRtk:buy(uid, item, vehicle, dir)
     if not isServer() then return false, "notServer" end
     local e = self:entry(uid, vehicle)
     if item == "SF7000" then
+        if e.hwReceiver ~= nil then return false, "changeInShop" end    -- the machine's GPS is a shop option
         if e.receiver == "SF7000" then return true end
     elseif item == "RTK" then
-        if e.rtk then return true end
+        if hasRtk(e) then return true end
+        if e.hwReceiver == "NONE" then return false, "needsReceiver" end
     else
         return false, "unknownItem"
     end
@@ -391,6 +501,9 @@ function G5LinkRtk:applyStorePrices()
         for _, pat in ipairs(G5LinkRtk.BASE_PATTERNS) do
             if string.find(text, pat, 1, true) ~= nil then match = true end
         end
+        if type(item.configurations) == "table" then
+            pcall(self.priceGpsOptions, self, item)
+        end
         if isPlaceable and match and type(item.price) == "number" then
             if item.g5OrigPrice == nil then
                 item.g5OrigPrice, item.g5OrigUpkeep = item.price, item.dailyUpkeep or 0
@@ -399,6 +512,40 @@ function G5LinkRtk:applyStorePrices()
             item.dailyUpkeep = price > 0 and upkeep or item.g5OrigUpkeep
             table.insert(self.stationItems, { name = tostring(item.name or "RTK station"), xml = tostring(item.xmlFilename or ""),
                 modPrice = item.g5OrigPrice, modUpkeep = item.g5OrigUpkeep, price = item.price, upkeep = item.dailyUpkeep })
+        end
+    end
+end
+
+-- GPS shop options of a machine priced from the price list: StarFire 3000/6000/7000, a plain "GPS yes"
+-- (priced as a StarFire 6000), plus the RTK activation when the option includes RTK. "No GPS" costs nothing.
+-- Other brands keep their mod's price. SHOP_GPS 0 puts every original price back.
+function G5LinkRtk:priceGpsOptions(item)
+    local p = self.data.prices
+    local on = (p.SHOP_GPS or 1) ~= 0
+    for configName, items in pairs(item.configurations) do
+        if type(items) == "table" and G5LinkRtk.isGpsConfig(configName, items) then
+            local rtkConfig = string.find(lower(configName), "rtk", 1, true) ~= nil
+            for _, it in ipairs(items) do
+                if type(it.price) == "number" then
+                    if it.g5OrigPrice == nil then it.g5OrigPrice = it.price end
+                    local receiver, rtk = G5LinkRtk.classifyGpsItem(it, configName)
+                    local price = it.g5OrigPrice
+                    if on then
+                        if receiver == "NONE" then
+                            price = 0
+                        elseif rtkConfig and receiver == "OTHER" then
+                            price = p.RTK or it.g5OrigPrice                -- a separate "RTK: yes" option
+                        elseif receiver ~= "OTHER" or lower(it.name) == "yes" or lower(it.name) == yesNoText("configuration_valueYes")
+                            or lower(it.name) == "gps" then
+                            local base = receiver == "OTHER" and p.SF6000 or p[receiver]
+                            price = (base or it.g5OrigPrice) + (rtk and (p.RTK or 0) or 0)
+                        end
+                    end
+                    it.price = price
+                end
+            end
+            self.gpsOptionItems = self.gpsOptionItems or {}
+            self.gpsOptionItems[tostring(item.xmlFilename or item.name)] = { name = tostring(item.name or ""), config = configName, options = #items }
         end
     end
 end
@@ -430,9 +577,11 @@ end
 
 -- Best satellite (non-RTK) level the subscriptions allow, with its pull-in time.
 function G5LinkRtk:satLevel(e)
-    if e.subs.SFRTK and G5LinkRtk.RECEIVERS[e.receiver].sfRtk then return "RTK", "SF-RTK", G5LinkRtk.PULL_IN.SFRTK end
-    if e.subs.SF3 then return "SF3", "SF3", G5LinkRtk.PULL_IN.SF3 end
-    if e.subs.SF2 then return "SF2", "SF2", G5LinkRtk.PULL_IN.SF2 end
+    local r = G5LinkRtk.RECEIVERS[recv(e)] or G5LinkRtk.RECEIVERS.SF6000
+    if r.none then return "NONE", "None", 0 end
+    if e.subs.SFRTK and r.sfRtk then return "RTK", "SF-RTK", G5LinkRtk.PULL_IN.SFRTK end
+    if e.subs.SF3 and r.maxSat == "SF3" then return "SF3", "SF3", G5LinkRtk.PULL_IN.SF3 end
+    if (e.subs.SF2 or e.subs.SF3) then return "SF2", "SF2", G5LinkRtk.PULL_IN.SF2 end
     return "SF1", "SF1", 0
 end
 
@@ -457,9 +606,11 @@ function G5LinkRtk:updateVehicle(vehicle, dt)
     if base ~= nil then
         g.base, g.baseDist, g.baseBearing = base, bdist, bearing
         g.baseState = self:baseState(base)
-        if e.rtk and g.baseState == "ok" and bdist <= G5LinkRtk.BASE_RANGE then rtkSrc = "RTK" end
+        if hasRtk(e) and g.baseState == "ok" and bdist <= G5LinkRtk.BASE_RANGE then rtkSrc = "RTK" end
     end
-    if rtkSrc == nil and e.subs.MRTK then rtkSrc = "M-RTK" end
+    local rcv = G5LinkRtk.RECEIVERS[recv(e)] or G5LinkRtk.RECEIVERS.SF6000
+    if rcv.none then rtkSrc = nil end
+    if rtkSrc == nil and e.subs.MRTK and rcv.mrtk then rtkSrc = "M-RTK" end
     local level, src = self:satLevel(e)
     local pull = 0
     if rtkSrc ~= nil then
@@ -474,7 +625,7 @@ function G5LinkRtk:updateVehicle(vehicle, dt)
             g.rtkLostAtGame = gameMinutes()                                 -- start RTK-X
         end
         g.rtkAt = nil
-        if g.rtkLostAtGame ~= nil and gameMinutes() - g.rtkLostAtGame < G5LinkRtk.RECEIVERS[e.receiver].rtkxGameMin then
+        if g.rtkLostAtGame ~= nil and gameMinutes() - g.rtkLostAtGame < rcv.rtkxGameMin then
             level, src = "RTK", "RTK-X"
         else
             g.rtkLostAtGame = nil
@@ -498,7 +649,7 @@ function G5LinkRtk:updateVehicle(vehicle, dt)
     g.ez = g.ez - g.ez * h / tau + k * gaussian()
     if level ~= g.level then self:fire("levelChanged", uid, level, src) end
     g.level, g.src, g.accuracy, g.sigma = level, src, accuracy, sigma
-    g.rtkxLeft = g.rtkLostAtGame ~= nil and (G5LinkRtk.RECEIVERS[e.receiver].rtkxGameMin - (gameMinutes() - g.rtkLostAtGame)) or nil
+    g.rtkxLeft = g.rtkLostAtGame ~= nil and (rcv.rtkxGameMin - (gameMinutes() - g.rtkLostAtGame)) or nil
     return g, e
 end
 
@@ -594,7 +745,11 @@ function G5LinkRtk:write_telemetry(xml, vehicle)
     if g == nil or e == nil then return end
     local k = "g5.gnss"
     local lv = G5LinkRtk.LEVELS[G5LinkRtk.LEVEL[g.level]]
-    xml:setString(k .. "#receiver", e.receiver)
+    xml:setString(k .. "#receiver", recv(e))
+    xml:setString(k .. "#receiverName", (G5LinkRtk.RECEIVERS[recv(e)] or G5LinkRtk.RECEIVERS.SF6000).name)
+    xml:setString(k .. "#hwSource", e.hwReceiver ~= nil and "shop" or "g5link")
+    if e.hwOption ~= nil then xml:setString(k .. "#hwOption", e.hwOption) end
+    xml:setBool(k .. "#rtkActivated", hasRtk(e))
     xml:setString(k .. "#level", g.level)
     xml:setString(k .. "#src", g.src or g.level)
     xml:setFloat(k .. "#accuracy", math.floor(g.accuracy * 100 + 0.5))
@@ -629,7 +784,8 @@ function G5LinkRtk:writeJson(host)
     local d = self.data
     local out = { save = self.save, gates = d.gates, prices = d.prices, payer = self.payer and self.payer.name or nil,
         baseRange = G5LinkRtk.BASE_RANGE, surveyMin = G5LinkRtk.BASE_SURVEY_MIN, gateLevels = G5LinkRtk.GATES,
-        vehicles = {}, bases = {}, ledger = d.ledger, stationItems = self.stationItems or {}, day = (g_currentMission.environment and g_currentMission.environment.currentDay) or 0 }
+        vehicles = {}, bases = {}, ledger = d.ledger, stationItems = self.stationItems or {},
+        gpsOptionMachines = (function() local n = 0 for _ in pairs(self.gpsOptionItems or {}) do n = n + 1 end return n end)(), day = (g_currentMission.environment and g_currentMission.environment.currentDay) or 0 }
     local vs = g_currentMission.vehicleSystem
     local seen = {}
     for _, v in pairs(vs and vs.vehicles or {}) do
@@ -637,11 +793,13 @@ function G5LinkRtk:writeJson(host)
             local uid = vehicleUid(v)
             seen[uid] = true
             local e = d.vehicles[uid]
+            if e == nil or e.hwCheckedAt == nil then e = self:entry(uid, v) end
             local subs = {}
             if e ~= nil then for _, s in ipairs(G5LinkRtk.SUBSCRIPTIONS) do if e.subs[s] then table.insert(subs, s) end end end
             local g = self.live[uid]
             table.insert(out.vehicles, { id = uid, name = call(v, "getFullName") or "Vehicle", farmId = call(v, "getOwnerFarmId") or 1,
-                receiver = e and e.receiver or G5LinkRtk.DEFAULT_RECEIVER, rtk = e ~= nil and e.rtk or false, subs = subs,
+                receiver = recv(e), rtk = hasRtk(e), hwSource = e.hwReceiver ~= nil and "shop" or "g5link", hwOption = e.hwOption,
+                receiverName = (G5LinkRtk.RECEIVERS[recv(e)] or G5LinkRtk.RECEIVERS.SF6000).name, subs = subs,
                 monthly = e and self:monthlyCost(e) or 0, level = g and g.level or nil, src = g and g.src or nil })
             if #out.vehicles >= 120 then break end
         end
@@ -693,7 +851,7 @@ function G5LinkRtk:run(vehicle, cmd, host)
         if self.data.prices[a.item] ~= nil and finite(p) and p >= 0 then
             self.data.prices[a.item] = p
             self:write(host.dir)
-            if a.item == "BASE" or a.item == "BASE_UPKEEP" then pcall(self.applyStorePrices, self) end
+            pcall(self.applyStorePrices, self)
             ok = true
         end
     end

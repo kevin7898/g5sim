@@ -1303,6 +1303,96 @@ do
 end
 
 ---------------------------------------------------------------------------
+-- Scenario 10: equipment checks, GPS hardware from shop options, and their prices
+---------------------------------------------------------------------------
+do
+    local dir = newScenario("gps_options", {})
+    MessageType = {PERIOD_CHANGED = 5}
+    g_messageCenter = {subscribe = function() end, unsubscribeAll = function() end}
+    g_server = {}
+    g_i18n = {getText = function(self, k) return ({configuration_valueNo = "No", configuration_valueYes = "Yes"})[k] or k end}
+    local function opt(name, price) return {name = name, price = price, dailyUpkeep = 0} end
+    -- a tractor mod with its own receiver choice (like the Xerion US version)
+    local xerion = {name = "Xerion 5000", xmlFilename = "mods/fs25_xerion/xerion.xml", species = 1, price = 400000, configurations = {
+        gpsReceiver = {opt("No GPS", 0), opt("StarFire 6000", 5000), opt("StarFire 7000 RTK", 12000)},
+        wheel = {opt("Narrow", 0), opt("Wide", 8000)}}}
+    -- Buyable GPS style yes/no option
+    local tractor2 = {name = "Old Tractor", xmlFilename = "data/vehicles/old.xml", species = 1, price = 90000, configurations = {
+        gps = {opt("No", 0), opt("Yes", 3000)}}}
+    -- an older mod with a StarFire 3000 and a third-party brand
+    local tractor3 = {name = "Mid Tractor", xmlFilename = "mods/fs25_mid/mid.xml", species = 1, price = 150000, configurations = {
+        design4 = {opt("StarFire 3000", 2000), opt("Trimble GFX-750", 6500)}}}
+    local items = {xerion, tractor2, tractor3}
+    local byXml = {}
+    for _, it in ipairs(items) do byXml[it.xmlFilename] = it end
+    StoreSpecies = {PLACEABLE = 2, VEHICLE = 1}
+    g_storeManager = {getItems = function() return items end, getItemByXMLFilename = function(self, f) return byXml[string.lower(f or "")] end}
+    local function machine(name, uid, xml, configs)
+        local v = makeVehicle({name = name})
+        v.uniqueId, v.configFileName, v.configurations, v.spec_motorized = uid, xml, configs, {}
+        v.getOwnerFarmId = function() return 1 end
+        return v
+    end
+    local v1 = machine("Xerion 5000", "x1", "mods/FS25_Xerion/xerion.xml", {gpsReceiver = 3, wheel = 2})
+    local v2 = machine("Old Tractor", "o1", "data/vehicles/old.xml", {gps = 1})
+    local v3 = machine("Mid Tractor", "m1", "mods/fs25_mid/mid.xml", {design4 = 1})
+    local current = v1
+    g_localPlayer = {getCurrentVehicle = function(self) return current end}
+    mod:loadMap("test")
+    g_currentMission.missionInfo = {savegameDirectory = "/profile/savegame5"}
+    g_currentMission.vehicleSystem = {vehicles = {v1, v2, v3}}
+    g_currentMission.placeableSystem = {placeables = {}}
+    g_currentMission.addMoney = function() end
+    tick(4)
+    -- prices
+    local gr = xerion.configurations.gpsReceiver
+    eq(gr[1].price, 0, "No GPS costs nothing")
+    eq(gr[2].price, 7000, "StarFire 6000 option priced from the list")
+    eq(gr[3].price, 11500, "StarFire 7000 RTK = receiver + RTK activation")
+    eq(xerion.configurations.wheel[2].price, 8000, "other options untouched")
+    eq(tractor2.configurations.gps[2].price, 7000, "a plain GPS yes is priced as a StarFire 6000")
+    eq(tractor3.configurations.design4[1].price, 4000, "StarFire 3000 option priced")
+    eq(tractor3.configurations.design4[2].price, 6500, "third-party brand keeps its price")
+    -- equipment check: Xerion with StarFire 7000 RTK
+    local t = telemetry(dir)
+    eq(t["g5.gnss#receiver"], "SF7000", "receiver from the shop option")
+    eq(t["g5.gnss#hwSource"], "shop", "hardware source shown")
+    eq(t["g5.gnss#rtkActivated"], "true", "RTK option counts as the activation")
+    local function cmd(id, arg)
+        writeFile(dir .. "commands.xml", string.format('<?xml version="1.0"?>\n<commands>\n    <cmd id="%d" name="rtk" value="0" index="0" arg="%s"/>\n</commands>\n', id, arg))
+        tick(2)
+        return telemetry(dir)["g5.gnss.result#error"]
+    end
+    eq(cmd(1, "action=buy;vehicle=current;item=SF7000"), "changeInShop", "receiver upgrades go through the shop")
+    eq(cmd(2, "action=sub;vehicle=current;item=SFRTK;on=1"), nil, "SF-RTK allowed on the StarFire 7000")
+    -- no receiver
+    current = v2
+    tick(4)
+    t = telemetry(dir)
+    eq(t["g5.gnss#receiver"], "NONE", "GPS: No means no receiver")
+    eq(t["g5.gnss#level"], "NONE", "3D-None without a receiver")
+    eq(cmd(3, "action=sub;vehicle=current;item=SF2;on=1"), "needsReceiver", "no subscriptions without a receiver")
+    -- StarFire 3000: SF2 at most
+    current = v3
+    tick(4)
+    eq(telemetry(dir)["g5.gnss#receiver"], "SF3000", "StarFire 3000 found")
+    eq(cmd(4, "action=sub;vehicle=current;item=SF3;on=1"), "needsSF6000", "SF3 needs a StarFire 6000")
+    eq(cmd(5, "action=sub;vehicle=current;item=MRTK;on=1"), "needsSF6000", "Mobile RTK needs a StarFire 6000")
+    eq(cmd(6, "action=sub;vehicle=current;item=SF2;on=1"), nil, "SF2 works on a StarFire 3000")
+    tick(600)
+    eq(telemetry(dir)["g5.gnss#level"], "SF2", "StarFire 3000 runs SF2")
+    -- shop prices back to the mods' own
+    cmd(7, "action=price;item=SHOP_GPS;value=0")
+    eq(gr[2].price, 5000, "original StarFire 6000 price back")
+    eq(tractor2.configurations.gps[2].price, 3000, "original GPS yes price back")
+    local rj = readFile(dir .. "rtk.json") or ""
+    check(string.find(rj, '"hwSource":"shop"', 1, true) ~= nil, "rtk.json shows shop hardware")
+    keepLive(dir)
+    mod:deleteMap()
+    g_server, MessageType, g_messageCenter, g_storeManager, StoreSpecies = nil, nil, nil, nil, nil
+end
+
+---------------------------------------------------------------------------
 -- JSON encoder samples for check_output.js
 ---------------------------------------------------------------------------
 do

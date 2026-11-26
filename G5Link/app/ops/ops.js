@@ -927,13 +927,18 @@ function renderRtk() {
   const p = r.prices || {}, sub = S.rtkSub || 'machines';
   const total = (r.vehicles || []).reduce((a, v) => a + (v.monthly || 0), 0);
   if (sub === 'machines') {
-    setHtml($('rtkBody'), `<div class="svc-card"><h3>Machines (${(r.vehicles || []).length}) · ${rtkMoney(total)}/month</h3>
-      ${(r.vehicles || []).map(v => `<div class="rtk-row"><div><b>${esc(v.name)}</b><span>${v.receiver === 'SF7000' ? 'StarFire 7000' : 'StarFire 6000'}${v.rtk ? ' · RTK activated' : ''}${v.level ? ` · now ${esc(v.src || v.level)}` : ''}</span></div>
-        <div class="rtk-subs">${RTK_SUBS.map(([k, n]) => `<button class="chip ${v.subs.includes(k) ? 'on' : ''}" data-rsub="${k}" data-veh="${esc(v.id)}" data-on="${v.subs.includes(k) ? 0 : 1}"
-          ${k === 'SFRTK' && v.receiver !== 'SF7000' && !v.subs.includes(k) ? 'disabled' : ''}>${n}</button>`).join('')}</div>
-        <span class="num">${rtkMoney(v.monthly)}/mo</span>
-        <div class="rtk-buy">${v.rtk ? '' : `<button class="btn" data-rbuy="RTK" data-veh="${esc(v.id)}">RTK ${rtkMoney(p.RTK)}</button>`}${v.receiver === 'SF7000' ? '' : `<button class="btn" data-rbuy="SF7000" data-veh="${esc(v.id)}">SF7000 ${rtkMoney(p.SF7000)}</button>`}</div></div>`).join('') || '<p class="empty">No machines.</p>'}</div>
-      <p class="note">SF1 is free on every receiver. Subscriptions are charged each game month${r.payer ? ` through ${esc(r.payer)}` : ' in the game finances (GPS corrections)'}. SF3 includes SF2. SF-RTK needs a StarFire 7000; RTK by radio needs the RTK activation and your own base station in range.</p>`);
+    const blocked = (v, k) => v.receiver === 'NONE' || (k === 'SFRTK' && v.receiver !== 'SF7000') || (v.receiver === 'SF3000' && (k === 'SF3' || k === 'MRTK'));
+    const checks = (r.vehicles || []).flatMap(v => v.receiver === 'NONE' ? [[v, 'No GPS receiver. Fit one in the shop (Customize) to use corrections, headland automation and the Grain Cart remote.']]
+      : v.receiver === 'SF3000' ? [[v, 'StarFire 3000: SF2 at most, no Mobile RTK or SF-RTK.']]
+      : v.subs.includes('SFRTK') && v.receiver !== 'SF7000' ? [[v, 'SF-RTK subscription without a StarFire 7000.']] : []);
+    setHtml($('rtkBody'), `${checks.length ? `<div class="svc-card"><h3>Equipment Check (${checks.length})</h3>${checks.map(([v, t]) => `<div class="rtk-row"><div><b>${esc(v.name)}</b><span>${esc(t)}</span></div><span></span><span></span><span></span></div>`).join('')}</div>` : ''}
+      <div class="svc-card"><h3>Machines (${(r.vehicles || []).length}) · ${rtkMoney(total)}/month</h3>
+      ${(r.vehicles || []).map(v => `<div class="rtk-mach"><div class="rtk-top"><div><b>${esc(v.name)}</b><span>${esc(v.receiverName || v.receiver)}${v.hwSource === 'shop' ? ' (shop option)' : ''}${v.rtk ? ' · RTK' : ''}${v.level ? ` · now ${esc(v.src || v.level)}` : ''}</span></div>
+        <span class="num">${rtkMoney(v.monthly)}/mo</span></div>
+        <div class="rtk-line"><div class="rtk-subs">${RTK_SUBS.map(([k, n]) => `<button class="chip ${v.subs.includes(k) ? 'on' : ''}" data-rsub="${k}" data-veh="${esc(v.id)}" data-on="${v.subs.includes(k) ? 0 : 1}"
+          ${blocked(v, k) && !v.subs.includes(k) ? 'disabled' : ''}>${n}</button>`).join('')}</div>
+        <div class="rtk-buy">${v.rtk || v.receiver === 'NONE' ? '' : `<button class="btn" data-rbuy="RTK" data-veh="${esc(v.id)}">RTK ${rtkMoney(p.RTK)}</button>`}${v.receiver === 'SF7000' || v.hwSource === 'shop' ? '' : `<button class="btn" data-rbuy="SF7000" data-veh="${esc(v.id)}">SF7000 ${rtkMoney(p.SF7000)}</button>`}</div></div></div>`).join('') || '<p class="empty">No machines.</p>'}</div>
+      <p class="note">SF1 is free on every receiver. Subscriptions are charged each game month${r.payer ? ` through ${esc(r.payer)}` : ' in the game finances (GPS corrections)'}. SF3 includes SF2. SF-RTK needs a StarFire 7000; RTK by radio needs the RTK activation and your own base station in range. Machines whose mod offers GPS in the shop use that option as their receiver (change it with Customize).</p>`);
   } else if (sub === 'bases') {
     const items = r.stationItems || [];
     setHtml($('rtkBody'), `<div class="svc-card"><h3>Base Stations (${(r.bases || []).length})</h3>
@@ -946,7 +951,8 @@ function renderRtk() {
         <div class="cost-row"><span>Daily upkeep</span><input type="number" min="0" step="1" data-rprice="BASE_UPKEEP" value="${p.BASE_UPKEEP ?? ''}"></div></div></div>
       <p class="note">A base self-surveys for ${fmt(r.surveyMin || 120, 0)} game minutes, then gives RTK to machines with the RTK activation within ${fmt((r.baseRange || 3000) / 1000, 1)} km. Out of range, RTK-X holds RTK accuracy for up to 14 game days.</p>`);
   } else {
-    const items = [['SF2', 'SF2 per month'], ['SF3', 'SF3 per month'], ['MRTK', 'Mobile RTK per month'], ['SFRTK', 'SF-RTK per month'], ['RTK', 'RTK activation'], ['SF7000', 'StarFire 7000']];
+    const items = [['SF2', 'SF2 per month'], ['SF3', 'SF3 per month'], ['MRTK', 'Mobile RTK per month'], ['SFRTK', 'SF-RTK per month'], ['RTK', 'RTK activation'],
+      ['SF3000', 'StarFire 3000 (shop option)'], ['SF6000', 'StarFire 6000 or plain GPS (shop option)'], ['SF7000', 'StarFire 7000'], ['SHOP_GPS', 'Price GPS shop options (1 = yes, 0 = mods\' own)']];
     setHtml($('rtkBody'), `<div class="svc-card"><h3>Charges</h3>${(r.ledger || []).slice().reverse().map(l => `<div class="rtk-row"><div><b>${esc(l.text || l.item)}</b><span>Day ${l.day} · ${l.kind === 'subscription' ? 'Monthly' : 'Purchase'} · paid by ${esc(l.paidBy)}</span></div><span></span><span class="num">${rtkMoney(l.amount)}</span><span></span></div>`).join('') || '<p class="empty">No charges yet.</p>'}</div>
       <div class="svc-card"><h3>Prices</h3><div class="cost-grid">${items.map(([k, n]) => `<div class="cost-row"><span>${n}</span><input type="number" min="0" step="1" data-rprice="${k}" value="${p[k] ?? ''}"></div>`).join('')}</div></div>
       <div class="svc-card"><h3>Feature Requirements</h3><div class="rtk-row"><div><b>Like Deere activations</b><span>Headland automation needs SF2, the Grain Cart remote SF3</span></div><span></span><span></span>
@@ -983,9 +989,16 @@ function equipmentRows(list) {
   return list.length ? `<div class="group"><span>Machines (${list.length})</span><span>Fuel</span></div>` + list.map(e => `
     <div class="row" data-eq="${esc(e.id)}"><span>${e.kind === 'combine' ? '🌾' : e.kind === 'truck' ? '🚚' : e.kind === 'sprayer' ? '💧' : '🚜'}</span>
       <div class="nm"><b>${esc(e.name)}<span class="badge ${e.inUse ? 'inuse' : e.ai ? 'ai' : 'parked'}">${e.inUse ? 'In use' : e.ai ? 'AI worker' : e.motorOn ? 'Running' : 'Parked'}</span></b>
-        <span>${fieldName(e.field) ? esc(fieldName(e.field)) + ' · ' : ''}${typeof e.hours === 'number' ? fmt(e.hours, 1) + ' h' : ''}${e.ads && typeof e.ads.interval === 'number' ? ` · service ${fmt(e.ads.hours, 0)}/${fmt(e.ads.interval, 0)} h` : typeof e.damage === 'number' && !e.ads ? ` · condition ${fmt(100 - e.damage, 0)} %` : ''}${e.speed > 0.5 ? ` · ${fmt(U.speed(e.speed), 1)} ${U.speedUnit()}` : ''}${e.implements && e.implements.length ? ' · ' + esc(e.implements.join(', ')) : ''}</span>${financeOf(e) ? `<span>${esc(financeOf(e).text)}</span>` : ''}</div>
+        <span>${fieldName(e.field) ? esc(fieldName(e.field)) + ' · ' : ''}${typeof e.hours === 'number' ? fmt(e.hours, 1) + ' h' : ''}${e.ads && typeof e.ads.interval === 'number' ? ` · service ${fmt(e.ads.hours, 0)}/${fmt(e.ads.interval, 0)} h` : typeof e.damage === 'number' && !e.ads ? ` · condition ${fmt(100 - e.damage, 0)} %` : ''}${e.speed > 0.5 ? ` · ${fmt(U.speed(e.speed), 1)} ${U.speedUnit()}` : ''}${e.implements && e.implements.length ? ' · ' + esc(e.implements.join(', ')) : ''}</span>${financeOf(e) ? `<span>${esc(financeOf(e).text)}</span>` : ''}${gpsOf(e) ? `<span>${esc(gpsOf(e))}</span>` : ''}</div>
       <span class="num">${typeof e.fuelPct === 'number' ? fmt(e.fuelPct, 0) + ' %' : ''}</span><span class="chev">›</span></div>`).join('')
     : '<p class="empty">No machines reported yet.</p>';
+}
+// GPS line for the Equipment list (RTK package equipment check)
+function gpsOf(e) {
+  const v = S.rtk && (S.rtk.vehicles || []).find(x => x.id === e.id);
+  if (!v) return null;
+  if (v.receiver === 'NONE') return 'GPS: no receiver';
+  return `GPS: ${v.receiverName || v.receiver}${v.hwSource === 'shop' ? ' (shop option)' : ''}${v.subs.length ? ' · ' + v.subs.map(k => (RTK_SUBS.find(x => x[0] === k) || [k, k])[1]).join(', ') : ' · SF1'}${v.rtk ? ' · RTK' : ''}`;
 }
 function renderEquipment() { if (S.summary) setHtml($('equipList'), equipmentRows(S.summary.equipment || [])); }
 function focusMachine(id) {

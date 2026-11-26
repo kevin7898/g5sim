@@ -61,9 +61,14 @@ function G5LinkAPI.getVehicleGnss(vehicleUid)
     local uid = tostring(vehicleUid)
     local e = rtk().data.vehicles[uid]
     local g = rtk().live[uid]
+    local v = findVehicle(uid)
+    if v ~= nil then e = rtk():entry(uid, v) end                -- runs the equipment check
     local out = {
-        receiver = e and e.receiver or G5LinkRtk.DEFAULT_RECEIVER,
-        rtkActivated = e ~= nil and e.rtk or false,
+        receiver = e and G5LinkRtk.receiverOf(e) or G5LinkRtk.DEFAULT_RECEIVER,
+        receiverName = (G5LinkRtk.RECEIVERS[e and G5LinkRtk.receiverOf(e) or G5LinkRtk.DEFAULT_RECEIVER] or {}).name,
+        hardwareSource = e and e.hwReceiver ~= nil and "shop" or "g5link",
+        shopOption = e and e.hwOption or nil,
+        rtkActivated = e ~= nil and G5LinkRtk.hasRtkOf(e) or false,
         subscriptions = e and subList(e) or {},
         monthlyCost = e and rtk():monthlyCost(e) or 0,
     }
@@ -86,7 +91,7 @@ function G5LinkAPI.getSubscriptions(farmId)
     for uid, e in pairs(rtk().data.vehicles) do
         local subs = subList(e)
         if #subs > 0 and (farmId == nil or e.farmId == farmId) then
-            table.insert(out, { vehicleUid = uid, name = e.name, farmId = e.farmId, receiver = e.receiver,
+            table.insert(out, { vehicleUid = uid, name = e.name, farmId = e.farmId, receiver = G5LinkRtk.receiverOf(e),
                 subscriptions = subs, monthlyCost = rtk():monthlyCost(e) })
         end
     end
@@ -128,6 +133,14 @@ end
 
 -- Is a G5Link feature allowed on a machine at its current correction level?
 -- Features: "headland" (SF2), "grainCart" (SF3). Returns ok, requiredLevel.
+-- Equipment check of any vehicle: the GPS hardware its shop configuration fits, or nil when its mod
+-- has no GPS option. {receiver = "NONE"|"SF3000"|"SF6000"|"SF7000"|"OTHER", rtk, option}
+function G5LinkAPI.getGpsHardware(vehicle)
+    if rtk() == nil or vehicle == nil then return nil end
+    local ok, hw = pcall(rtk().hardwareOf, rtk(), vehicle)
+    return ok and copy(hw) or nil
+end
+
 function G5LinkAPI.isFeatureAllowed(vehicleUid, feature)
     if not G5LinkAPI.isReady() then return true end
     local v = findVehicle(vehicleUid)

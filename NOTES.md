@@ -273,11 +273,21 @@ from `FieldPathPrivateIntegration.lua`:
   API setPayer lets another mod take the money (Farm Finance later). Ledger of 48 rows.
 - State per savegame in modSettings/FS25_G5Link/rtk_<save>.xml; rtk.json for the bridge; "rtk" command with an
   `arg` text attribute ("action=sub;vehicle=<uid>;item=SF3;on=1", buy, gates, price). RTK commands work on foot.
+- Equipment check (Rtk.lua hardwareOf): store item configurations (g_storeManager:getItemByXMLFilename(
+  vehicle.configFileName).configurations[name] = items {name, price}) with vehicle.configurations[name] = fitted
+  index. GPS config = name has gps/starfire/rtk/receiver/globe/guidance/autotrac/lenk, or an option names a
+  receiver or brand. Option text -> NONE ("No", g_i18n configuration_valueNo, none/without/ohne...), SF7000
+  (7000/7500/sf-rtk), SF6000 (6000 or plain StarFire), SF3000, else OTHER; "rtk" in it = RTK activation. A
+  second GPS config with rtk in its name adds RTK. Re-read every 5 s. Shop hardware overrides G5Link's
+  receiver/RTK purchases (SF7000 upgrade -> "changeInShop"). Receivers NONE/SF3000 (SF2 max, no M-RTK/SF-RTK,
+  RTK-X 15 min)/SF6000/SF7000/OTHER. Option prices set in applyStorePrices -> priceGpsOptions (originals kept
+  on the items as g5OrigPrice; SHOP_GPS 0 restores).
 - Gates: headland SF2, grainCart SF3 (at full accuracy); Headland state "noSignal"; grain cart commands refused.
 - API: g_currentMission.g5linkAPI, version 1.0.0, documented in mod/FS25_G5Link/API.md (Farm Finance conventions).
 - **Not yet checked in game:** all of it; in particular MoneyType.register with G5Link's inline l10n, that
   changing storeItem.price shows in the construction menu, placeable names of the RTK station mods, and
-  multiplayer (live state is per machine on the server; clients get it through telemetry only).
+  multiplayer (live state is per machine on the server; clients get it through telemetry only), and real
+  configuration names in vehicle mods with GPS options (Xerion US, MF 6480 realGPS, Buyable GPS).
 
 ## Design reference (how the look was matched)
 

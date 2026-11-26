@@ -35,6 +35,27 @@ change state run on the **server** only; on a client they return `false, "notSer
 | `SF3` | SF3 | 3 cm | Monthly subscription `SF3` (includes SF2) |
 | `RTK` | RTK | 2.5 cm | `MRTK` subscription (cellular), `SFRTK` subscription (StarFire 7000), or the `RTK` activation plus an RTK station in range. RTK-X holds RTK for up to 14 game days after losing it. |
 
+## Receivers and the equipment check
+
+| id | Name | Runs |
+|---|---|---|
+| `NONE` | No GPS receiver | Nothing (3D-None). No subscriptions, no G5Link GPS features. |
+| `SF3000` | StarFire 3000 | SF1, SF2, RTK by radio; RTK-X 15 game min |
+| `SF6000` | StarFire 6000 | SF1 to SF3, Mobile RTK, RTK by radio; RTK-X 14 game days. The default when a machine's mod has no GPS option. |
+| `SF7000` | StarFire 7000 | Everything, including SF-RTK |
+| `OTHER` | Third-party GPS | Like a StarFire 6000; RTK-X 15 game min |
+
+When a vehicle mod offers GPS in its shop configuration (its own StarFire choice, Buyable GPS's yes/no option,
+realGPS, a brand like Trimble), G5Link reads the option the machine was bought with and uses it as the receiver;
+an option with "RTK" in its name counts as the RTK activation. Change it with Customize in the shop. G5Link
+prices those options from its list (`SF3000`, `SF6000` for StarFire 6000 and a plain "GPS: yes", `SF7000`, plus
+`RTK` when the option includes RTK; "No GPS" costs nothing; other brands keep their price). `SHOP_GPS = 0` puts
+every original price back. A configuration counts as GPS when its name, or one of its options, says GPS,
+StarFire, RTK, receiver, globe or a known brand.
+
+`api.getGpsHardware(vehicle)` returns `{receiver, rtk, option}` for any vehicle object, or `nil` when its mod
+has no GPS option.
+
 SF2, SF3 and SF-RTK pull in over a few minutes after the receiver starts. A G5Link feature that needs a
 level waits for full accuracy.
 
@@ -42,8 +63,8 @@ level waits for full accuracy.
 
 | Call | Returns |
 |---|---|
-| `api.getPriceList()` | `{SF2, SF3, MRTK, SFRTK}` per month, `{RTK, SF7000}` one time, `BASE` and `BASE_UPKEEP` (the shop price G5Link puts on RTK station placeables). |
-| `api.getVehicleGnss(vehicleUid)` | `{receiver = "SF6000"\|"SF7000", rtkActivated, subscriptions = {...}, monthlyCost}`, plus for a machine someone is driving `level, source ("SF1".."SF3", "RTK", "M-RTK", "SF-RTK", "RTK-X"), accuracy (0-1), errorX, errorZ (m), rtkxMinutesLeft, baseName, baseDistance`. |
+| `api.getPriceList()` | `{SF2, SF3, MRTK, SFRTK}` per month, `{RTK, SF7000}` one time, `SF3000`, `SF6000`, `SHOP_GPS` (GPS shop options), `BASE` and `BASE_UPKEEP` (the shop price G5Link puts on RTK station placeables). |
+| `api.getVehicleGnss(vehicleUid)` | `{receiver, receiverName, hardwareSource = "shop"\|"g5link", shopOption, rtkActivated, subscriptions = {...}, monthlyCost}`, plus for a machine someone is driving `level, source ("SF1".."SF3", "RTK", "M-RTK", "SF-RTK", "RTK-X"), accuracy (0-1), errorX, errorZ (m), rtkxMinutesLeft, baseName, baseDistance`. |
 | `api.getSubscriptions(farmId)` | Every machine with a subscription: `{vehicleUid, name, farmId, receiver, subscriptions = {"SF3", ...}, monthlyCost}`. `farmId` `nil` = all farms. |
 | `api.getMonthlyCost(farmId)` | The farm's total per game month. |
 | `api.getBaseStations(farmId)` | RTK stations: `{id (placeable unique id), name, x, z, farmId, state = "survey"\|"ok", surveyLeftMin, rangeM}`. |
@@ -59,7 +80,8 @@ api.setSubscription(vehicleUid, "SF3", true)   -- or false to cancel; "SF2", "SF
 api.buy(vehicleUid, "RTK")                     -- one time: "RTK" activation or "SF7000" receiver
 ```
 
-Both return `ok, reason`. Reasons: `"notServer"`, `"needsSF7000"`, `"unknownSubscription"`, `"unknownItem"`.
+Both return `ok, reason`. Reasons: `"notServer"`, `"needsReceiver"`, `"needsSF6000"`, `"needsSF7000"`,
+`"changeInShop"` (the receiver is a shop option), `"unknownSubscription"`, `"unknownItem"`.
 
 ## RTK stations
 

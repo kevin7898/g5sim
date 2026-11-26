@@ -171,3 +171,11 @@ table.rec td.n { text-align: right; white-space: nowrap; }
 .rtk-subs, .rtk-buy { display: flex; gap: 5px; flex-wrap: wrap; justify-content: flex-end; }
 .rtk-subs .chip:disabled { opacity: .4; }
 .rtk-actions { padding: 10px 12px; }
+.rtk-mach { padding: 8px 12px; border-bottom: 1px solid var(--rule); display: flex; flex-direction: column; gap: 6px; }
+.rtk-mach:last-child { border-bottom: 0; }
+.rtk-top { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.rtk-top > div { display: flex; flex-direction: column; min-width: 0; } .rtk-top b { font-size: 14px; } .rtk-top span { font-size: 12.5px; color: var(--muted); }
+.rtk-top .num { font-weight: 800; color: inherit; font-size: 14px; white-space: nowrap; }
+.rtk-line { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; align-items: center; }
+.rtk-line .rtk-subs { justify-content: flex-start; }
+.rtk-line .btn { padding: 3px 9px; font-size: 12.5px; }

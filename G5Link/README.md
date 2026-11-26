@@ -108,6 +108,11 @@ Deere's licences: **SF2** and **SF3** subscriptions, **Mobile RTK** (cellular), 
 menu. Any RTK station placeable works (for example the John Deere RTK Stations pack); G5Link sets their shop
 price and daily upkeep from its price list.
 
+**Equipment check:** when a machine's mod offers GPS in the shop (its own StarFire 3000/6000/7000 choice with
+or without RTK, Buyable GPS, realGPS, other brands), G5Link uses the option it was bought with: no receiver
+means no corrections and no G5 GPS features, a StarFire 3000 runs SF2 at most. G5Link prices those shop options
+from its list too, and the Ops Center RTK page lists machines that need attention.
+
 The correction level changes what G5Link reports: with SF1 the position wanders about ±15 cm pass to pass, so
 coverage maps show skips and overlaps, and headland lift points move; RTK holds about ±2.5 cm. The title bar
 shows the level (SF1, SF3, RTK, RTK-X) like the G5. **RTK-X** keeps RTK accuracy for up to 14 game days after

@@ -657,3 +657,5 @@ a.app { text-decoration: none; color: inherit; }
 .sf-foot .seg { height: 36px; width: 160px; } .sf-foot .seg button { font-size: 15px; min-width: 0; }
 .sf-foot small { font-size: 13px; font-weight: 600; color: var(--muted); }
 .mgc-lock { padding: 6px 8px; font-size: 14px; font-weight: 700; color: var(--ink-2); text-align: center; }
+.sf-shop { font-style: normal; font-size: 14px; font-weight: 700; color: var(--muted); text-align: center; }
+.sf-cols .hint { margin: 4px 0; font-size: 13px; }

@@ -1228,6 +1228,17 @@ do
     check(billed and billed[2] == 120 and billed[3] == 1, "monthBilled event")
     local charges = api.getCharges(1)
     eq(charges[1] and charges[1].paidBy, "FS25_FarmFinance", "ledger shows who paid")
+    -- a machine that left the game (sold, lease returned) stops billing
+    G5LinkRtk.data.vehicles.goneVeh = {receiver = "SF6000", rtk = false, subs = {SF2 = true}, name = "Sold Tractor", farmId = 1}
+    local cancelled, watcher = {}, {}
+    api.subscribe("subscriptionChanged", function(target, farmId, uid, sub, on) cancelled[#cancelled + 1] = {uid, sub, on} end, watcher)
+    periodHandler[1](periodHandler[2])
+    tick(1)
+    eq(#paid, 2, "payer charged again next month, only for the machine still here")
+    eq(paid[2] and paid[2][2], 120, "no charge for the machine that left")
+    eq(next(G5LinkRtk.data.vehicles.goneVeh.subs), nil, "missing machine's subscriptions cancelled")
+    check(cancelled[1] and cancelled[1][1] == "goneVeh" and cancelled[1][3] == false, "subscriptionChanged fired for the missing machine")
+    api.unsubscribe("subscriptionChanged", watcher)
     check(api.clearPayer("FS25_FarmFinance"), "payer cleared")
 
     -- RTK activation (cash), then an RTK station built from the construction menu

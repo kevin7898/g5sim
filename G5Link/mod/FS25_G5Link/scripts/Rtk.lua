@@ -683,8 +683,35 @@ function G5LinkRtk:onPeriodChanged()
     if isServer() then self.pendingPeriods = self.pendingPeriods + 1 end
 end
 
+-- Machines that left the game (sold, returned to a lease dealer, deleted) stop
+-- billing: their subscriptions are cancelled before the month is charged.
+function G5LinkRtk:dropMissingMachines(dir)
+    local vs = g_currentMission and g_currentMission.vehicleSystem
+    local list = vs and vs.vehicles
+    if type(list) ~= "table" or next(list) == nil then return 0 end   -- no vehicle list yet: never guess
+    local present = {}
+    for _, v in pairs(list) do
+        local uid = vehicleUid(v)
+        if uid ~= nil and uid ~= "" then present[uid] = true end
+    end
+    local dropped = 0
+    for uid, e in pairs(self.data.vehicles) do
+        if not present[uid] and next(e.subs or {}) ~= nil then
+            local subs = {}
+            for s in pairs(e.subs) do table.insert(subs, s) end
+            table.sort(subs)
+            e.subs = {}
+            dropped = dropped + 1
+            for _, s in ipairs(subs) do self:fire("subscriptionChanged", e.farmId, uid, s, false) end
+        end
+    end
+    if dropped > 0 then self:write(dir) end
+    return dropped
+end
+
 -- Bills every machine's subscriptions, one line per machine, per farm.
 function G5LinkRtk:billMonth(dir)
+    self:dropMissingMachines(dir)
     local farms = {}
     for uid, e in pairs(self.data.vehicles) do
         local cost = self:monthlyCost(e)

@@ -121,7 +121,9 @@ requirements off in StarFire if you prefer).
 
 Manage it on the display (Menu > StarFire) or in the Ops Center (RTK). Subscriptions are charged each game
 month under "GPS corrections". Other mods can read all of it and take over the billing through the G5Link
-API: see `mod/FS25_G5Link/API.md`.
+API: see `mod/FS25_G5Link/API.md`. With **Farm Finance** installed, it pays them for you: on the input
+account or the operating line (or cash, your choice in Farm Finance), and machines you sell or return
+from a lease stop billing.
 
 ## Works with other mods
 

@@ -108,6 +108,15 @@ api.getPayer()           -- name of the mod that pays, or nil
 
 The payer runs on the server, inside `pcall`. The charge history (`getCharges`) records who paid.
 
+Farm Finance (FS25_FarmFinance 0.3.1 or later) registers itself as the payer when both mods are installed. It books
+charges on the farm's input account, or on the operating line when the account is full; the player can switch to
+operating line only, or to cash, in Farm Finance's input account. When it has no room it returns `false` and G5Link
+charges cash. It never replaces a payer another mod already set, and it cancels a machine's subscriptions when a
+Farm Finance lease is returned or the machine is sold.
+
+Machines that are no longer in the game (sold, returned, deleted) have their subscriptions cancelled before each
+month is billed, with a `subscriptionChanged` event per subscription.
+
 ## Events
 
 ```lua

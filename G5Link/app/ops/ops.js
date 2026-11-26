@@ -740,6 +740,8 @@ function financeOf(e) {
   if (loan) return { kind: 'loan', text: `Financed · ${money(loan.balance)} left · ${money(loan.payment)}/mo` };
   return null;
 }
+const GPS_BILLING = { account: 'Input account, then operating line', line: 'Operating line', cash: 'Cash' };
+const payerName = p => p === 'FS25_FarmFinance' ? 'Farm Finance' : p;
 function renderFinance() {
   const ff = S.finance && S.finance.farmFinance, sm = ff && ff.summary;
   if (!sm) {
@@ -776,6 +778,11 @@ function renderFinance() {
     sm.inputAccount ? card('Input Account', grid([['Balance', money(sm.inputAccount.balance)], ['Limit', money(sm.inputAccount.limit)], ['Available', money(sm.inputAccount.available)],
       sm.inputAccount.pastDue > 0 ? ['Past due', money(sm.inputAccount.pastDue)] : null, ['Due crop year', sm.inputAccount.dueCropYear ?? '---'],
       ['Early-pay discount', pct(sm.inputAccount.earlyPayDiscount, 1)]])) : '',
+    sm.gps && sm.gps.installed ? card('GPS Corrections (G5Link)', grid([
+      ['Paid from', sm.gps.connected ? esc(GPS_BILLING[sm.gps.billing] || sm.gps.billing) : sm.gps.payer ? 'Billed through ' + esc(payerName(sm.gps.payer)) : 'Cash (Farm Finance not connected yet)'],
+      ['Monthly', money(sm.gps.monthlyCost)], ['Machines subscribed', fmt(sm.gps.machines || 0, 0)],
+      ['Paid by Farm Finance', money(sm.gps.paid)], ['  on the input account', money(sm.gps.onAccount)], ['  on the operating line', money(sm.gps.onLine)]]))
+      + '<p class="note">Change where GPS subscriptions are paid from in the game: Farm Finance page, input account.</p>' : '',
     card(`Land Contracts (${land.length})`, land.length ? land.map(c => `<div class="svc-row"><b>${esc(c.name || 'Farmland ' + c.farmlandId)}</b><span>${c.leaseType === 'share' ? `${pct(c.landownerShare, 0)} share` : money(c.annualRent) + '/yr'}</span>
       <span>${c.kind === 'in' ? 'Rented in' : 'Rented out'} · ${c.leaseType === 'share' ? `crop share, landowner pays ${pct(c.inputShare, 0)} of inputs` : 'cash rent'}${c.endCropYear ? ' · to crop year ' + c.endCropYear : ''}</span><span></span></div>`).join('') : '<p class="empty">No land contracts.</p>'),
     card('Ledger', grid([['Interest paid', money(led.interestPaid)], ['Principal paid', money(led.principalPaid)], ['Rent paid', money(led.rentPaid)],
@@ -938,7 +945,7 @@ function renderRtk() {
         <div class="rtk-line"><div class="rtk-subs">${RTK_SUBS.map(([k, n]) => `<button class="chip ${v.subs.includes(k) ? 'on' : ''}" data-rsub="${k}" data-veh="${esc(v.id)}" data-on="${v.subs.includes(k) ? 0 : 1}"
           ${blocked(v, k) && !v.subs.includes(k) ? 'disabled' : ''}>${n}</button>`).join('')}</div>
         <div class="rtk-buy">${v.rtk || v.receiver === 'NONE' ? '' : `<button class="btn" data-rbuy="RTK" data-veh="${esc(v.id)}">RTK ${rtkMoney(p.RTK)}</button>`}${v.receiver === 'SF7000' || v.hwSource === 'shop' ? '' : `<button class="btn" data-rbuy="SF7000" data-veh="${esc(v.id)}">SF7000 ${rtkMoney(p.SF7000)}</button>`}</div></div></div>`).join('') || '<p class="empty">No machines.</p>'}</div>
-      <p class="note">SF1 is free on every receiver. Subscriptions are charged each game month${r.payer ? ` through ${esc(r.payer)}` : ' in the game finances (GPS corrections)'}. SF3 includes SF2. SF-RTK needs a StarFire 7000; RTK by radio needs the RTK activation and your own base station in range. Machines whose mod offers GPS in the shop use that option as their receiver (change it with Customize).</p>`);
+      <p class="note">SF1 is free on every receiver. Subscriptions are charged each game month${r.payer ? ` through ${esc(payerName(r.payer))}${rtkBilling()}` : ' in the game finances (GPS corrections)'}. SF3 includes SF2. SF-RTK needs a StarFire 7000; RTK by radio needs the RTK activation and your own base station in range. Machines whose mod offers GPS in the shop use that option as their receiver (change it with Customize).</p>`);
   } else if (sub === 'bases') {
     const items = r.stationItems || [];
     setHtml($('rtkBody'), `<div class="svc-card"><h3>Base Stations (${(r.bases || []).length})</h3>
@@ -953,7 +960,7 @@ function renderRtk() {
   } else {
     const items = [['SF2', 'SF2 per month'], ['SF3', 'SF3 per month'], ['MRTK', 'Mobile RTK per month'], ['SFRTK', 'SF-RTK per month'], ['RTK', 'RTK activation'],
       ['SF3000', 'StarFire 3000 (shop option)'], ['SF6000', 'StarFire 6000 or plain GPS (shop option)'], ['SF7000', 'StarFire 7000'], ['SHOP_GPS', 'Price GPS shop options (1 = yes, 0 = mods\' own)']];
-    setHtml($('rtkBody'), `<div class="svc-card"><h3>Charges</h3>${(r.ledger || []).slice().reverse().map(l => `<div class="rtk-row"><div><b>${esc(l.text || l.item)}</b><span>Day ${l.day} · ${l.kind === 'subscription' ? 'Monthly' : 'Purchase'} · paid by ${esc(l.paidBy)}</span></div><span></span><span class="num">${rtkMoney(l.amount)}</span><span></span></div>`).join('') || '<p class="empty">No charges yet.</p>'}</div>
+    setHtml($('rtkBody'), `<div class="svc-card"><h3>Charges</h3>${(r.ledger || []).slice().reverse().map(l => `<div class="rtk-row"><div><b>${esc(l.text || l.item)}</b><span>Day ${l.day} · ${l.kind === 'subscription' ? 'Monthly' : 'Purchase'} · paid by ${esc(payerName(l.paidBy))}</span></div><span></span><span class="num">${rtkMoney(l.amount)}</span><span></span></div>`).join('') || '<p class="empty">No charges yet.</p>'}</div>
       <div class="svc-card"><h3>Prices</h3><div class="cost-grid">${items.map(([k, n]) => `<div class="cost-row"><span>${n}</span><input type="number" min="0" step="1" data-rprice="${k}" value="${p[k] ?? ''}"></div>`).join('')}</div></div>
       <div class="svc-card"><h3>Feature Requirements</h3><div class="rtk-row"><div><b>Like Deere activations</b><span>Headland automation needs SF2, the Grain Cart remote SF3</span></div><span></span><span></span>
         <div class="rtk-buy"><button class="chip ${r.gates !== false ? 'on' : ''}" data-rgates="1">On</button><button class="chip ${r.gates === false ? 'on' : ''}" data-rgates="0">Off</button></div></div></div>`);
@@ -981,6 +988,12 @@ $('rtkBody').addEventListener('change', e => {
 });
 setInterval(() => { if (S.page === 'rtk' || (S.rtk && S.rtk.bases && S.rtk.bases.length)) loadRtk(); }, 5000);
 loadRtk();
+
+// Where Farm Finance books GPS charges, for the RTK page note.
+function rtkBilling() {
+  const g = S.finance && S.finance.farmFinance && S.finance.farmFinance.summary && S.finance.farmFinance.summary.gps;
+  return g && g.connected ? ` (${esc((GPS_BILLING[g.billing] || g.billing).toLowerCase())}; it charges cash when there is no room)` : '';
+}
 
 // Equipment
 function equipmentRows(list) {

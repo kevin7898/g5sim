@@ -270,7 +270,9 @@ from `FieldPathPrivateIntegration.lua`:
   price/dailyUpkeep set to BASE/BASE_UPKEEP (original kept on the item, BASE 0 restores).
 - Billing: MessageType.PERIOD_CHANGED -> next update charges each machine; g_currentMission:addMoney(-x, farm,
   MoneyType "g5linkRtk" (MoneyType.register + FinanceStats.statNames, as FS25_FarmFinance does), true, true).
-  API setPayer lets another mod take the money (Farm Finance later). Ledger of 48 rows.
+  API setPayer lets another mod take the money. Farm Finance 0.3.1 registers as payer (input account, then
+  operating line, then cash; per farm) and cancels subscriptions on returned/sold machines. billMonth first drops
+  subscriptions of machines missing from vehicleSystem. Ledger of 48 rows.
 - State per savegame in modSettings/FS25_G5Link/rtk_<save>.xml; rtk.json for the bridge; "rtk" command with an
   `arg` text attribute ("action=sub;vehicle=<uid>;item=SF3;on=1", buy, gates, price). RTK commands work on foot.
 - Equipment check (Rtk.lua hardwareOf): store item configurations (g_storeManager:getItemByXMLFilename(

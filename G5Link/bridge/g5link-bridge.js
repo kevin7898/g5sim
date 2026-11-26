@@ -129,6 +129,7 @@ function telemetryFromXml(text) {
     headland: (child(g5, 'headland') || {}).attrs || null,
     grainCart: (child(g5, 'grainCart') || {}).attrs || null,
     gnss: gnssFromNode(child(g5, 'gnss')),
+    autotrac: (child(g5, 'autotrac') || {}).attrs || null,
     harvestAuto: (child(g5, 'harvestAuto') || {}).attrs || null,
   };
 }
@@ -337,11 +338,36 @@ const pollEconomy = jsonPoller(ECONOMY, e => { economy = e && typeof e === 'obje
 const pollEquipment = jsonPoller(EQUIPMENT, e => { equipment = e && Array.isArray(e.vehicles) ? e : { vehicles: [] }; equipmentAt = Date.now(); });
 const pollCourse = jsonPoller(COURSE, c => { course = { key: c.key ?? null, name: c.name, workWidth: c.workWidth, waypoints: c.waypoints || [], field: c.field || [] }; });
 
+// ---------------------------------------------------------------- AutoTrac guidance (to the mod's Steering.lua)
+// The display posts its selected track, spacing, shift and Turn Automation settings; the mod reads guidance.xml.
+let guidanceState = null, guidanceV = 0, guidanceKey = '';
+function setGuidance(g) {
+  const num = (v, lo, hi) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : null);
+  const t = g && g.track && num(g.track.ax, -1e6, 1e6) !== null && num(g.track.az, -1e6, 1e6) !== null && num(g.track.h, -720, 720) !== null
+    ? { id: String(g.track.id || ''), name: String(g.track.name || '').slice(0, 60), ax: g.track.ax, az: g.track.az, h: g.track.h } : null;
+  const turn = g && g.turn || {};
+  const next = { track: t, spacing: num(g && g.spacing, 0.5, 200) || 0, shift: num(g && g.shift, -1000, 1000) || 0,
+    turn: { on: turn.on === true, skip: Math.round(num(turn.skip, 0, 10) || 0), dir: ['left', 'right'].includes(turn.dir) ? turn.dir : 'auto',
+      radius: num(turn.radius, 0, 50) || 0 } };
+  const key = JSON.stringify(next);
+  if (key === guidanceKey) return guidanceState;
+  guidanceKey = key; guidanceState = next; guidanceV++;
+  if (!DEMO) {
+    const a = v => String(v).replace(/[&"<>]/g, c => ({ '&': '&amp;', '"': '&quot;', '<': '&lt;', '>': '&gt;' }[c]));
+    const xml = `<?xml version="1.0" encoding="utf-8" standalone="no"?>\n<guidance v="${guidanceV}" spacing="${next.spacing}" shift="${next.shift}">\n` +
+      (t ? `  <track id="${a(t.id)}" name="${a(t.name)}" ax="${t.ax}" az="${t.az}" h="${t.h}"/>\n` : '') +
+      `  <turn on="${next.turn.on}" skip="${next.turn.skip}" dir="${next.turn.dir}" radius="${next.turn.radius}"/>\n</guidance>\n`;
+    try { fs.mkdirSync(DIR, { recursive: true }); fs.writeFileSync(path.join(DIR, 'guidance.xml.tmp'), xml); fs.renameSync(path.join(DIR, 'guidance.xml.tmp'), path.join(DIR, 'guidance.xml')); }
+    catch (e) { console.warn('Could not write guidance.xml:', e.message); }
+  }
+  return next;
+}
+
 // ---------------------------------------------------------------- commands
 const ALLOWED = new Set(['motorToggle', 'cruiseToggle', 'cruiseSet', 'cruiseAdjust',
   'lowerAll', 'turnOnAll', 'implTurnOn', 'resetWork',
   'pipeToggle', 'foldToggle', 'lightsToggle', 'workLightsToggle', 'beaconToggle', 'hazardToggle',
-  'harvestAuto', 'harvestAutoMax', 'tillageDepth', 'tillageDepthAdjust', 'tillageLevel', 'grainCart', 'grainCartNext', 'rtk']);
+  'harvestAuto', 'harvestAutoMax', 'tillageDepth', 'tillageDepthAdjust', 'tillageLevel', 'grainCart', 'grainCartNext', 'rtk', 'autotrac']);
 let cmdQueue = [];
 let nextCmdId = 1;
 
@@ -419,6 +445,7 @@ function demoCommand(c) {
     case 'tillageDepthAdjust': demo.till.target = Math.max(2, Math.min(38, demo.till.target + c.value)); break;
     case 'tillageLevel': demo.till.level = Math.max(2, Math.min(4, Math.round(c.value))); break;
     case 'grainCart': demoGrainCartCommand(c.index); break;
+    case 'autotrac': demo.at = c.value === 1 ? true : c.value === 0 ? false : !demo.at; if (demo.at && !(guidanceState && guidanceState.track)) demo.at = false; break;
     case 'rtk': demoRtkCommand(c); break;
     case 'grainCartNext': break;
     case 'harvestAutoMax': demo.auto.max = Math.max(1, Math.min(40, c.value)); break;
@@ -429,7 +456,7 @@ if (DEMO_COMBINE) { demo.ccSpeed = 6.2; demo.target = 6.2; }
 
 // RTK package, simulated like Rtk.lua: SF1 free, subscriptions, an own base, pull-in, and the GNSS error.
 const RTK_LEVELS = { NONE: [0.8, 600, 1.5], SF1: [0.086, 1800, 0.15], SF2: [0.029, 1800, 0.05], SF3: [0.017, 1800, 0.03], RTK: [0.012, 3600, 0.025] };
-const RTK_PRICES = { SF2: 70, SF3: 120, MRTK: 130, SFRTK: 170, RTK: 2500, SF3000: 4000, SF6000: 7000, SF7000: 9000, SHOP_GPS: 1, BASE: 15000, BASE_UPKEEP: 10 };
+const RTK_PRICES = { SF2: 70, SF3: 120, MRTK: 130, SFRTK: 170, RTK: 2500, AUTOTRAC: 1500, SF3000: 4000, SF6000: 7000, SF7000: 9000, SHOP_GPS: 1, BASE: 15000, BASE_UPKEEP: 10 };
 // the demo farm has an RTK station built next to field 23 (already surveyed)
 demo.rtkState = { receiver: 'SF6000', rtk: false, subs: [], bases: [{ id: 'placeable12', name: 'John Deere RTK Station', x: -40, z: 250, farmId: 1, placedAt: -1e9 }],
   ledger: [], gates: true, prices: { ...RTK_PRICES }, nextBase: 1,
@@ -439,7 +466,7 @@ function demoRtkState() {
   const r = demo.rtkState;
   return { save: 'demo', gates: r.gates, prices: r.prices, payer: null, baseRange: 3000, surveyMin: 120, gateLevels: { headland: 'SF2', grainCart: 'SF3' },
     vehicles: [{ id: 'demo1', name: DEMO_COMBINE ? 'Demo S7 Combine' : 'Demo 8R Tractor', farmId: 1, receiver: r.receiver,
-      receiverName: r.receiver === 'SF7000' ? 'StarFire 7000' : 'StarFire 6000', hwSource: 'g5link', rtk: r.rtk, subs: r.subs,
+      receiverName: r.receiver === 'SF7000' ? 'StarFire 7000' : 'StarFire 6000', hwSource: 'g5link', rtk: r.rtk, autotrac: !!r.autotrac, subs: r.subs,
       monthly: r.subs.reduce((a, k) => a + (r.prices[k] || 0), 0), level: r.level, src: r.src },
     { id: 'demo2', name: 'Demo 9RX Tractor', farmId: 1, receiver: 'SF3000', receiverName: 'StarFire 3000', hwSource: 'shop', hwOption: 'StarFire 3000', rtk: false, subs: [], monthly: 0, level: null, src: null },
     { id: 'demo3', name: 'Demo R4045 Sprayer', farmId: 1, receiver: 'SF7000', receiverName: 'StarFire 7000', hwSource: 'shop', hwOption: 'StarFire 7000 RTK', rtk: true, subs: ['SFRTK'], monthly: 170, level: null, src: null },
@@ -460,6 +487,7 @@ function demoRtkCommand(c) {
   } else if (a.action === 'buy') {
     if (a.item === 'SF7000' && r.receiver !== 'SF7000') { r.receiver = 'SF7000'; charge(r.prices.SF7000, 'purchase', 'SF7000', 'StarFire 7000 receiver'); }
     else if (a.item === 'RTK' && !r.rtk) { r.rtk = true; charge(r.prices.RTK, 'purchase', 'RTK', 'RTK activation'); }
+    else if (a.item === 'AUTOTRAC' && !r.autotrac) { r.autotrac = true; charge(r.prices.AUTOTRAC, 'purchase', 'AUTOTRAC', 'AutoTrac activation'); }
   } else if (a.action === 'gates') r.gates = a.on === '1';
   else if (a.action === 'price' && r.prices[a.item] !== undefined && Number(a.value) >= 0) r.prices[a.item] = Number(a.value);
   r.result = { id: c.id, ok, action: a.action, error };
@@ -691,6 +719,10 @@ function demoTick(dt) {
   if (!gameFields) takeGameFields(demoFields());
   if (!economy) economy = demoEconomy();
   equipment = demoEquipment(); equipmentAt = Date.now();
+  const gs = guidanceState;
+  frame.autotrac = demo.at
+    ? { state: demo.turning && gs && gs.turn.on ? 'turning' : 'engaged', track: gs.track.id, pass: 3, xte: +(0.02 * Math.sin(demo.t / 4000)).toFixed(3), turnOn: gs.turn.on, turns: Math.floor(demo.t / 60000) }
+    : { state: gs && gs.track ? 'ready' : 'notReady', reason: gs && gs.track ? undefined : 'noTrack', turnOn: !!(gs && gs.turn.on), turns: 0 };
   setTelemetry(demoGnss(DEMO_COMBINE ? demoCombine(frame, dt, working, meters) : DEMO_TILLAGE ? demoTillage(frame, dt, working) : frame, dt));
 }
 
@@ -977,6 +1009,16 @@ const server = http.createServer((req, res) => {
   }
   if (req.url === '/api/state') {
     res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(latest));
+    return;
+  }
+  if (req.url === '/api/guidance') {
+    if (req.method === 'GET') return void res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ guidance: guidanceState }));
+    let body = '';
+    req.on('data', d => { body += d; if (body.length > 8192) req.destroy(); });
+    req.on('end', () => {
+      try { const g = setGuidance(JSON.parse(body || '{}')); res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: true, guidance: g })); }
+      catch (e) { res.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: false, error: e.message })); }
+    });
     return;
   }
   if (req.url === '/api/cmd' && req.method === 'POST') {

@@ -66,10 +66,23 @@
           <div class="set-row"><span>Speed</span><div class="hl-right">${seg('workKeep', [[1, 'Restore'], [0, 'Set']], c.workSpeed > 0 ? 0 : 1)}
             ${c.workSpeed > 0 ? `<button class="g5btn hl-val" data-num="workSpeed">${spd(c.workSpeed)}</button>` : ''}</div></div></div>
       </div>
+      ${turnRow()}
       <p class="hint">Lead times allow for the hitch. Steering On lowers when base game steering assist or Enhanced Vehicle track
         steering is switched on. Raising by hand pauses automation until you lower again.</p>`);
   }
 
+  // Turn Automation (AutoTrac, RTK package): settings live with the guidance track and go to the mod
+  function turnRow() {
+    const t = window.G5Guidance ? G5Guidance.turn() : { on: false, skip: 0, dir: 'auto', radius: 0 };
+    const seg = (key, opts, cur) => `<div class="seg hl-seg" data-turn="${key}">${opts.map(([v, txt]) =>
+      `<button data-v="${v}" class="${String(cur) === String(v) ? 'on' : ''}">${txt}</button>`).join('')}</div>`;
+    const rad = t.radius > 0 ? (metric('distance') ? `${fmt(t.radius, 1)} m` : `${fmt(t.radius * 3.28084, 0)} ft`) : 'Auto';
+    return `<div class="set-row hl-turn"><span>Turn Automation</span><div class="hl-right">
+      ${seg('on', [[false, 'Off'], [true, 'On']], t.on)}
+      <button class="g5btn hl-val" data-tnum="skip">Skip ${t.skip}</button>
+      ${seg('dir', [['auto', 'Alternate'], ['left', 'Left'], ['right', 'Right']], t.dir)}
+      <button class="g5btn hl-val" data-tnum="radius">Radius ${rad}</button></div></div>`;
+  }
   const NUM = {
     width: () => [`Headland Width (${metric('distance') ? 'm' : 'ft'})`, v => ({ width: metric('distance') ? v : v / 3.28084 })],
     passes: () => ['Headland Passes', v => ({ passes: v })],
@@ -82,6 +95,19 @@
   $('hlBody').onclick = e => {
     const b = e.target.closest('button');
     if (!b || b.disabled) return;
+    const tseg = b.closest('[data-turn]');
+    if (tseg && window.G5Guidance) {
+      const v = b.dataset.v;
+      G5Guidance.setTurn({ [tseg.dataset.turn]: tseg.dataset.turn === 'on' ? v === 'true' : v });
+      return render();
+    }
+    if (b.dataset.tnum && window.G5Guidance) {
+      const k = b.dataset.tnum;
+      return openNumpad(k === 'skip' ? 'Passes to Skip' : `Turn Radius (${metric('distance') ? 'm' : 'ft'}, 0 = from the machine)`, v => {
+        G5Guidance.setTurn(k === 'skip' ? { skip: Math.max(0, Math.min(10, Math.round(v))) } : { radius: Math.max(0, metric('distance') ? v : v / 3.28084) });
+        render();
+      });
+    }
     const seg = b.closest('[data-hl]');
     if (seg) {
       const k = seg.dataset.hl, v = b.dataset.v;

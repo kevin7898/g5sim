@@ -16,7 +16,7 @@
 -- one odd vehicle can never break the game loop.
 
 G5Link = {}
-G5Link.VERSION = "0.8.0"
+G5Link.VERSION = "0.9.0"
 G5Link.WRITE_INTERVAL = 250   -- ms between telemetry writes (4 Hz)
 G5Link.CMD_INTERVAL = 250     -- ms between command file polls
 G5Link.MAX_IMPLEMENTS = 8
@@ -91,6 +91,9 @@ function G5Link:loadMap(name)
     end
     if G5LinkGrainCart ~= nil then
         G5LinkGrainCart:reset()
+    end
+    if G5LinkSteer ~= nil then
+        G5LinkSteer:reset()
     end
     if G5LinkRtk ~= nil then
         G5LinkRtk:reset(true)
@@ -168,6 +171,14 @@ function G5Link:update(dt)
         if not ok and not self.headlandErrorLogged then
             self.headlandErrorLogged = true
             print("G5Link: headland automation failed: " .. tostring(err))
+        end
+    end
+    if G5LinkSteer ~= nil then
+        local ok, err = pcall(G5LinkSteer.update, G5LinkSteer, vehicle, dt, self)
+        if not ok and not self.steerErrorLogged then
+            self.steerErrorLogged = true
+            print("G5Link: AutoTrac update failed: " .. tostring(err))
+            pcall(G5LinkSteer.disengage, G5LinkSteer, "error")
         end
     end
     if G5LinkControls ~= nil then
@@ -611,6 +622,9 @@ function G5Link:writeTelemetry(vehicle)
         self:writeCombine(xml, vehicle)
         if G5LinkHeadland ~= nil then
             pcall(G5LinkHeadland.write, G5LinkHeadland, xml)
+        end
+        if G5LinkSteer ~= nil then
+            pcall(G5LinkSteer.write, G5LinkSteer, xml, vehicle)
         end
         if G5LinkRtk ~= nil then
             local ok, err = pcall(G5LinkRtk.write_telemetry, G5LinkRtk, xml, vehicle)
@@ -1326,6 +1340,12 @@ function G5Link:runCommand(vehicle, cmd)
     end
     if vehicle == nil then
         return
+    end
+    if G5LinkSteer ~= nil then
+        local ok, handled = pcall(G5LinkSteer.run, G5LinkSteer, vehicle, cmd)
+        if ok and handled then
+            return
+        end
     end
     if G5LinkGrainCart ~= nil then
         local ok, handled = pcall(G5LinkGrainCart.run, G5LinkGrainCart, vehicle, cmd)

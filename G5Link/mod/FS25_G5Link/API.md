@@ -63,13 +63,13 @@ level waits for full accuracy.
 
 | Call | Returns |
 |---|---|
-| `api.getPriceList()` | `{SF2, SF3, MRTK, SFRTK}` per month, `{RTK, SF7000}` one time, `SF3000`, `SF6000`, `SHOP_GPS` (GPS shop options), `BASE` and `BASE_UPKEEP` (the shop price G5Link puts on RTK station placeables). |
+| `api.getPriceList()` | `{SF2, SF3, MRTK, SFRTK}` per month, `{RTK, AUTOTRAC, SF7000}` one time, `SF3000`, `SF6000`, `SHOP_GPS` (GPS shop options), `BASE` and `BASE_UPKEEP` (the shop price G5Link puts on RTK station placeables). |
 | `api.getVehicleGnss(vehicleUid)` | `{receiver, receiverName, hardwareSource = "shop"\|"g5link", shopOption, rtkActivated, subscriptions = {...}, monthlyCost}`, plus for a machine someone is driving `level, source ("SF1".."SF3", "RTK", "M-RTK", "SF-RTK", "RTK-X"), accuracy (0-1), errorX, errorZ (m), rtkxMinutesLeft, baseName, baseDistance`. |
 | `api.getSubscriptions(farmId)` | Every machine with a subscription: `{vehicleUid, name, farmId, receiver, subscriptions = {"SF3", ...}, monthlyCost}`. `farmId` `nil` = all farms. |
 | `api.getMonthlyCost(farmId)` | The farm's total per game month. |
 | `api.getBaseStations(farmId)` | RTK stations: `{id (placeable unique id), name, x, z, farmId, state = "survey"\|"ok", surveyLeftMin, rangeM}`. |
 | `api.getCharges(farmId)` | The last 48 charges: `{period, day, farmId, amount, kind = "subscription"\|"purchase", item, paidBy, text}`. |
-| `api.isFeatureAllowed(vehicleUid, feature)` | `ok, requiredLevel`. Features: `"headland"` (SF2), `"grainCart"` (SF3). Always `true` when the player turned requirements off. |
+| `api.isFeatureAllowed(vehicleUid, feature)` | `ok, requiredLevel`. Features: `"headland"` (SF2), `"grainCart"` (SF3), `"autotrac"` (a receiver plus the AutoTrac activation; returns `false, "activation"` or `false, "receiver"`). Always `true` when the player turned requirements off, except that AutoTrac still needs a receiver. |
 
 `vehicleUid` is the vehicle's `uniqueId` as a string.
 
@@ -77,7 +77,7 @@ level waits for full accuracy.
 
 ```lua
 api.setSubscription(vehicleUid, "SF3", true)   -- or false to cancel; "SF2", "SF3", "MRTK", "SFRTK"
-api.buy(vehicleUid, "RTK")                     -- one time: "RTK" activation or "SF7000" receiver
+api.buy(vehicleUid, "RTK")                     -- one time: "RTK", "AUTOTRAC" activation or "SF7000" receiver
 ```
 
 Both return `ok, reason`. Reasons: `"notServer"`, `"needsReceiver"`, `"needsSF6000"`, `"needsSF7000"`,

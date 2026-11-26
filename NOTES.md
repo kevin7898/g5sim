@@ -291,6 +291,27 @@ from `FieldPathPrivateIntegration.lua`:
   multiplayer (live state is per machine on the server; clients get it through telemetry only), and real
   configuration names in vehicle mods with GPS options (Xerion US, MF 6480 realGPS, Buyable GPS).
 
+## AutoTrac and Turn Automation (scripts/Steering.lua)
+
+- Steering copies AIAutomaticSteering (LUADOC): look-ahead point in the AI root node frame, curvature 2x/(x^2+z^2),
+  getSteeringRotTimeByCurvature, reverser inversion, min/maxRotTime clamp, getAISteeringSpeed rate limit; the vehicle's
+  updateVehiclePhysics is wrapped per vehicle (axisSide from the value, rotatedTime = value) and setSteeringInput is
+  wrapped so steering by hand disengages (same rules as the base game). Look-ahead 4-12 m with speed.
+- Track from the display via POST /api/guidance -> guidance.xml (track ax/az/h, spacing, shift, turn on/skip/dir/radius).
+  Pass k = round((dot(P-A, right) - shift) / spacing), locked at engage, re-acquired on a track/shift change.
+  Steers the believed position (true + G5LinkRtk.offset), so receiver error moves the real line.
+- Lets go: hand steering, AI, > 1 spacing + 1 m off, > 75 deg off, no track, no activation (G5LinkRtk.allows
+  "autotrac": receiver + AUTOTRAC activation when requirements are on).
+- Turn Automation: when headland automation is in "headland" and the field edge (headland boundary) is within the room
+  the turn needs (D/2 for a half circle when D = (skip+1) x spacing >= 2R, else 2R for a bulb) + 2 m, a path is built
+  (half circle, or three arcs solved by bisection) and followed by pure pursuit, then the next pass k + side x s x
+  (skip+1) is followed the other way. Radius: setting, vehicle.maxTurningRadius, else 7 m.
+- Resume: input action G5LINK_RESUME (modDesc actions/inputBinding, Alt+R), added in Drivable.onRegisterActionEvents
+  (appendedFunction, like the Grain Cart add-on does with CpHud); command "autotrac" from the display.
+- **Not yet checked in game:** all of it. Watch for: the steering sign (copied from the base game, tested with a
+  +x-left frame), the per-vehicle updateVehiclePhysics wrap taking effect, maxTurningRadius existing, keyboard steering
+  disengaging immediately (same as the base game).
+
 ## UI polish pass (2026-11-26)
 
 - Display: 26 font sizes -> 8 tokens (13/15/17/20/24/30/38/46), 17 control heights -> 3 (44/50/58). Ops Center:

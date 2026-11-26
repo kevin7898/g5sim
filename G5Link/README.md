@@ -125,6 +125,19 @@ API: see `mod/FS25_G5Link/API.md`. With **Farm Finance** installed, it pays them
 account or the operating line (or cash, your choice in Farm Finance), and machines you sell or return
 from a lease stop billing.
 
+## AutoTrac, Resume and Turn Automation (part of the RTK package)
+
+With the **AutoTrac activation** (StarFire, $1,500 by default) G5Link steers the machine along the track you set on
+the G5, onto the nearest pass, following Shift Track live. Engage it with the **Resume** key: bind *G5Link: AutoTrac
+Resume* in the game's controls (Alt+R by default) to any key, joystick or wheel button, or tap the AutoTrac chip on
+the Guidance map or the AUTOTRAC shortcut key. Steering by hand disengages it. AutoTrac steers the position the
+receiver reports, so SF1 drift shows up as real skips and overlaps, and RTK holds the line.
+
+**Turn Automation** (Menu > Headland > Turn Automation): at the headland, once headland automation has lifted the
+implement, AutoTrac turns onto the next pass (a half circle, or a bulb turn when the passes are closer than twice the
+turning radius), then headland automation lowers and the work speed comes back. Set passes to skip, the direction
+(alternate, left, right) and the radius (Auto uses the machine's own).
+
 ## Works with other mods
 
 Everything is optional. G5Link checks for each mod and only uses it when it is installed.

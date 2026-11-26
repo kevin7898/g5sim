@@ -674,3 +674,13 @@ a.app { text-decoration: none; color: inherit; }
 .mgc-lock { padding: 6px 8px; font-size: var(--fs-sm); font-weight: 700; color: var(--ink-2); text-align: center; }
 .sf-shop { font-style: normal; font-size: var(--fs-sm); font-weight: 700; color: var(--muted); text-align: center; }
 .sf-cols .hint { margin: 4px 0; font-size: var(--fs-sm); }
+
+/* AutoTrac status (Guidance map), like the G5's steering wheel: grey not ready, white ready, green engaged */
+.map-at { position: absolute; left: 50%; top: 134px; transform: translateX(-50%); z-index: 3; display: flex; align-items: center; gap: 8px;
+  height: var(--h-sm); padding: 0 14px 0 8px; border: 0; border-radius: 22px; background: rgba(30, 30, 27, .85); color: #9a9a92; cursor: pointer; }
+.map-at[hidden] { display: none; }
+.map-at svg { width: 32px; height: 32px; }
+.map-at span { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.1; }
+.map-at b { font-size: var(--fs-xs); color: #d9d7c6; } .map-at em { font-style: normal; font-size: var(--fs-md); font-weight: 700; }
+.map-at.ready { color: #fff; } .map-at.engaged { color: #4ee166; } .map-at.turning { color: #ffb400; }
+.hl-turn { border-top: 2px solid var(--rule); }

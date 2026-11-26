@@ -74,6 +74,8 @@
         <div><h4>Activations</h4>
           <div class="sf-row"><span><b>RTK</b><small>Use your own base station by radio</small></span><em>${money(prices.RTK)}</em>
             <button class="g5btn" data-buy="RTK" ${me && (me.rtk || me.receiver === 'NONE') ? 'disabled' : ''}>${me && me.rtk ? (me.hwSource === 'shop' ? 'In option' : 'Active') : me && me.receiver === 'NONE' ? 'No receiver' : 'Buy'}</button></div>
+          <div class="sf-row"><span><b>AutoTrac</b><small>Steer on G5 tracks, Resume key, Turn Automation</small></span><em>${money(prices.AUTOTRAC)}</em>
+            <button class="g5btn" data-buy="AUTOTRAC" ${me && (me.autotrac || me.receiver === 'NONE') ? 'disabled' : ''}>${me && me.autotrac ? 'Active' : me && me.receiver === 'NONE' ? 'No receiver' : 'Buy'}</button></div>
           <div class="sf-row"><span><b>StarFire 7000</b><small>Needed for SF-RTK</small></span><em>${money(prices.SF7000)}</em>
             ${me && me.hwSource === 'shop' ? `<em class="sf-shop">In the shop</em>` : `<button class="g5btn" data-buy="SF7000" ${me && me.receiver === 'SF7000' ? 'disabled' : ''}>${me && me.receiver === 'SF7000' ? 'Fitted' : 'Upgrade'}</button>`}</div>
           ${me && me.hwSource === 'shop' ? `<p class="hint">GPS on this machine is a shop option${me.hwOption ? ': ' + esc(me.hwOption) : ''}. Change the receiver with Customize in the shop.</p>` : ''}
@@ -100,7 +102,7 @@
     }
     if (b.dataset.buy) {
       const k = b.dataset.buy;
-      return confirmBox('StarFire', `${k === 'RTK' ? 'Buy the RTK activation' : 'Upgrade to a StarFire 7000'} for ${money(prices[k])}?`, () => rtk(`action=buy;vehicle=current;item=${k}`, b));
+      return confirmBox('StarFire', `${k === 'RTK' ? 'Buy the RTK activation' : k === 'AUTOTRAC' ? 'Buy the AutoTrac activation' : 'Upgrade to a StarFire 7000'} for ${money(prices[k])}?`, () => rtk(`action=buy;vehicle=current;item=${k}`, b));
     }
     const seg = b.closest('#sfGates');
     if (seg) rtk(`action=gates;on=${b.dataset.v}`, b);

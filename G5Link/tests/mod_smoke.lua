@@ -181,10 +181,24 @@ function XMLFile.load(name, path)
     end
     return obj
 end
-function XMLObj:getString(key, default) local v = self.values[key] if v == nil then return default end return v end
-function XMLObj:getInt(key, default) local v = tonumber(self.values[key]) if v == nil then return default end return math.floor(v) end
-function XMLObj:getBool(key, default) local v = self.values[key] if v == nil then return default end return v == "true" end
-function XMLObj:getFloat(key, default) local v = tonumber(self.values[key]) if v == nil then return default end return v end
+-- like GIANTS XMLFile, "a.b#x" means the first b: "a.b(0)#x"
+function XMLObj:raw(key)
+    local v = self.values[key]
+    if v ~= nil then return v end
+    local path, attr = string.match(key, "^([^#]+)#(.+)$")
+    if not path then return nil end
+    local parts, first = {}, true
+    for part in string.gmatch(path, "[^%.]+") do
+        if not first and not string.find(part, "%(") then part = part .. "(0)" end
+        parts[#parts + 1] = part
+        first = false
+    end
+    return self.values[table.concat(parts, ".") .. "#" .. attr]
+end
+function XMLObj:getString(key, default) local v = self:raw(key) if v == nil then return default end return v end
+function XMLObj:getInt(key, default) local v = tonumber(self:raw(key)) if v == nil then return default end return math.floor(v) end
+function XMLObj:getBool(key, default) local v = self:raw(key) if v == nil then return default end return v == "true" end
+function XMLObj:getFloat(key, default) local v = tonumber(self:raw(key)) if v == nil then return default end return v end
 function XMLObj:iterate(path, fn)
     local i = 0
     while true do
@@ -207,6 +221,13 @@ function addModEventListener(listener) listeners[#listeners + 1] = listener end
 local nodes = {}
 function getWorldTranslation(node) local n = assert(nodes[node], "unknown node") return n.x, 0, n.z end
 function localDirectionToWorld(node, lx, ly, lz) local n = assert(nodes[node], "unknown node") return n.dx, 0, n.dz end
+-- GIANTS frame for a node: +z forward, +x to the LEFT (the steering sign conventions depend on it)
+function worldToLocal(node, wx, wy, wz)
+    local n = assert(nodes[node], "unknown node")
+    local dx, dz = wx - n.x, wz - n.z
+    local lxv, lzv = n.dz, -n.dx          -- left of heading (dx, dz) in the display frame (x east, z south)
+    return dx * lxv + dz * lzv, wy or 0, dx * n.dx + dz * n.dz
+end
 
 FillType = {UNKNOWN = 0, DIESEL = 1, DEF = 2, ELECTRICCHARGE = 3, METHANE = 4, SEEDS = 5, WHEAT = 6, LIQUIDFERTILIZER = 7}
 local FILLTYPES = {
@@ -1401,6 +1422,103 @@ do
     keepLive(dir)
     mod:deleteMap()
     g_server, MessageType, g_messageCenter, g_storeManager, StoreSpecies = nil, nil, nil, nil, nil
+end
+
+---------------------------------------------------------------------------
+-- Scenario 11: AutoTrac on G5 tracks, Resume, manual override, Turn Automation
+---------------------------------------------------------------------------
+do
+    local dir = newScenario("autotrac", {})
+    local tractor, ts = makeVehicle({name = "Test 8R Tractor", x = 0, z = 3})
+    local node = tractor.rootNode
+    nodes[node].dx, nodes[node].dz = 1, 0                  -- heading east
+    tractor.uniqueId = "t1"
+    tractor.getAIRootNode = function(self) return node end
+    tractor.maxRotTime, tractor.minRotTime, tractor.rotatedTime = 0.8, -0.8, 0
+    tractor.getSteeringRotTimeByCurvature = function(self, c) return c * 4 end
+    tractor.getAISteeringSpeed = function(self) return 0.001 end
+    tractor.getReverserDirection = function(self) return 1 end
+    tractor.movingDirection = 1
+    tractor.updateVehiclePhysics = function(self, axisForward, axisSide, doHandbrake, dt) self.lastAxisSide = axisSide return 0 end
+    tractor.setSteeringInput = function(self, v, isAnalog, cat) end
+    ts.speed = 10
+    g_localPlayer = {getCurrentVehicle = function(self) return tractor end}
+    InputDevice = {CATEGORY = {KEYBOARD_MOUSE = 1, GAMEPAD = 2, WHEEL = 3}}
+    mod:loadMap("test")
+    g_currentMission.vehicleSystem = {vehicles = {tractor}}
+    os.execute('mkdir -p "' .. dir .. '"')
+    local function guidance(v, shift, turn)
+        writeFile(dir .. "guidance.xml", string.format('<?xml version="1.0"?>\n<guidance v="%d" spacing="10" shift="%s">\n  <track id="tr1" name="East" ax="0" az="0" h="90"/>\n  %s\n</guidance>\n',
+            v, tostring(shift), turn or '<turn on="false"/>'))
+    end
+    guidance(1, 0)
+    tick(6)
+    G5LinkRtk.data.gates = false                           -- activation is checked below
+    tick(2)
+    -- drive: physics wrapper applies the wheel angle; the mock integrates a bicycle model
+    local function drive(n, dtms)
+        dtms = dtms or 100
+        for _ = 1, n do
+            tick(1, dtms)
+            tractor:updateVehiclePhysics(0, 0, false, dtms)
+            local nd = nodes[node]
+            local ds = ts.speed / 3.6 * dtms / 1000
+            local c = (tractor.rotatedTime or 0) / 4      -- + = left
+            local a = -c * ds                              -- left = counterclockwise = negative in the display frame
+            local cs, sn = math.cos(a), math.sin(a)
+            nd.dx, nd.dz = nd.dx * cs - nd.dz * sn, nd.dx * sn + nd.dz * cs
+            nd.x, nd.z = nd.x + nd.dx * ds, nd.z + nd.dz * ds
+        end
+    end
+    eq(telemetry(dir)["g5.autotrac#state"], "ready", "ready with a track")
+    writeFile(dir .. "commands.xml", '<?xml version="1.0"?>\n<commands>\n    <cmd id="1" name="autotrac" value="1" index="0"/>\n</commands>\n')
+    drive(600)                                            -- 60 s at 10 km/h
+    local t = telemetry(dir)
+    eq(t["g5.autotrac#state"], "engaged", "AutoTrac engaged")
+    eq(t["g5.autotrac#pass"], "0", "nearest pass locked")
+    near(nodes[node].z, 0, 0.1, "steered onto the track (started 3 m off)")
+    near(nodes[node].dz, 0, 0.02, "heading along the track")
+    -- Shift Track 5 m: re-acquires and follows
+    guidance(2, 5)
+    drive(600)
+    near(nodes[node].z, 5, 0.15, "follows the shifted track")
+    -- steering by hand (wheel) disengages
+    tractor:setSteeringInput(0.6, true, 3)
+    tick(2)
+    eq(telemetry(dir)["g5.autotrac#state"], "ready", "steering by hand disengaged")
+    -- activation required when requirements are on
+    G5LinkRtk.data.gates = true
+    tick(2)
+    eq(telemetry(dir)["g5.autotrac#reason"], "needsActivation", "needs the AutoTrac activation")
+    G5LinkRtk.data.vehicles.t1.autotrac = true
+    tick(2)
+    eq(telemetry(dir)["g5.autotrac#state"], "ready", "ready with the activation")
+    -- the Resume key (input action) toggles it
+    G5LinkSteer.actionResume(tractor, "G5LINK_RESUME", 1)
+    eq(G5LinkSteer.engaged, true, "Resume engages")
+    -- Turn Automation at a field edge 120 m ahead: omega turn (spacing 10 < 2 x radius 7) onto the next pass
+    guidance(3, 5, '<turn on="true" skip="0" dir="auto" radius="7"/>')
+    local edge = nodes[node].x + 120                      -- field edge 120 m ahead of the tractor
+    G5LinkHeadland.poly = {{-600, -100}, {edge, -100}, {edge, 100}, {-600, 100}}
+    G5LinkHeadland.settings = {armed = true, useBoundary = true, useCoverage = false, width = 15}
+    G5LinkHeadland.update = function() end                -- the implement is up: hold the headland state
+    G5LinkHeadland.state = "headland"
+    local maxX = -math.huge
+    for _ = 1, 900 do
+        drive(1)
+        maxX = math.max(maxX, nodes[node].x)
+        if G5LinkSteer.turns >= 1 and G5LinkSteer.mode == "line" then break end
+    end
+    eq(G5LinkSteer.turns, 1, "one turn made")
+    check(maxX < edge + 1, string.format("turned inside the field edge: %.1f of %.1f", maxX, edge))
+    G5LinkHeadland.state = "work"                         -- headland automation lowers on the way back in
+    drive(300)
+    near(nodes[node].z, 15, 0.3, "on the next pass (right of travel)")
+    check(nodes[node].dx < -0.98, "driving back the other way")
+    eq(telemetry(dir)["g5.autotrac#state"], "engaged", "still engaged after the turn")
+    keepLive(dir)
+    mod:deleteMap()
+    InputDevice = nil
 end
 
 ---------------------------------------------------------------------------

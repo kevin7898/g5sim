@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <modDesc descVersion="104">
     <author>kevin7898</author>
-    <version>0.9.0.0</version>
+    <version>0.10.0.0</version>
     <title>
         <en>G5Link - Display Bridge</en>
     </title>
@@ -16,10 +16,20 @@ Works with these mods when they are installed (all optional):
 Requires the G5Link bridge running on the same PC. See README for setup.]]></en>
     </description>
     <l10n>
+        <text name="input_G5LINK_RESUME"><en>G5Link: AutoTrac Resume</en><de>G5Link: AutoTrac fortsetzen</de></text>
         <text name="g5_stat_rtk"><en>GPS corrections</en><de>GPS-Korrekturdaten</de></text>
     </l10n>
     <iconFilename>icon.dds</iconFilename>
     <multiplayer supported="true"/>
+
+    <actions>
+        <action name="G5LINK_RESUME" category="VEHICLE"/>
+    </actions>
+    <inputBinding>
+        <actionBinding action="G5LINK_RESUME">
+            <binding device="KB_MOUSE_DEFAULT" input="KEY_lalt KEY_r"/>
+        </actionBinding>
+    </inputBinding>
 
     <extraSourceFiles>
         <sourceFile filename="scripts/providers/Util.lua"/>
@@ -34,6 +44,7 @@ Requires the G5Link bridge running on the same PC. See README for setup.]]></en>
         <sourceFile filename="scripts/Headland.lua"/>
         <sourceFile filename="scripts/GrainCart.lua"/>
         <sourceFile filename="scripts/Rtk.lua"/>
+        <sourceFile filename="scripts/Steering.lua"/>
         <sourceFile filename="scripts/Api.lua"/>
         <sourceFile filename="scripts/G5Link.lua"/>
     </extraSourceFiles>

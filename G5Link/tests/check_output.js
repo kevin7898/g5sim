@@ -186,5 +186,16 @@ if (fs.existsSync(live)) {
   }
 }
 
+{
+  const f = path.join(OUT, 'autotrac', 'telemetry_live.xml');
+  check(fs.existsSync(f), 'autotrac live telemetry copy exists');
+  if (fs.existsSync(f)) {
+    const t = telemetryFromXml(fs.readFileSync(f, 'utf8'));
+    eq(t.autotrac && t.autotrac.state, 'engaged', 'live: AutoTrac engaged');
+    eq(t.autotrac && t.autotrac.turns, 1, 'live: one turn counted');
+    eq(t.autotrac && t.autotrac.turnOn, true, 'live: Turn Automation on');
+  }
+}
+
 console.log(`node checks: ${checks}, failures: ${failures}`);
 process.exit(failures ? 1 : 0);

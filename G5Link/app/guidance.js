@@ -4,8 +4,8 @@
 // World convention (matches the mod): north = -Z, heading 0 = north, 90 = east.
 
 (function () {
-  const G = Object.assign({ tracks: [], current: -1, currentId: null, lastByField: {}, migrated: false, spacing: null, shift: 0, incr: 0.0254, zoom: 1, view: '3d' },
-    settings.guid || {});
+  const G = Object.assign({ tracks: [], current: -1, currentId: null, lastByField: {}, migrated: false, spacing: null, shift: 0, incr: 0.0254, zoom: 1, view: '3d',
+    turn: { on: false, skip: 0, dir: 'auto', radius: 0 } }, settings.guid || {});
   settings.guid = G;
   const save = () => { settings.guid = G; saveSettings(); };
 
@@ -20,7 +20,26 @@
   const CHEV_STEP = 60;        // metres between pass-direction chevrons
   const VIEW_R = 640;          // the G5 shows map data within 0.64 km of the machine
 
+  // AutoTrac chip on the map (tap = Resume on screen)
+  const AT_TEXT = { engaged: 'Engaged', turning: 'Turning', ready: 'Ready' };
+  const AT_REASON = { noTrack: 'Set a track', needsActivation: 'Needs activation', needsReceiver: 'No GPS receiver', aiActive: 'AI driving',
+    notSteerable: 'Not steerable', noVehicle: '---' };
+  function renderAutoTrac(d) {
+    const at = d.autotrac, el = $('mapAt');
+    el.hidden = !at || d.state !== 'vehicle';
+    if (el.hidden) return;
+    el.className = 'map-at ' + (at.state === 'notReady' ? '' : at.state);
+    $('mapAtTxt').textContent = AT_TEXT[at.state] || AT_REASON[at.reason] || 'Not ready';
+  }
+  $('mapAt').onclick = () => {
+    const at = data.autotrac;
+    if (at && at.state === 'notReady') return shade(at.reason === 'needsActivation' ? 'AutoTrac needs its activation: Menu > StarFire.'
+      : at.reason === 'noTrack' ? 'Set a guidance track first.' : `AutoTrac is not ready: ${AT_REASON[at.reason] || at.reason}.`, 'info', 4000);
+    send('autotrac', -1, 0, $('mapAt'));
+  };
+
   window.onTelemetry = d => {
+    renderAutoTrac(d);
     if (window.G5Layers) { G5Layers.onTelemetry(d); G5Layers.renderLegend(); }
     if (window.G5Bounds) G5Bounds.onTelemetry(d);
     if (window.G5WorkSetup) G5WorkSetup.onTelemetry(d);
@@ -166,7 +185,20 @@
 
   // ---------------------------------------------------------------- side modules
   const lenText = m => metric('distance') ? `${m.toFixed(2)} m` : `${(m * 3.28084).toFixed(1)} ft`;
+  // AutoTrac in the mod steers to what this display shows: send the selected track, spacing, shift and the
+  // Turn Automation settings to the bridge (guidance.xml) whenever they change.
+  let sentKey = '';
+  function sendGuidance() {
+    const t = currentTrack();
+    const body = { track: t ? { id: t.id, name: t.name, ax: t.ax, az: t.az, h: t.h } : null, spacing: spacing(), shift: G.shift || 0, turn: G.turn };
+    const key = JSON.stringify(body);
+    if (key === sentKey) return;
+    sentKey = key;
+    fetch('/api/guidance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: key }).catch(() => { sentKey = ''; });
+  }
+  window.G5Guidance = { turn: () => G.turn, setTurn: patch => { G.turn = { ...G.turn, ...patch }; save(); sendGuidance(); }, send: sendGuidance };
   function renderSide() {
+    sendGuidance();
     const t = currentTrack();
     $('trkName').textContent = t ? t.name : 'No track';
     $('trkSpacing').textContent = lenText(spacing());

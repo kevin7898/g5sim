@@ -400,6 +400,9 @@ const CTX_SLOTS = 4;
 const AUTO_STATE = { active: 'ON', standby: 'STBY', cruiseOff: 'STBY', notThreshing: 'STBY', noCrop: 'STBY', ai: 'AI', off: 'OFF' };
 function contextKeys(d) {
   const c = d.controls || {}, keys = [], auto = d.harvestAuto;
+  const at = d.autotrac;
+  if (at && !(at.state === 'notReady' && at.reason === 'noTrack')) keys.push({ id: 'autotrac', cmd: 'autotrac', value: -1, icon: 'wheel', label: 'AUTOTRAC',
+    on: at.state === 'engaged', amber: at.state === 'turning', txt: { engaged: 'ENGAGED', turning: 'TURNING', ready: 'READY' }[at.state] || 'NOT READY' });
   const hl = d.headland;
   if ((d.implements || []).some(i => i.canLower)) keys.push({ id: 'headland', act: 'headland', icon: 'headland', label: 'HEADLAND',
     on: !!(hl && hl.armed && hl.state === 'work'), amber: !!(hl && hl.armed && hl.state !== 'work'),

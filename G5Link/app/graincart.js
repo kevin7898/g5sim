@@ -73,6 +73,11 @@
     $('mgcFill').textContent = pct === null ? '--%' : fmt(pct, 0) + '%';
     $('mgcBar').style.width = (pct ?? 0).toFixed(1) + '%';
     $('mgcBar').classList.toggle('full', pct !== null && pct >= 95);
+    // nudge > 0 = forward, nudgeX > 0 = left (the add-on's gcGetManualPipeOffset convention)
+    const dist = m => metric('distance') ? `${fmt(Math.abs(m), 1)} m` : `${fmt(Math.abs(m) * 3.28084, 1)} ft`;
+    const z = g.nudge || 0, x = g.nudgeX || 0;
+    $('mgcOffset').textContent = !z && !x ? 'Centered' :
+      [z ? `${dist(z)} ${z > 0 ? 'fwd' : 'back'}` : null, x ? `${dist(x)} ${x > 0 ? 'left' : 'right'}` : null].filter(Boolean).join(' · ');
     $('mgcPause').textContent = g.paused ? 'Resume' : 'Pause';
     $('mgcPause').classList.toggle('on', !!g.paused);
   }

@@ -632,3 +632,5 @@ a.app { text-decoration: none; color: inherit; }
 .mgc-row { display: flex; gap: 4px; }
 .mgc-row .g5btn { flex: 1; height: 40px; padding: 0; font-size: 14px; letter-spacing: -.2px; font-weight: 700; min-width: 0; }
 .mgc-row .g5btn.on { outline: 3px solid var(--warn); outline-offset: -3px; }
+.mgc-offset { display: flex; justify-content: space-between; align-items: baseline; padding: 1px 3px 0; font-size: 13px; font-weight: 600; color: var(--muted); }
+.mgc-offset b { font-size: 15px; color: var(--ink); }

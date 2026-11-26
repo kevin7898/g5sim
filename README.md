@@ -13,7 +13,7 @@ FS25_G5Link mod -- telemetry.xml -->  G5Link bridge (Node.js) -- live stream -->
 |---|---|
 | [`G5Link/`](G5Link/) | The project: FS25 mod, Node bridge, web display app, build tools. Start with [G5Link/README.md](G5Link/README.md) for install and use. |
 | [`G5Link/dist/`](G5Link/dist/) | Built zips: `FS25_G5Link.zip` (mod) and `G5Link-PC.zip` (bridge + app). |
-| [Optional companion mods](G5Link/companion-mods/) | Download FieldPath Realistic Seeder, Wheat Varieties, Dynamic Fuel Consumption and Courseplay Route Guard. |
+| [Optional companion mods](G5Link/companion-mods/) | Download FieldPath Realistic Seeder, Wheat Varieties, Dynamic Fuel Consumption, Courseplay Route Guard and Farm Finance. |
 | [`research/`](research/) | Study notes from the Deere Display Simulator and the G5 help center (944 pages), plus the site exploration log. |
 | [`NOTES.md`](NOTES.md) | **Handoff notes**: current status, what's verified vs. assumed, design reference, next steps. |
 | [`CLAUDE.md`](CLAUDE.md) | Context for Claude Code when working on this repo. |

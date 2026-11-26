@@ -233,10 +233,27 @@ local function makeMotor(state)
     }
 end
 
+WorkAreaType = {DEFAULT = 1, AUXILIARY = 2, SOWINGMACHINE = 3, RIDGEMARKER = 4}
+g_workAreaTypeManager = {getWorkAreaTypeIsAIArea = function(self, t) return t ~= WorkAreaType.RIDGEMARKER end}
+
+local function addNode(x, z)
+    local id = #nodes + 1
+    nodes[id] = {x = x, z = z, dx = 1, dz = 0}
+    return id
+end
+
 local function makeImplement(width, areas)
     local s = {lowered = true, on = true}
     local wa = {}
-    for i = 1, areas do wa[i] = {index = i} end
+    for i = 1, areas do
+        -- areas across the bar at x = 92.5 (7.5 m behind a tractor at x = 100), z from 200 - w/2
+        local z0 = 200 - width / 2 + width * (i - 1) / areas
+        local z1 = 200 - width / 2 + width * i / areas
+        wa[#wa + 1] = {index = i, type = WorkAreaType.SOWINGMACHINE,
+            start = addNode(92.5, z0), width = addNode(92.5, z1), height = addNode(91.5, z0)}
+    end
+    wa[#wa + 1] = {index = 99, type = WorkAreaType.AUXILIARY, start = addNode(0, 0), width = addNode(0, 1), height = addNode(1, 0)}
+    wa[#wa + 1] = {index = 98, type = WorkAreaType.RIDGEMARKER, start = addNode(0, 0), width = addNode(0, 1), height = addNode(1, 0)}
     local impl = {
         spec_workArea = {workAreas = wa},
         getFullName = function(self) return "Test Planter" end,
@@ -394,6 +411,28 @@ local function rhApi()
     }
 end
 
+local seederCalls = 0
+local function seederApi(planter)
+    return {
+        version = 2,
+        getCapabilities = function(v) if v == planter then return {kind = "planter", seedMonitor = true, depthSensor = false} end return nil, "unsupportedVehicle" end,
+        getSnapshot = function(v)
+            seederCalls = seederCalls + 1
+            if v ~= planter then return nil, "unsupportedVehicle" end
+            return {schemaVersion = 1, kind = "planter", crop = "MAIZE", capabilities = {kind = "planter", seedMonitor = true},
+                settings = {depthMm = 50, pressurePercent = 55, closingPercent = 50},
+                application = {unit = "seedsPerAcre", ratePerAcre = 34000},
+                measurements = {skipsPercent = 1.25, doublesPercent = 0.75, actualRatePerAcre = 34170, speedKmh = 9.8},
+                controls = {sampleFresh = true},
+                estimates = {soil = {moisture = 0.27, compaction = 0.2, moistureSource = "SeasonalCropStress"},
+                    population = {targetSeedsPerAcre = 34000, establishedSeedsPerAcre = 33100, yieldPotentialPercent = 97.2}},
+                rows = {{row = 1, active = true, targetRatePerAcre = 34000, actualRatePerAcre = 34210, skipsPercent = 1.25, doublesPercent = 0.75},
+                        {row = 2, active = false, targetRatePerAcre = 34000, actualRatePerAcre = 0}},
+                presets = {{crop = "MAIZE"}}}
+        end,
+    }
+end
+
 local function soilManager()
     return {
         soilSystem = {
@@ -479,11 +518,32 @@ do
     local planter, ps = makeImplement(12.19, 16)
     tractor.children = {tractor, planter}
     g_localPlayer = {getCurrentVehicle = function(self) return tractor end}
+    g_currentMission.missionInfo = {savegameDirectory = "C:/Users/me/Documents/My Games/FarmingSimulator2025/savegame9/"}
+    g_currentMission.realisticSeederAPI = seederApi(planter)
 
     mod:loadMap("test")
+    seederCalls = 0
     tick(4)
     keepLive(dir)
     check(called("motorToggle") == nil, "old command id 5 ignored")
+    local t0 = telemetry(dir)
+    eq(t0["g5.game#save"], "savegame9", "savegame key from savegameDirectory")
+    eq(t0["g5.implements.implement(0).area(0)#sx"], "92.500000", "area 0 start x")
+    near(tonumber(t0["g5.implements.implement(0).area(15)#wz"]), 200 + 12.19 / 2, 0.01, "area 15 width z")
+    eq(t0["g5.implements.implement(0).area(16)#sx"], nil, "auxiliary and ridge-marker areas not written")
+    eq(t0["g5.implements.implement(0).fill(0)#type"], "SEEDS", "fill type name")
+    eq(t0["g5.implements.implement(0).seeder#crop"], "MAIZE", "seeder crop")
+    eq(t0["g5.implements.implement(0).seeder#rate"], "34000.000000", "seeder target rate")
+    eq(t0["g5.implements.implement(0).seeder#actual"], "34170.000000", "seeder actual rate")
+    eq(t0["g5.implements.implement(0).seeder#skips"], "1.250000", "seeder skips")
+    eq(t0["g5.implements.implement(0).seeder#doubles"], "0.750000", "seeder doubles")
+    eq(t0["g5.implements.implement(0).seeder#moisture"], "0.270000", "seeder soil moisture")
+    eq(t0["g5.implements.implement(0).seeder#soilSource"], "SeasonalCropStress", "seeder soil source")
+    eq(t0["g5.implements.implement(0).seeder#fresh"], "true", "seeder sample fresh")
+    eq(t0["g5.implements.implement(0).seeder.row(1)#on"], "false", "seeder row 2 off")
+    eq(t0["g5.implements.implement(0).seeder#cv"], nil, "no CV on a planter")
+    check(seederCalls <= 2, "seeder snapshot read at most once per second (" .. seederCalls .. " calls in 1 s)")
+    eq(t0["g5.vehicle#name"] ~= nil, true, "tractor not treated as a seeder")
     local t = telemetry(dir)
     eq(t["g5#state"], "vehicle", "state")
     eq(t["g5.vehicle#name"], "Test Tractor", "vehicle name")

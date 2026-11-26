@@ -16,12 +16,13 @@
 -- one odd vehicle can never break the game loop.
 
 G5Link = {}
-G5Link.VERSION = "0.3.0"
+G5Link.VERSION = "0.4.0"
 G5Link.WRITE_INTERVAL = 250   -- ms between telemetry writes (4 Hz)
 G5Link.CMD_INTERVAL = 250     -- ms between command file polls
 G5Link.MAX_IMPLEMENTS = 8
 G5Link.PROVIDER_INTERVAL = 1000  -- ms between providers.json writes (soil, Courseplay, AutoDrive, mud)
 G5Link.COURSE_MAX_POINTS = 4000   -- waypoints kept in course.json
+G5Link.SEEDER_INTERVAL = 1000    -- ms between Realistic Seeder snapshots (getSnapshot builds presets each call)
 
 local function call(obj, fname, ...)
     if obj == nil then
@@ -66,6 +67,7 @@ function G5Link:loadMap(name)
     self.providerTimer = 0
     self.providerSeq = 0
     self.lastCourseKey = false
+    self.seederCache = {}
 
     self.writeTimer = 0
     self.cmdTimer = 0
@@ -177,6 +179,60 @@ function G5Link:getFuel(vehicle)
     return nil
 end
 
+-- Main work areas only: auxiliary areas (and non-AI areas such as ridge markers) do not paint coverage.
+-- WorkArea.lua skips WorkAreaType.AUXILIARY the same way; getWorkAreaTypeIsAIArea is used in WorkArea.lua too.
+local function isMainWorkArea(wa)
+    if type(wa) ~= "table" then
+        return false
+    end
+    if WorkAreaType ~= nil and wa.type ~= nil and wa.type == WorkAreaType.AUXILIARY then
+        return false
+    end
+    if g_workAreaTypeManager ~= nil and g_workAreaTypeManager.getWorkAreaTypeIsAIArea ~= nil and wa.type ~= nil then
+        local ok, isAi = pcall(g_workAreaTypeManager.getWorkAreaTypeIsAIArea, g_workAreaTypeManager, wa.type)
+        if ok and isAi == false then
+            return false
+        end
+    end
+    return true
+end
+
+local function nodePos(node)
+    if node == nil then
+        return nil
+    end
+    local ok, x, _, z = pcall(getWorldTranslation, node)
+    if ok and type(x) == "number" and type(z) == "number" then
+        return x, z
+    end
+    return nil
+end
+
+-- Realistic Seeder (FieldPath) Placement API: g_currentMission.realisticSeederAPI, dot calls,
+-- getCapabilities(vehicle) -> profile or nil; getSnapshot(vehicle) -> detached table.
+function G5Link:getSeeder(impl)
+    local api = g_currentMission and g_currentMission.realisticSeederAPI
+    if type(api) ~= "table" or type(api.getSnapshot) ~= "function" then
+        return nil
+    end
+    self.seederCache = self.seederCache or {}
+    local now = g_currentMission.time or 0
+    local cached = self.seederCache[impl]
+    if cached ~= nil and now - cached.time < G5Link.SEEDER_INTERVAL then
+        return cached.snap
+    end
+    local snap = nil
+    local okCap, caps = pcall(api.getCapabilities, impl)
+    if okCap and type(caps) == "table" then
+        local ok, value = pcall(api.getSnapshot, impl)
+        if ok and type(value) == "table" then
+            snap = value
+        end
+    end
+    self.seederCache[impl] = {time = now, snap = snap}
+    return snap
+end
+
 function G5Link:getImplementState(impl)
     local s = {}
     s.name = call(impl, "getFullName") or "Implement"
@@ -186,14 +242,27 @@ function G5Link:getImplementState(impl)
     s.turnedOn = bool(call(impl, "getIsTurnedOn"))
     s.width = call(impl, "getAIWorkAreaWidth") or 0
 
-    -- Work areas stand in for "sections": one entry per work area, active or not.
+    -- Work areas stand in for "sections": one entry per main work area, with its corners in the
+    -- world (start, width and height nodes, as WorkArea.lua reads them) for coverage mapping.
     s.areas = {}
+    s.geometry = {}
     local spec = impl.spec_workArea
     if spec ~= nil and spec.workAreas ~= nil and impl.getIsWorkAreaActive ~= nil then
         for _, wa in ipairs(spec.workAreas) do
-            table.insert(s.areas, bool(call(impl, "getIsWorkAreaActive", wa)))
+            if isMainWorkArea(wa) then
+                table.insert(s.areas, bool(call(impl, "getIsWorkAreaActive", wa)))
+                local sx, sz = nodePos(wa.start)
+                local wx, wz = nodePos(wa.width)
+                local hx, hz = nodePos(wa.height)
+                if sx ~= nil and wx ~= nil and hx ~= nil then
+                    table.insert(s.geometry, {sx, sz, wx, wz, hx, hz})
+                else
+                    table.insert(s.geometry, false)
+                end
+            end
         end
     end
+    s.seeder = self:getSeeder(impl)
 
     s.fills = {}
     local fillUnits = call(impl, "getFillUnits")
@@ -203,14 +272,15 @@ function G5Link:getImplementState(impl)
             if cap > 0 then
                 local level = call(impl, "getFillUnitFillLevel", i) or 0
                 local ftIndex = call(impl, "getFillUnitFillType", i)
-                local title = ""
+                local title, ftName = "", ""
                 if ftIndex ~= nil and g_fillTypeManager ~= nil then
                     local ft = g_fillTypeManager:getFillTypeByIndex(ftIndex)
                     if ft ~= nil then
                         title = ft.title or ft.name or ""
+                        ftName = ft.name or ""
                     end
                 end
-                table.insert(s.fills, {title = title, level = level, cap = cap})
+                table.insert(s.fills, {title = title, type = ftName, level = level, cap = cap})
             end
         end
     end
@@ -236,7 +306,7 @@ function G5Link:isRecording(implements)
         local spec = impl.spec_workArea
         if spec ~= nil and spec.workAreas ~= nil and impl.getIsWorkAreaActive ~= nil then
             for _, wa in ipairs(spec.workAreas) do
-                if bool(call(impl, "getIsWorkAreaActive", wa)) then
+                if isMainWorkArea(wa) and bool(call(impl, "getIsWorkAreaActive", wa)) then
                     return true
                 end
             end
@@ -288,6 +358,12 @@ function G5Link:writeGame(xml)
         xml:setInt("g5.game#day", env.currentDay or 0)
         xml:setInt("g5.game#hour", env.currentHour or 0)
         xml:setInt("g5.game#minute", env.currentMinute or 0)
+    end
+    -- Savegame identity for the display's saved maps (nil on a new game until its first save).
+    local info = g_currentMission.missionInfo
+    local dir = info and info.savegameDirectory
+    if type(dir) == "string" and dir ~= "" then
+        xml:setString("g5.game#save", string.match(dir, "([^/\\]+)[/\\]*$") or dir)
     end
 end
 
@@ -403,9 +479,29 @@ function G5Link:writeTelemetry(vehicle)
                 bits = bits .. (a and "1" or "0")
             end
             xml:setString(ik .. "#areas", bits)
+            for j, g in ipairs(s.geometry) do
+                if g then
+                    local ak = string.format("%s.area(%d)", ik, j - 1)
+                    xml:setInt(ak .. "#i", j - 1)
+                    xml:setFloat(ak .. "#sx", round(g[1], 2))
+                    xml:setFloat(ak .. "#sz", round(g[2], 2))
+                    xml:setFloat(ak .. "#wx", round(g[3], 2))
+                    xml:setFloat(ak .. "#wz", round(g[4], 2))
+                    xml:setFloat(ak .. "#hx", round(g[5], 2))
+                    xml:setFloat(ak .. "#hz", round(g[6], 2))
+                end
+            end
+            if s.seeder ~= nil then
+                local ok, err = pcall(self.writeSeeder, self, xml, ik .. ".seeder", s.seeder)
+                if not ok and not self.seederErrorLogged then
+                    self.seederErrorLogged = true
+                    print("G5Link: Realistic Seeder read failed: " .. tostring(err))
+                end
+            end
             for j, f in ipairs(s.fills) do
                 local fk = string.format("%s.fill(%d)", ik, j - 1)
                 xml:setString(fk .. "#title", f.title)
+                xml:setString(fk .. "#type", f.type)
                 xml:setFloat(fk .. "#level", round(f.level, 1))
                 xml:setFloat(fk .. "#cap", round(f.cap, 0))
             end
@@ -425,6 +521,65 @@ function G5Link:writeTelemetry(vehicle)
 
     xml:save()
     xml:delete()
+end
+
+---------------------------------------------------------------------------
+-- Realistic Seeder snapshot -> telemetry (PLACEMENT_API_V1/V2 field names)
+---------------------------------------------------------------------------
+
+local function setNumber(xml, key, v, digits)
+    if type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge then
+        xml:setFloat(key, round(v, digits or 2))
+    end
+end
+
+function G5Link:writeSeeder(xml, k, snap)
+    local caps = type(snap.capabilities) == "table" and snap.capabilities or {}
+    local app = type(snap.application) == "table" and snap.application or {}
+    local m = type(snap.measurements) == "table" and snap.measurements or {}
+    local set = type(snap.settings) == "table" and snap.settings or {}
+    local est = type(snap.estimates) == "table" and snap.estimates or {}
+    local soil = type(est.soil) == "table" and est.soil or {}
+    local sensed = type(snap.soilMeasurements) == "table" and snap.soilMeasurements or nil
+    local pop = type(est.population) == "table" and est.population or {}
+    local controls = type(snap.controls) == "table" and snap.controls or {}
+
+    xml:setString(k .. "#kind", tostring(snap.kind or caps.kind or ""))
+    xml:setString(k .. "#crop", tostring(snap.crop or ""))
+    xml:setString(k .. "#unit", tostring(app.unit or ""))                 -- seedsPerAcre | poundsPerAcre
+    xml:setBool(k .. "#monitor", caps.seedMonitor == true)
+    xml:setBool(k .. "#depthSensor", caps.depthSensor == true)
+    xml:setBool(k .. "#fresh", controls.sampleFresh == true)
+    setNumber(xml, k .. "#rate", app.ratePerAcre, 1)                      -- target, per acre
+    setNumber(xml, k .. "#actual", m.actualRatePerAcre, 1)                -- seed monitor only
+    setNumber(xml, k .. "#skips", m.skipsPercent, 2)
+    setNumber(xml, k .. "#doubles", m.doublesPercent, 2)                  -- planters only
+    setNumber(xml, k .. "#cv", m.distributionCvPercent, 2)                -- drills only
+    setNumber(xml, k .. "#depthSet", set.depthMm, 1)
+    setNumber(xml, k .. "#depth", m.depthMm, 1)                           -- fitted depth sensor only
+    setNumber(xml, k .. "#pressure", set.pressurePercent, 0)
+    setNumber(xml, k .. "#closing", set.closingPercent, 0)
+    -- soil: fitted sensor reading when fresh, otherwise the placement model's estimate (0..1)
+    local soilSrc = sensed or soil
+    setNumber(xml, k .. "#moisture", soilSrc.moisture, 3)
+    setNumber(xml, k .. "#compaction", soilSrc.compaction, 3)
+    xml:setString(k .. "#soilSource", sensed and "sensor" or (soil.moisture ~= nil and tostring(soil.moistureSource or "model") or ""))
+    setNumber(xml, k .. "#popTarget", pop.targetSeedsPerAcre, 0)
+    setNumber(xml, k .. "#popEstablished", pop.establishedSeedsPerAcre, 0)
+    setNumber(xml, k .. "#yieldPotential", pop.yieldPotentialPercent, 1)
+    if type(snap.rows) == "table" then
+        for i, row in ipairs(snap.rows) do
+            if type(row) == "table" then
+                local rk = string.format("%s.row(%d)", k, i - 1)
+                setNumber(xml, rk .. "#r", row.row, 0)
+                xml:setBool(rk .. "#on", row.active == true)
+                setNumber(xml, rk .. "#target", row.targetRatePerAcre, 1)
+                setNumber(xml, rk .. "#actual", row.actualRatePerAcre, 1)
+                setNumber(xml, rk .. "#skips", row.skipsPercent, 2)
+                setNumber(xml, rk .. "#doubles", row.doublesPercent, 2)
+            end
+        end
+    end
 end
 
 ---------------------------------------------------------------------------

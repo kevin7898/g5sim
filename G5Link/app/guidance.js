@@ -17,11 +17,11 @@
 
   // ---------------------------------------------------------------- live pose (dead-reckoned between 4 Hz frames)
   const pose = { ok: false, x: 0, z: 0, h: 0, speed: 0, dir: 1, t: 0, width: 0, recording: false, farmland: null, onField: false };
-  const trail = [];            // coverage: {x, z, h, w}
   const CHEV_STEP = 60;        // metres between pass-direction chevrons
-  let lastTrail = null;
+  const VIEW_R = 640;          // the G5 shows map data within 0.64 km of the machine
 
   window.onTelemetry = d => {
+    if (window.G5Layers) { G5Layers.onTelemetry(d); G5Layers.renderLegend(); }
     const v = d.vehicle;
     if (d.state !== 'vehicle' || !v || v.x === undefined) { pose.ok = false; return; }
     const imps = d.implements || [];
@@ -33,21 +33,21 @@
     pose.recording = !!(d.work && d.work.recording);
     pose.farmland = v.farmland; pose.onField = !!v.onField;
     pose.implName = imps[0] ? imps[0].name : null;
+    // implement bars in vehicle-local metres (r = right, f = forward) from the real work-area corners
+    const fw = fwdOf(pose.h), rw = rightOf(pose.h);
+    pose.bars = imps.map(i => {
+      const pts = (i.geometry || []).flatMap(g => [[g.sx, g.sz], [g.wx, g.wz]]).filter(q => typeof q[0] === 'number');
+      if (!pts.length) return null;
+      const loc = pts.map(([x, z]) => ({ r: (x - v.x) * rw.x + (z - v.z) * rw.z, f: (x - v.x) * fw.x + (z - v.z) * fw.z }));
+      const r0 = Math.min(...loc.map(q => q.r)), r1 = Math.max(...loc.map(q => q.r));
+      const f = loc.reduce((a, q) => a + q.f, 0) / loc.length;
+      return { r0, r1, f };
+    }).filter(Boolean);
     pose.field = d.field ?? v.field ?? null;
     const pv = d.providers || {};
     pose.cp = pv.courseplay || null;
     pose.ad = pv.autodrive || null;
     if ((d.courseKey ?? null) !== courseKey) loadCourse(d.courseKey ?? null);
-    // Coverage trail behind the implement, sampled every ~1.5 m
-    if (pose.recording && pose.width > 0) {
-      const f = fwdOf(pose.h);
-      const p = { x: pose.x - f.x * 7.5, z: pose.z - f.z * 7.5, h: pose.h, w: pose.width };
-      if (!lastTrail || Math.hypot(p.x - lastTrail.x, p.z - lastTrail.z) > 1.5) {
-        if (lastTrail && Math.hypot(p.x - lastTrail.x, p.z - lastTrail.z) > 30) trail.push(null); // jump: break strip
-        trail.push(p); lastTrail = p;
-        if (trail.length > 4000) trail.splice(0, trail.length - 4000);
-      }
-    } else if (lastTrail) { trail.push(null); lastTrail = null; }
     renderSide();
   };
 
@@ -92,7 +92,7 @@
   const lbRight = [...$('lightbar').querySelectorAll('[data-r]')];
   function errText(m) {
     const a = Math.abs(m);
-    if (metric()) return a < 1 ? `${Math.round(a * 100)}<small>cm</small>` : `${a.toFixed(1)}<small>m</small>`;
+    if (metric('distance')) return a < 1 ? `${Math.round(a * 100)}<small>cm</small>` : `${a.toFixed(1)}<small>m</small>`;
     const inch = a / 0.0254;
     return inch < 100 ? `${Math.round(inch)}<small>in</small>` : `${(a * 3.28084).toFixed(0)}<small>ft</small>`;
   }
@@ -107,21 +107,20 @@
   }
 
   // ---------------------------------------------------------------- side modules
-  const lenText = m => metric() ? `${m.toFixed(3)}m` : `${(m * 3.28084).toFixed(3)}ft`;
+  const lenText = m => metric('distance') ? `${m.toFixed(3)}m` : `${(m * 3.28084).toFixed(3)}ft`;
   function renderSide() {
     const t = currentTrack();
     $('trkName').textContent = t ? t.name : 'No track';
     $('trkSpacing').textContent = lenText(spacing());
-    $('trkIncr').textContent = metric() ? `${(G.incr * 100).toFixed(1)} cm` : `${(G.incr / 0.0254).toFixed(1)} in`;
+    $('trkIncr').textContent = metric('distance') ? `${(G.incr * 100).toFixed(1)} cm` : `${(G.incr / 0.0254).toFixed(1)} in`;
     $('locName').textContent = pose.field ? `Field ${pose.field}` : pose.farmland ? `Farmland ${pose.farmland}` : '---';
     $('locSub').textContent = pose.field && pose.farmland ? `Farmland ${pose.farmland}` : 'Field';
     renderAi();
-    $('mapCrop').textContent = pose.implName || 'Field';
   }
 
   $('setTrackBtn').onclick = () => { renderTrackList(); openWin('trackWin'); };
-  $('spacingBtn').onclick = () => openNumpad(`Track Spacing (${metric() ? 'm' : 'ft'})`, v => {
-    G.spacing = metric() ? v : v / 3.28084; save(); renderSide();
+  $('spacingBtn').onclick = () => openNumpad(`Track Spacing (${metric('distance') ? 'm' : 'ft'})`, v => {
+    G.spacing = metric('distance') ? v : v / 3.28084; save(); renderSide();
   });
   const INCRS = [0.0254, 0.0508, 0.1016, 0.3048, 0.01, 0.05, 0.1];
   $('incrBtn').onclick = () => { G.incr = INCRS[(INCRS.indexOf(G.incr) + 1) % INCRS.length]; save(); renderSide(); };
@@ -198,9 +197,12 @@
     };
   }
 
-  function draw() {
+  let lastDraw = 0;
+  function draw(ts) {
     requestAnimationFrame(draw);
     if (!$('map').offsetParent) return;                   // page not visible
+    if (ts - lastDraw < 33) return;                       // ~30 fps is plenty and saves the iPad battery
+    lastDraw = ts;
     const { W, H } = size();
     const proj = camera(W, H);
     const p = livePose();
@@ -246,33 +248,51 @@
     }
     ctx.globalAlpha = 1;
 
-    // coverage
-    ctx.fillStyle = 'rgba(64, 128, 214, 0.55)';
-    for (let i = 1; i < trail.length; i++) {
-      const a = trail[i - 1], b = trail[i];
-      if (!a || !b) continue;
-      const ra = rightOf(a.h), rb = rightOf(b.h);
-      const q = [P(a.x - ra.x * a.w / 2, a.z - ra.z * a.w / 2), P(a.x + ra.x * a.w / 2, a.z + ra.z * a.w / 2),
-                 P(b.x + rb.x * b.w / 2, b.z + rb.z * b.w / 2), P(b.x - rb.x * b.w / 2, b.z - rb.z * b.w / 2)];
-      if (q.some(v => !v)) continue;
-      ctx.beginPath(); ctx.moveTo(q[0].x, q[0].y); q.slice(1).forEach(v => ctx.lineTo(v.x, v.y)); ctx.closePath(); ctx.fill();
+    // coverage and the selected layer, recorded by the bridge (layers.js), batched by color
+    const frames = window.G5Layers ? G5Layers.frames() : [];
+    const near = (x, z) => Math.abs(x - p.x) < VIEW_R && Math.abs(z - p.z) < VIEW_R;
+    const byColor = new Map();
+    const cover = G5Layers.COVER;
+    for (const fr of frames) {
+      const q0 = fr.q[0];
+      if (!q0 || !near(q0[0], q0[1])) continue;
+      const color = G5Layers.colorOf(fr) || cover;
+      let list = byColor.get(color);
+      if (!list) { list = []; byColor.set(color, list); }
+      for (const q of fr.q) list.push(q);
+    }
+    const quadPath = (q) => {
+      const a = P(q[0], q[1]), b = P(q[2], q[3]), c = P(q[4], q[5]), e = P(q[6], q[7]);
+      if (!a || !b || !c || !e) return;
+      ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(c.x, c.y); ctx.lineTo(e.x, e.y); ctx.closePath();
+    };
+    ctx.globalAlpha = 0.88;
+    for (const [color, list] of byColor) {
+      ctx.fillStyle = color; ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+      ctx.beginPath(); list.forEach(quadPath); ctx.fill(); ctx.stroke();   // stroke closes hairline seams
+    }
+    ctx.globalAlpha = 1;
+    // overlap (more than one pass) in dark blue on the coverage layer
+    if (G5Layers.layer().id === 'coverage') {
+      const ov = G5Layers.overlap(), cell = ov.cell || 1;
+      ctx.fillStyle = G5Layers.OVER; ctx.beginPath();
+      for (const [x0, x1, z0] of ov.runs) {
+        if (!near(x0, z0)) continue;
+        quadPath([x0, z0, x1, z0, x1, z0 + cell, x0, z0 + cell]);
+      }
+      ctx.fill();
     }
 
-    // pass-direction chevrons on the coverage (as on the G5): one every CHEV_STEP metres of each strip
+    // pass-direction chevrons on the coverage (as on the G5): one every CHEV_STEP metres of each pass
     ctx.fillStyle = 'rgba(0, 0, 0, 0.22)'; ctx.strokeStyle = 'rgba(0, 0, 0, 0.38)'; ctx.lineJoin = 'miter';
-    let run = CHEV_STEP / 2;
-    for (let i = 1; i < trail.length; i++) {
-      const a = trail[i - 1], b = trail[i];
-      if (!a || !b) { run = CHEV_STEP / 2; continue; }
-      run += Math.hypot(b.x - a.x, b.z - a.z);
-      if (run < CHEV_STEP) continue;
-      run = 0;
-      const cf = fwdOf(b.h), cr = rightOf(b.h), s5 = Math.min(b.w * 0.3, 6);
-      const W2 = (fo, ro) => P(b.x + cf.x * fo + cr.x * ro, b.z + cf.z * fo + cr.z * ro);
-      const c = [W2(s5 * 1.1, 0), W2(-s5, s5), W2(-s5 * 0.35, 0), W2(-s5, -s5)];   // tip, right tail, notch, left tail
-      if (c.some(v => !v)) continue;
-      ctx.lineWidth = Math.max(1, c[0].s * 0.08);
-      ctx.beginPath(); ctx.moveTo(c[0].x, c[0].y); c.slice(1).forEach(v => ctx.lineTo(v.x, v.y)); ctx.closePath();
+    for (const c of chevrons(frames)) {
+      if (!near(c.x, c.z)) continue;
+      const cf = fwdOf(c.h), cr = rightOf(c.h), s5 = Math.min(c.w * 0.3, 6);
+      const W2 = (fo, ro) => P(c.x + cf.x * fo + cr.x * ro, c.z + cf.z * fo + cr.z * ro);
+      const k = [W2(s5 * 1.1, 0), W2(-s5, s5), W2(-s5 * 0.35, 0), W2(-s5, -s5)];   // tip, right tail, notch, left tail
+      if (k.some(v => !v)) continue;
+      ctx.lineWidth = Math.max(1, k[0].s * 0.08);
+      ctx.beginPath(); ctx.moveTo(k[0].x, k[0].y); k.slice(1).forEach(v => ctx.lineTo(v.x, v.y)); ctx.closePath();
       ctx.fill(); ctx.stroke();
     }
 
@@ -319,12 +339,14 @@
       $('mapNote').textContent = 'No guidance track. Tap Set Track to create one.';
     }
 
-    // implement (green T) and tractor
+    // implement (green T) and tractor: from the work-area corners when the mod sends them
     const w = pose.width || 0;
-    const hitch = proj(0, -2.2), bar = proj(0, -7.5);
-    if (w > 0 && hitch && bar) {
-      const l = proj(-w / 2, -7.5), r = proj(w / 2, -7.5);
-      ctx.strokeStyle = '#2ee82e'; ctx.lineCap = 'butt';
+    const bars = pose.bars && pose.bars.length ? pose.bars : (w > 0 ? [{ r0: -w / 2, r1: w / 2, f: -7.5 }] : []);
+    ctx.strokeStyle = '#2ee82e'; ctx.lineCap = 'butt';
+    for (const b of bars) {
+      const mid = (b.r0 + b.r1) / 2, hitch = proj(mid * 0.2, b.f < 0 ? -2.2 : 2.6), bar = proj(mid, b.f);
+      const l = proj(b.r0, b.f), r = proj(b.r1, b.f);
+      if (!hitch || !bar || !l || !r) continue;
       ctx.lineWidth = Math.max(6, 0.45 * bar.s); ctx.beginPath(); ctx.moveTo(hitch.x, hitch.y); ctx.lineTo(bar.x, bar.y); ctx.stroke();
       ctx.lineWidth = Math.max(6, 0.35 * bar.s); ctx.beginPath(); ctx.moveTo(l.x, l.y); ctx.lineTo(r.x, r.y); ctx.stroke();
     }
@@ -333,6 +355,29 @@
     $('mapHdg').textContent = `${cardinal(p.h)} ${Math.round(p.h)}°`;
     $('mapTrk').textContent = s ? `${Math.abs(s.k)}${s.k === 0 ? '' : ' ' + cardinal((s.k > 0 ? t.h + 90 : t.h - 90))}` : '---';
     $('mapArrow').style.transform = `rotate(${-p.h}deg)`;
+  }
+
+  // Chevron positions along each recorded pass, recomputed only when new frames arrive.
+  let chevCache = { version: -1, list: [] };
+  function chevrons(frames) {
+    const ver = G5Layers.version();
+    if (chevCache.version === ver) return chevCache.list;
+    const list = [];
+    let pass = null, run = 0, last = null;
+    for (const fr of frames) {
+      const q = fr.q[0];
+      if (!q) continue;
+      const cx = (q[4] + q[6]) / 2, cz = (q[5] + q[7]) / 2;          // middle of the leading edge
+      if (fr.p !== pass) { pass = fr.p; run = CHEV_STEP / 2; last = null; }
+      if (last) run += Math.hypot(cx - last.x, cz - last.z);
+      last = { x: cx, z: cz };
+      if (run < CHEV_STEP) continue;
+      run = 0;
+      const w = fr.q.reduce((m, qq) => Math.max(m, Math.hypot(qq[4] - qq[6], qq[5] - qq[7])), 0);
+      list.push({ x: cx, z: cz, h: fr.h, w: Math.max(w, 3) });
+    }
+    chevCache = { version: ver, list };
+    return list;
   }
 
   // AI driver status chip (Courseplay or AutoDrive)

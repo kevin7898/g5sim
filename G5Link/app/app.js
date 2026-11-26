@@ -6,7 +6,7 @@ const display = $('display');
 const W = 1280, H = 720;
 
 // ------------------------------------------------------------ settings (per device)
-const settings = { units: 'metric', mode: 'day', sound: 'on', page: 0 };
+const settings = { units: {}, mode: 'day', sound: 'on', pageName: null };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('g5link') || '{}')); } catch (e) { /* private mode */ }
 function saveSettings() { try { localStorage.setItem('g5link', JSON.stringify(settings)); } catch (e) { /* ignore */ } }
 
@@ -19,18 +19,37 @@ window.addEventListener('resize', fit);
 fit();
 
 // ------------------------------------------------------------ units
-const metric = () => settings.units === 'metric';
+// Each quantity has its own unit setting (Menu > System > Units); the Metric / US key sets them all.
+const UNIT_KINDS = [
+  ['speed', 'Speed', 'km/h', 'mph'],
+  ['distance', 'Distance', 'm · cm · km', 'ft · in · mi'],
+  ['area', 'Area', 'ha', 'ac'],
+  ['volume', 'Volume (liquids)', 'L', 'gal'],
+  ['grain', 'Yield and Grain', 't/ha · t/h · t', 'bu/ac · bu/h · bu'],
+  ['rate', 'Seeding Rate', 'seeds/ha · kg/ha', 'seeds/ac · lb/ac'],
+  ['pressure', 'Pressure', 'bar', 'psi'],
+];
+if (typeof settings.units === 'string') {           // older settings: one value for everything
+  const all = settings.units; settings.units = {}; UNIT_KINDS.forEach(([k]) => { settings.units[k] = all; });
+}
+if (!settings.units || typeof settings.units !== 'object') settings.units = {};
+UNIT_KINDS.forEach(([k]) => { if (settings.units[k] !== 'imperial') settings.units[k] = 'metric'; });
+const metric = kind => settings.units[kind] !== 'imperial';
+function unitPreset() {
+  const vals = UNIT_KINDS.map(([k]) => settings.units[k]);
+  return vals.every(v => v === 'metric') ? 'metric' : vals.every(v => v === 'imperial') ? 'imperial' : 'custom';
+}
 const U = {
-  speed: v => metric() ? v : v * 0.621371,
-  speedUnit: () => metric() ? 'km/h' : 'mph',
-  area: m2 => metric() ? m2 / 10000 : m2 / 4046.856,
-  areaFromHa: ha => metric() ? ha : ha * 2.47105,
-  areaUnit: () => metric() ? 'ha' : 'ac',
-  vol: l => metric() ? l : l * 0.264172,
-  volUnit: () => metric() ? 'L' : 'gal',
-  dist: m => metric() ? (m >= 1000 ? (m / 1000).toFixed(2) + ' km' : Math.round(m) + ' m')
+  speed: v => metric('speed') ? v : v * 0.621371,
+  speedUnit: () => metric('speed') ? 'km/h' : 'mph',
+  area: m2 => metric('area') ? m2 / 10000 : m2 / 4046.856,
+  areaFromHa: ha => metric('area') ? ha : ha * 2.47105,
+  areaUnit: () => metric('area') ? 'ha' : 'ac',
+  vol: l => metric('volume') ? l : l * 0.264172,
+  volUnit: () => metric('volume') ? 'L' : 'gal',
+  dist: m => metric('distance') ? (m >= 1000 ? (m / 1000).toFixed(2) + ' km' : Math.round(m) + ' m')
                       : (m >= 1609 ? (m / 1609.34).toFixed(2) + ' mi' : Math.round(m * 3.28084) + ' ft'),
-  width: m => metric() ? m.toFixed(1) + ' m' : (m * 3.28084).toFixed(1) + ' ft',
+  width: m => metric('distance') ? m.toFixed(1) + ' m' : (m * 3.28084).toFixed(1) + ' ft',
 };
 const fmt = (v, d = 0) => (v === undefined || v === null || Number.isNaN(Number(v))) ? '---' : Number(v).toFixed(d);
 function hms(sec) {
@@ -47,19 +66,46 @@ function tile(title, value, unit = '', opts = {}) {
 }
 
 // ------------------------------------------------------------ pages
+// Run pages are offered only when the machine in use supports them (like the G5, which only
+// shows the run pages and applications of the detected machine and implements).
 const pages = [...document.querySelectorAll('.page')];
 const pageNames = pages.map(p => p.dataset.name);
-function showPage(i) {
-  settings.page = (i + pages.length) % pages.length;
-  pages.forEach((p, n) => p.classList.toggle('active', n === settings.page));
-  $('pageName').textContent = pageNames[settings.page];
-  setHtml($('menuPages'), pageNames.map((n, k) =>
-    `<button class="app ${k === settings.page ? 'on' : ''}" data-page="${k}"><span class="app-ico num">${k + 1}</span><b>${esc(n)}</b></button>`).join(''));
+const hasSeeder = d => (d.implements || []).some(i => i.seeder);
+const PAGE_RULES = {
+  'Guidance': () => true,
+  'Tractor': d => !d.combine,
+  'Harvesting': d => !!d.combine,
+  'Planter': d => hasSeeder(d),
+  'Work Monitor': d => (d.implements || []).length > 0 || !!d.combine,
+  'Implement Details': d => (d.implements || []).length > 0,
+  'Machine Monitor': () => true,
+  'Field': d => { const p = d.providers || {}; return !!(p['soil-fertilizer'] || p['mud-system-physics'] || p.courseplay || p.autodrive); },
+};
+let available = pageNames.slice();                     // all pages until the first vehicle frame
+if (typeof settings.page === 'number') { settings.pageName = pageNames[settings.page]; delete settings.page; }
+const curIndex = () => Math.max(0, available.indexOf(settings.pageName));
+function showPage(target) {
+  // target: a page name, or an index into the available pages (wraps)
+  let name = typeof target === 'string' ? target : available[((target % available.length) + available.length) % available.length];
+  if (!available.includes(name)) name = available[0];
+  settings.pageName = name;
+  pages.forEach(p => p.classList.toggle('active', p.dataset.name === name));
+  $('pageName').textContent = name;
+  setHtml($('menuPages'), available.map((n, k) =>
+    `<button class="app ${n === name ? 'on' : ''}" data-page="${esc(n)}"><span class="app-ico num">${k + 1}</span><b>${esc(n)}</b></button>`).join(''));
+  document.querySelectorAll('#tab-apps [data-goto]').forEach(b => { b.hidden = !available.includes(b.dataset.goto); });
   saveSettings();
 }
-$('prevPage').onclick = () => showPage(settings.page - 1);
-$('nextPage').onclick = () => showPage(settings.page + 1);
-$('menuPages').onclick = e => { const b = e.target.closest('[data-page]'); if (b) { showPage(+b.dataset.page); closeWin('menu'); } };
+function updateAvailablePages(d) {
+  if (d.state !== 'vehicle' || !d.vehicle) return;      // keep the last machine's pages while on foot or paused
+  const next = pageNames.filter(n => (PAGE_RULES[n] || (() => true))(d));
+  if (next.join('|') === available.join('|')) return;
+  available = next;
+  showPage(available.includes(settings.pageName) ? settings.pageName : available[0]);
+}
+$('prevPage').onclick = () => showPage(curIndex() - 1);
+$('nextPage').onclick = () => showPage(curIndex() + 1);
+$('menuPages').onclick = e => { const b = e.target.closest('[data-page]'); if (b) { showPage(b.dataset.page); closeWin('menu'); } };
 
 let touchX = null;
 $('pages').addEventListener('touchstart', e => { touchX = e.touches[0].clientX; }, { passive: true });
@@ -67,7 +113,7 @@ $('pages').addEventListener('touchend', e => {
   if (touchX === null) return;
   const dx = e.changedTouches[0].clientX - touchX;
   touchX = null;
-  if (Math.abs(dx) > 80) showPage(settings.page + (dx < 0 ? 1 : -1));
+  if (Math.abs(dx) > 80) showPage(curIndex() + (dx < 0 ? 1 : -1));
 });
 
 // ------------------------------------------------------------ windows
@@ -79,12 +125,12 @@ document.addEventListener('click', e => {
   if (e.target.classList && e.target.classList.contains('window-wrap')) closeWin(e.target.id);
 });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') ['menu', 'scPanel', 'confirm', 'numpad', 'trackWin'].forEach(closeWin);
-  if (e.key === 'ArrowRight') showPage(settings.page + 1);
-  if (e.key === 'ArrowLeft') showPage(settings.page - 1);
+  if (e.key === 'Escape') ['menu', 'scPanel', 'confirm', 'numpad', 'trackWin', 'unitsWin', 'layerWin'].forEach(closeWin);
+  if (e.key === 'ArrowRight') showPage(curIndex() + 1);
+  if (e.key === 'ArrowLeft') showPage(curIndex() - 1);
 });
 $('menuBtn').onclick = () => { selectTab('pages'); openWin('menu'); };
-$('tab-apps').onclick = e => { const b = e.target.closest('[data-goto]'); if (b) { showPage(+b.dataset.goto); closeWin('menu'); } };
+$('tab-apps').onclick = e => { const b = e.target.closest('[data-goto]'); if (b) { showPage(b.dataset.goto); closeWin('menu'); } };
 $('appStatus').onclick = () => { closeWin('menu'); openWin('scPanel'); };
 $('appReset').onclick = () => { closeWin('menu'); $('resetWork').onclick(); };
 $('skPageSet').onclick = () => { openWin('menu'); selectTab('display'); };
@@ -101,7 +147,27 @@ function bindSeg(id, key, after) {
   seg.onclick = e => { const b = e.target.closest('button'); if (!b) return; settings[key] = b.dataset.v; saveSettings(); paint(); if (after) after(); render(); };
   paint();
 }
-bindSeg('unitSeg', 'units');
+function paintUnits() {
+  const preset = unitPreset();
+  $('unitSeg').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === preset));
+  $('unitCustom').hidden = preset !== 'custom';
+  setHtml($('unitRows'), UNIT_KINDS.map(([k, label, m, us]) => `
+    <div class="set-row"><span>${label}</span><div class="seg" data-unit="${k}">
+      <button data-v="metric" class="${metric(k) ? 'on' : ''}">${m}</button><button data-v="imperial" class="${metric(k) ? '' : 'on'}">${us}</button>
+    </div></div>`).join(''));
+}
+$('unitSeg').onclick = e => {
+  const b = e.target.closest('button'); if (!b) return;
+  UNIT_KINDS.forEach(([k]) => { settings.units[k] = b.dataset.v; });
+  saveSettings(); paintUnits(); render();
+};
+$('unitRows').onclick = e => {
+  const b = e.target.closest('button'), seg = e.target.closest('[data-unit]'); if (!b || !seg) return;
+  settings.units[seg.dataset.unit] = b.dataset.v;
+  saveSettings(); paintUnits(); render();
+};
+$('unitsBtn').onclick = () => { paintUnits(); openWin('unitsWin'); };
+paintUnits();
 bindSeg('modeSeg', 'mode', applyMode);
 bindSeg('soundSeg', 'sound');
 function applyMode() { display.classList.toggle('night', settings.mode === 'night'); }
@@ -142,7 +208,7 @@ $('numOk').onclick = () => {
   if (!numValue || Number.isNaN(v) || !numCb) return;
   numCb(v);
 };
-$('ccSetBtn').onclick = () => openNumpad(`Cruise Set Speed (${U.speedUnit()})`, v => send('cruiseSet', metric() ? v : v / 0.621371));
+$('ccSetBtn').onclick = () => openNumpad(`Cruise Set Speed (${U.speedUnit()})`, v => send('cruiseSet', metric('speed') ? v : v / 0.621371));
 
 // ------------------------------------------------------------ sound + window shade
 let audio = null;
@@ -190,7 +256,7 @@ document.addEventListener('click', e => {
   send(b.dataset.cmd, Number(b.dataset.value || 0), Number(b.dataset.index || 0), b);
 });
 $('resetWork').onclick = () => confirmBox('Work Monitor', 'Reset all work counters to zero?', () => send('resetWork'));
-$('skWork').onclick = () => showPage(2);
+$('skWork').onclick = () => showPage('Work Monitor');
 
 // ------------------------------------------------------------ derived rates
 const samples = [];
@@ -217,6 +283,7 @@ let data = { link: 'waiting' };
 function render() {
   const d = data, v = d.vehicle || null, w = d.work || {}, imps = d.implements || [];
   const inVehicle = d.state === 'vehicle' && v;
+  updateAvailablePages(d);
 
   // Title bar status center
   const link = d.link === 'live' && d.state !== 'unloaded' ? 'live' : d.link === 'down' ? 'down' : d.link === 'stale' || d.state === 'unloaded' ? 'stale' : 'wait';
@@ -230,7 +297,7 @@ function render() {
   const modState = id => pst[id] ? (pst[id].available ? 'Found' : pst[id].mode === 'incompatible' ? 'Incompatible' : 'Not installed') : '---';
   setHtml($('scPanelGrid'), [
     ['Bridge Link', $('scLinkTxt').textContent], ['Game State', d.state || '---'], ['Game Day', g.day ?? '---'],
-    ['Vehicle', inVehicle ? v.name : '---'], ['Work Recording', w.recording ? 'On' : 'Off'], ['Units', metric() ? 'Metric' : 'US'],
+    ['Vehicle', inVehicle ? v.name : '---'], ['Work Recording', w.recording ? 'On' : 'Off'], ['Units', { metric: 'Metric', imperial: 'US', custom: 'Custom' }[unitPreset()]],
     ['Mod Version', d.version || '---'], ['Last Command', d.lastCmd ?? '---'],
     ['Realistic Harvesting', d.rh ? 'Found' : d.combine ? 'Not found' : '---'], ['Soil & Fertilizer', modState('soil-fertilizer')],
     ['Courseplay', modState('courseplay')], ['AutoDrive', modState('autodrive')],
@@ -310,6 +377,7 @@ function render() {
   renderMachine(v, fuelPct, defPct, r);
   renderHarvest(d, v);
   renderField(d);
+  renderPlanter(d);
   if (window.onTelemetry) window.onTelemetry(d);
 }
 
@@ -390,15 +458,16 @@ function renderMachine(v, fuelPct, defPct, r) {
 // ------------------------------------------------------------ Harvesting page
 // Bushel weights (lb/bu) by FS25 fill type name, for US yield units. Unknown crops fall back to 56.
 const LB_PER_BU = { WHEAT: 60, SOYBEAN: 60, BARLEY: 48, OAT: 32, CANOLA: 50, MAIZE: 56, SORGHUM: 56, SUNFLOWER: 28,
-  RYE: 56, TRITICALE: 50, PEA: 60, BEANS: 60, LENTILS: 60, CHICKPEAS: 60, RICELONGGRAIN: 45, RICE: 45, SPELT: 40 };
+  RYE: 56, TRITICALE: 50, PEA: 60, BEANS: 60, LENTILS: 60, CHICKPEAS: 60, RICELONGGRAIN: 45, RICE: 45, SPELT: 40,
+  WV_SPRINGWHEAT: 60, WV_WINTERWHEAT: 60 };                                     // Wheat Varieties mod
 const HU = {
   lbPerBu: crop => LB_PER_BU[String(crop || '').toUpperCase()] || 56,
-  yield: (tha, crop) => metric() ? tha : tha * 892.18 / HU.lbPerBu(crop),       // t/ha -> bu/ac
-  yieldUnit: () => metric() ? 't/ha' : 'bu/ac',
-  flow: (tph, crop) => metric() ? tph : tph * 2204.62 / HU.lbPerBu(crop),       // t/h -> bu/h
-  flowUnit: () => metric() ? 't/h' : 'bu/h',
-  mass: (kg, crop) => metric() ? (kg >= 1000 ? fmt(kg / 1000, 1) + ' t' : fmt(kg, 0) + ' kg') : fmt(kg * 2.20462 / HU.lbPerBu(crop), 0) + ' bu',
-  tank: l => metric() ? fmt(l, 0) + ' L' : fmt(l / 35.239, 0) + ' bu',
+  yield: (tha, crop) => metric('grain') ? tha : tha * 892.18 / HU.lbPerBu(crop),       // t/ha -> bu/ac
+  yieldUnit: () => metric('grain') ? 't/ha' : 'bu/ac',
+  flow: (tph, crop) => metric('grain') ? tph : tph * 2204.62 / HU.lbPerBu(crop),       // t/h -> bu/h
+  flowUnit: () => metric('grain') ? 't/h' : 'bu/h',
+  mass: (kg, crop) => metric('grain') ? (kg >= 1000 ? fmt(kg / 1000, 1) + ' t' : fmt(kg, 0) + ' kg') : fmt(kg * 2.20462 / HU.lbPerBu(crop), 0) + ' bu',
+  tank: l => metric('grain') ? fmt(l, 0) + ' L' : fmt(l / 35.239, 0) + ' bu',
 };
 // RH setting names -> the labels the G5 Harvest Settings window uses
 const SETTING_LABEL = { concave: 'Threshing Clearance', rotor: 'Threshing Speed', fan: 'Cleaning Fan Speed',
@@ -421,7 +490,7 @@ function renderHarvest(d, v) {
   const val = (x, f, dg) => rh && typeof x === 'number' ? fmt(f(x), dg) : '---';
   const loadOver = rh && rh.load > (rh.targetLoad || 100);
   setHtml($('hvTiles'), [
-    tile('Yield', val(rh && rh.yield, x => HU.yield(x, crop), metric() ? 2 : 1), HU.yieldUnit(), { on }),
+    tile('Yield', val(rh && rh.yield, x => HU.yield(x, crop), metric('grain') ? 2 : 1), HU.yieldUnit(), { on }),
     tile('Moisture', val(rh && rh.moisture, x => x, 1), '%', { on, alert: !!(rh && rh.moistureHigh),
       sub: rh && rh.moistureLimit ? 'Limit ' + fmt(rh.moistureLimit, 1) + ' %' : '' }),
     tile('Throughput', val(rh && rh.tph, x => HU.flow(x, crop), 0), HU.flowUnit(), { on }),
@@ -479,6 +548,62 @@ function renderHarvest(d, v) {
   $('hvTripLost').textContent = lostKg !== null ? HU.mass(lostKg, crop) : '---';
 }
 
+// ------------------------------------------------------------ Planter page (Realistic Seeder Placement API)
+const SR = {
+  // the seeder reports per acre: seeds/acre on planters, lb/acre on drills
+  unit: sd => sd.unit === 'poundsPerAcre' ? (metric('rate') ? 'kg/ha' : 'lb/ac') : (metric('rate') ? 'seeds/ha' : 'seeds/ac'),
+  conv: (sd, v) => typeof v !== 'number' ? null : sd.unit === 'poundsPerAcre' ? (metric('rate') ? v * 1.12085 : v) : (metric('rate') ? v * 2.47105 : v),
+};
+function renderPlanter(d) {
+  const imp = (d.implements || []).find(i => i.seeder);
+  const sd = imp && imp.seeder;
+  const sing = sd && typeof sd.skips === 'number' && typeof sd.doubles === 'number' ? 100 - sd.skips - sd.doubles : null;
+  edge('plSing', sing !== null && sd.fresh && sing < 92, 'Singulation below 92%.', 'warn');
+  if (!sd) return;
+  const drill = sd.kind === 'drill';
+  const CROPS = { MAIZE: 'Corn', SOYBEAN: 'Soybeans', WV_SPRINGWHEAT: 'Spring Wheat', WV_WINTERWHEAT: 'Winter Wheat' };
+  const cropName = sd.crop ? CROPS[String(sd.crop).toUpperCase()] || String(sd.crop).toLowerCase().replace(/(^|_)([a-z])/g, (m, a, b) => (a ? ' ' : '') + b.toUpperCase()) : '';
+  $('plTitle').textContent = `${imp.name}${cropName ? ' - ' + cropName : ''}`;
+  const unit = SR.unit(sd);
+  const rateTxt = v => { const x = SR.conv(sd, v); return x === null ? '---' : fmt(x, drill ? 1 : 0); };
+  const pctTile = (t, v, opts = {}) => tile(t, typeof v === 'number' ? fmt(v, opts.d ?? 1) : '---', typeof v === 'number' ? '%' : '', opts);
+  const live = !!sd.fresh;
+  setHtml($('plTiles'), [
+    tile('Target Rate', rateTxt(sd.rate), unit, { on: live }),
+    tile('Actual Rate', sd.monitor ? rateTxt(sd.actual) : '---', sd.monitor ? unit : '', { on: live && sd.monitor, sub: sd.monitor ? '' : 'No seed monitor' }),
+    pctTile('Singulation', sing, { on: live, alert: sing !== null && sing < 92 }),
+    pctTile('Skips', sd.skips, { on: live, d: 2, alert: sd.skips > 4 }),
+    drill ? pctTile('Distribution CV', sd.cv, { on: live }) : pctTile('Doubles', sd.doubles, { on: live, d: 2, alert: sd.doubles > 4 }),
+    tile('Seed Depth', typeof (sd.depth ?? sd.depthSet) === 'number' ? (metric('distance') ? fmt(sd.depth ?? sd.depthSet, 0) : fmt((sd.depth ?? sd.depthSet) / 25.4, 2)) : '---',
+      metric('distance') ? 'mm' : 'in', { sub: typeof sd.depth === 'number' ? 'Measured' : 'Set' }),
+    tile('Population', typeof sd.popEstablished === 'number' ? rateTxt(sd.popEstablished) : '---', typeof sd.popEstablished === 'number' ? unit : '', { sub: 'Established (est.)' }),
+    pctTile('Yield Potential', sd.yieldPotential, { sub: 'Placement model' }),
+  ].join(''));
+
+  const rows = sd.rows || [];
+  setHtml($('plRows'), !rows.length
+    ? `<p class="pl-none">${sd.monitor ? 'No row drive fitted: row readings are not available.' : 'Row readings need a seed monitor and row drive.'}</p>`
+    : rows.map(r => {
+      const ratio = r.on && r.target ? (r.actual || 0) / r.target : 0;
+      const dev = Math.abs(ratio - 1), cls = !r.on ? 'off' : dev <= 0.05 ? 'ok' : dev <= 0.1 ? 'mid' : 'bad';
+      const h = r.on ? Math.min(100, ratio * 80) : 6;
+      return `<div class="pl-row"><div class="pl-bar"><i class="${cls}" style="height:${h.toFixed(0)}%"></i></div><b>${fmt(r.r, 0)}</b><span>${r.on && typeof r.actual === 'number' ? rateTxt(r.actual) : 'off'}</span></div>`;
+    }).join(''));
+
+  const kv = (k, val) => `<div class="kv"><span>${k}</span><b>${val}</b></div>`;
+  setHtml($('plMonitor'), [
+    kv('Seed Monitor', sd.monitor ? (live ? 'Live' : 'No recent sample') : 'Not fitted'),
+    kv('Downforce', typeof sd.pressure === 'number' ? fmt(sd.pressure, 0) + ' %' : '---'),
+    kv('Closing', typeof sd.closing === 'number' ? fmt(sd.closing, 0) + ' %' : '---'),
+  ].join(''));
+  const src = { sensor: 'Soil sensor', SeasonalCropStress: 'Seasonal Crop Stress', model: 'Placement model' }[sd.soilSource] || (sd.soilSource || '---');
+  setHtml($('plSoil'), [
+    kv('Soil Moisture', typeof sd.moisture === 'number' ? fmt(sd.moisture * 100, 0) + ' %' : '---'),
+    kv('Compaction', typeof sd.compaction === 'number' ? fmt(sd.compaction * 100, 0) + ' %' : '---'),
+    kv('Source', esc(src)),
+  ].join(''));
+}
+
 // ------------------------------------------------------------ Field page (other mods)
 const STATUS_TAG = { Good: 'on', Fair: '', Poor: 'alert' };
 function renderField(d) {
@@ -513,7 +638,7 @@ function renderField(d) {
   setHtml($('fdGround'), !mud ? '<p class="fd-side-note">Mud System Physics not active.</p>' : [
     kv('Wheel Slip', typeof mud.slip === 'number' ? fmt(mud.slip * 100, 0) + ' %' : '---'),
     kv('Mud', typeof mud.fieldMudFactor === 'number' ? fmt(mud.fieldMudFactor * 100, 0) + ' %' : typeof mud.effectiveWetness === 'number' ? fmt(mud.effectiveWetness * 100, 0) + ' % wet' : '---'),
-    kv('Tire Pressure', typeof mud.tirePressure === 'number' ? (metric() ? fmt(mud.tirePressure, 2) + ' bar' : fmt(mud.tirePressure * 14.504, 1) + ' psi') : '---'),
+    kv('Tire Pressure', typeof mud.tirePressure === 'number' ? (metric('pressure') ? fmt(mud.tirePressure, 2) + ' bar' : fmt(mud.tirePressure * 14.504, 1) + ' psi') : '---'),
   ].join(''));
 
   let ai;
@@ -540,6 +665,6 @@ function connect() {
 }
 
 $('aboutTxt').textContent = 'G5Link display. Live data from the FS25_G5Link mod through the G5Link bridge on your PC.';
-showPage(settings.page || 0);
+showPage(settings.pageName || 0);
 render();
 connect();

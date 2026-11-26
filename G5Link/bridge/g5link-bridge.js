@@ -10,6 +10,7 @@
 //   node g5link-bridge.js                 watch the game (default folder)
 //   node g5link-bridge.js --demo          fake data, no game needed (tractor + planter)
 //   node g5link-bridge.js --demo combine  fake combine with Realistic Harvesting data
+//   node g5link-bridge.js --demo --demo-speed 8   run the demo 8x faster (to see maps fill quickly)
 //   node g5link-bridge.js --dir <folder>  custom modSettings/FS25_G5Link folder
 //   node g5link-bridge.js --port 8765
 
@@ -30,6 +31,7 @@ function opt(name, fallback) {
 const DEMO_OPT = opt('demo', false);
 const DEMO = DEMO_OPT !== false;
 const DEMO_COMBINE = DEMO_OPT === 'combine';
+const DEMO_SPEED = Math.max(1, Math.min(20, Number(opt('demo-speed', 1)) || 1)); // demo time multiplier
 const PORT = Number(opt('port', 8765));
 const DEFAULT_DIR = path.join(os.homedir(), 'Documents', 'My Games', 'FarmingSimulator2025',
   'modSettings', 'FS25_G5Link');
@@ -41,6 +43,7 @@ const COURSE = path.join(DIR, 'course.json');       // Courseplay course + field
 const PROVIDER_STALE_MS = 6000;
 const APP_DIR = path.resolve(__dirname, '..', 'app');
 const STALE_MS = 3000; // no new seq for this long => game considered paused/closed
+const { CoverageStore } = require('./coverage.js');
 
 // ---------------------------------------------------------------- tiny XML parser
 // Handles the flat, attribute-only XML the mod writes. Not a general parser.
@@ -106,10 +109,18 @@ function telemetryFromXml(text) {
       ...n.attrs,
       areas: String(n.attrs.areas ?? '').split('').map(c => c === '1'),
       fills: children(n, 'fill').map(f => f.attrs),
+      geometry: children(n, 'area').map(a => a.attrs),
+      seeder: seederFromNode(child(n, 'seeder')),
     })),
     combine: (child(g5, 'combine') || {}).attrs || null,
     rh: rhFromNode(child(g5, 'rh')),
   };
+}
+
+// Realistic Seeder block (per implement): attributes plus per-row readings.
+function seederFromNode(n) {
+  if (!n) return null;
+  return { ...n.attrs, rows: children(n, 'row').map(r => r.attrs) };
 }
 
 // Realistic Harvesting block: attributes plus settings and the trip odometer.
@@ -152,12 +163,24 @@ function currentExtras() {
   return extras;
 }
 
+// Coverage and map layers (see coverage.js). In demo mode nothing is written to disk.
+let maps = null;
+function mapStore() {
+  if (!maps) maps = new CoverageStore({ dir: DIR, persist: !DEMO });
+  return maps;
+}
+
 function setTelemetry(t) {
-  if (t.seq !== lastSeq) {
+  const fresh = t.seq !== lastSeq;
+  if (fresh) {
     lastSeq = t.seq;
     lastSeqAt = Date.now();
   }
   latest = { ...t, ...currentExtras(), link: 'live' };
+  if (fresh) {
+    try { mapStore().onFrame(latest); } catch (e) { console.warn('Map recording failed:', e.message); }
+  }
+  latest.map = mapStore().status();
   broadcast();
 }
 
@@ -303,8 +326,8 @@ function demoCombine(t, dt, working, meters) {
   t.vehicle.name = 'Demo S7 Combine';
   t.vehicle.load = Math.round(Math.min(100, load));
   t.implements = [{
-    name: 'Demo HD40F Header', canLower: true, lowered: demo.lowered, canTurnOn: true, turnedOn: demo.turnedOn,
-    width, areas: [working], fills: [],
+    name: 'Demo HD40F Header', canLower: true, lowered: demo.lowered && !demo.turning, canTurnOn: true, turnedOn: demo.turnedOn,
+    width, areas: [working], fills: [], geometry: demoAreas(1, width, 4.5),
   }];
   t.combine = { name: 'Demo S7 Combine', tank: Math.round(demo.tank), tankCap: cap, crop: 'WHEAT', cropTitle: 'Wheat', turnedOn: demo.turnedOn };
   t.rh = {
@@ -330,13 +353,11 @@ function demoTick(dt) {
   const target = !demo.motorOn ? 0 : demo.cc ? demo.ccSpeed : 6 + 4 * Math.sin(demo.t / 9000);
   demo.speed += (target - demo.speed) * Math.min(1, dt / 1500);
   const meters = demo.speed / 3.6 * dt / 1000;
-  const working = demo.lowered && demo.turnedOn && demo.speed > 0.3;
+  const working = demo.lowered && demo.turnedOn && demo.speed > 0.3 && !demo.turning;
   const burn = demo.motorOn ? (working ? 38 : 12) / 3600 * dt / 1000 : 0; // l per tick
   demo.fuel = Math.max(0, demo.fuel - burn);
   demo.def = Math.max(0, demo.def - burn * 0.05);
-  demo.heading = (demo.heading + 0.4 * Math.sin(demo.t / 4000)) % 360;
-  demo.x += meters * Math.sin(demo.heading * Math.PI / 180);
-  demo.z -= meters * Math.cos(demo.heading * Math.PI / 180);
+  demoMove(meters);
   demo.work.totalDistance += meters;
   demo.work.totalFuel += burn;
   if (working) {
@@ -361,9 +382,11 @@ function demoTick(dt) {
       damage: 12.5, hours: 1287.4, x: +demo.x.toFixed(1), z: +demo.z.toFixed(1), heading: Math.round(demo.heading), farmland: 23,
     },
     implements: [{
-      name: 'Demo 1775NT Planter', canLower: true, lowered: demo.lowered, canTurnOn: true, turnedOn: demo.turnedOn,
+      name: 'Demo 1775NT Planter', canLower: true, lowered: demo.lowered && !demo.turning, canTurnOn: true, turnedOn: demo.turnedOn,
       width: 12.19, areas: Array.from({ length: 16 }, (_, i) => working && !(i === 5 && Math.sin(demo.t / 5000) > 0.6)),
-      fills: [{ title: 'Seeds', level: +demo.seed.toFixed(1), cap: 2800 }, { title: 'Liquid Fertilizer', level: 1600, cap: 2271 }],
+      geometry: demoAreas(16, 12.19, -7.5),
+      fills: [{ title: 'Seeds', type: 'SEEDS', level: +demo.seed.toFixed(1), cap: 2800 }, { title: 'Liquid Fertilizer', type: 'LIQUIDFERTILIZER', level: 1600, cap: 2271 }],
+      seeder: demoSeeder(working),
     }],
     work: {
       recording: working, area: Math.round(demo.work.area), time: Math.round(demo.work.time / 1000),
@@ -375,22 +398,90 @@ function demoTick(dt) {
   setTelemetry(DEMO_COMBINE ? demoCombine(frame, dt, working, meters) : frame);
 }
 
+// Realistic Seeder snapshot as G5Link writes it (seed monitor fitted, row drive, no depth sensor).
+function demoSeeder(working) {
+  const s = demo.t / 1000;
+  const skips = +(1.1 + 0.9 * Math.max(0, Math.sin(demo.x / 37 + s / 50))).toFixed(2);
+  const doubles = +(0.5 + 0.5 * Math.max(0, Math.sin(demo.z / 29 + 1))).toFixed(2);
+  const rate = 34000, actual = Math.round(rate * (1 - skips / 100 + doubles / 100));
+  const rowOff = !working ? -1 : Math.sin(demo.t / 5000) > 0.6 ? 6 : -1;
+  return {
+    kind: 'planter', crop: 'MAIZE', unit: 'seedsPerAcre', monitor: true, depthSensor: false, fresh: working,
+    rate, actual, skips, doubles, depthSet: 50, pressure: 55, closing: 50,
+    moisture: +(0.24 + 0.07 * Math.sin(demo.x / 53) * Math.cos(demo.z / 41)).toFixed(3), compaction: 0.22, soilSource: 'SeasonalCropStress',
+    popTarget: rate, popEstablished: Math.round(actual * 0.97), yieldPotential: +(97.5 - skips * 0.8).toFixed(1),
+    rows: Array.from({ length: 16 }, (_, i) => ({ r: i + 1, on: working && i + 1 !== rowOff, target: rate,
+      actual: working && i + 1 !== rowOff ? Math.round(actual * (1 + 0.012 * Math.sin(i * 1.7 + s / 7))) : 0, skips, doubles })),
+  };
+}
+
 // Demo values shaped like the real adapters' snapshots (Realistic Soil & Fertilizer getFieldInfo,
 // Courseplay vehicle functions, AutoDrive state module, Mud System Physics).
-function demoCourse() {
-  const h = 92 * Math.PI / 180, f = { x: Math.sin(h), z: -Math.cos(h) }, r = { x: Math.cos(h), z: Math.sin(h) };
+// Demo field: back-and-forth passes along 92°, slightly narrow on every other pass so the
+// coverage shows overlap, with half-circle turns (implement raised) at both ends.
+const DEMO_W = 12.19, DEMO_LEN = 320, DEMO_H = 92;
+const demoPath = (() => {
+  const h = DEMO_H * Math.PI / 180, f = { x: Math.sin(h), z: -Math.cos(h) }, r = { x: Math.cos(h), z: Math.sin(h) };
   const pts = [];
-  for (let k = 0; k < 10; k++) {
-    const off = k * 12.19, along = k % 2 ? [620, 0] : [0, 620];
-    for (let a = 0; a <= 620; a += 10) {
-      const L = along[0] + (along[1] - along[0]) * a / 620;
-      pts.push([+(-120 - f.x * 20 + f.x * L + r.x * off).toFixed(1), +(340 - f.z * 20 + f.z * L + r.z * off).toFixed(1),
-        a === 0 ? 1 : a === 620 ? 2 : 0]);
+  let off = 0;
+  for (let k = 0; k < 14; k++) {
+    const dir = k % 2 ? -1 : 1, a0 = dir > 0 ? 0 : DEMO_LEN;
+    for (let a = 0; a <= DEMO_LEN; a += 4) {
+      const L = a0 + dir * a;
+      pts.push({ x: -120 + f.x * L + r.x * off, z: 340 + f.z * L + r.z * off, work: true });
     }
+    const spacing = DEMO_W * (k % 2 ? 1.0 : 0.9);
+    const endL = a0 + dir * DEMO_LEN, rad0 = spacing / 2;
+    for (let i = 1; i < 12; i++) {                       // turn: half circle to the next pass
+      const th = Math.PI * i / 12;
+      const along = endL + dir * (Math.sin(th) * rad0 + 6 * Math.sin(th));
+      const side = off + rad0 - Math.cos(th) * rad0;
+      pts.push({ x: -120 + f.x * along + r.x * side, z: 340 + f.z * along + r.z * side, work: false });
+    }
+    off += spacing;
   }
-  const c = (fo, ro) => [+(-120 + f.x * fo + r.x * ro).toFixed(1), +(340 + f.z * fo + r.z * ro).toFixed(1)];
-  return { key: 'demo-course', name: 'Field 23 demo course', workWidth: 12.19, waypoints: pts,
-    field: [c(-40, -14), c(640, -14), c(640, 126), c(-40, 126), c(-40, -14)] };
+  let s = 0;
+  pts.forEach((p, i) => { if (i) s += Math.hypot(p.x - pts[i - 1].x, p.z - pts[i - 1].z); p.s = s; });
+  return pts;
+})();
+demo.pathS = 0; demo.turning = false;
+function demoMove(meters) {
+  const P = demoPath, total = P[P.length - 1].s;
+  demo.pathS = (demo.pathS + meters) % total;
+  let i = demo.pathI || 0;
+  if (P[i].s > demo.pathS) i = 0;
+  while (i < P.length - 2 && P[i + 1].s < demo.pathS) i++;
+  demo.pathI = i;
+  const a = P[i], b = P[i + 1], u = (demo.pathS - a.s) / Math.max(0.001, b.s - a.s);
+  demo.x = a.x + (b.x - a.x) * u;
+  demo.z = a.z + (b.z - a.z) * u;
+  demo.heading = (Math.atan2(b.x - a.x, -(b.z - a.z)) * 180 / Math.PI + 360) % 360;
+  demo.turning = !(a.work && b.work);
+}
+// World corners of a work area across the implement bar (start/width/height like FS work areas).
+function demoAreas(n, width, back, active) {
+  const h = demo.heading * Math.PI / 180, f = { x: Math.sin(h), z: -Math.cos(h) }, r = { x: Math.cos(h), z: Math.sin(h) };
+  const bx = demo.x + f.x * back, bz = demo.z + f.z * back, out = [];
+  for (let i = 0; i < n; i++) {
+    const l0 = -width / 2 + width * i / n, l1 = -width / 2 + width * (i + 1) / n;
+    out.push({ i, sx: +(bx + r.x * l0).toFixed(2), sz: +(bz + r.z * l0).toFixed(2), wx: +(bx + r.x * l1).toFixed(2), wz: +(bz + r.z * l1).toFixed(2),
+      hx: +(bx + r.x * l0 - f.x).toFixed(2), hz: +(bz + r.z * l0 - f.z).toFixed(2) });
+  }
+  return out;
+}
+
+function demoCourse() {
+  // The Courseplay course is the demo's own driving path, so the course lines match the coverage.
+  const pts = demoPath.filter((p, i) => i % 2 === 0);
+  const waypoints = pts.map((p, i) => {
+    const prev = pts[i - 1], next = pts[i + 1];
+    const flags = p.work && (!prev || !prev.work) ? 1 : p.work && next && !next.work ? 2 : 0;
+    return [+p.x.toFixed(1), +p.z.toFixed(1), flags];
+  });
+  const xs = demoPath.map(p => p.x), zs = demoPath.map(p => p.z), m = 18;
+  const x0 = Math.min(...xs) - m, x1 = Math.max(...xs) + m, z0 = Math.min(...zs) - m, z1 = Math.max(...zs) + m;
+  return { key: 'demo-course', name: 'Field 23 demo course', workWidth: DEMO_W, waypoints,
+    field: [[x0, z0], [x1, z0], [x1, z1], [x0, z1]].map(q => q.map(n => +n.toFixed(1))) };
 }
 if (DEMO) course = demoCourse();
 function demoProviders(working) {
@@ -454,6 +545,24 @@ const server = http.createServer((req, res) => {
     req.on('close', () => clients.delete(res));
     return;
   }
+  if (req.url.startsWith('/api/map/')) {
+    const u = new URL(req.url, 'http://x');
+    const json = (code, body) => res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' }).end(JSON.stringify(body));
+    const store = mapStore();
+    if (u.pathname === '/api/map/ops') return json(200, store.list());
+    if (u.pathname === '/api/map/frames') return json(200, store.frames(u.searchParams.get('op'), Number(u.searchParams.get('since')) || 0));
+    if (u.pathname === '/api/map/overlap') return json(200, store.overlap(u.searchParams.get('op')));
+    if (u.pathname === '/api/map/clear' && req.method === 'POST') {
+      let body = '';
+      req.on('data', d => { body += d; if (body.length > 1024) req.destroy(); });
+      req.on('end', () => {
+        try { const { op } = JSON.parse(body || '{}'); json(200, { ok: store.clear(String(op)) }); }
+        catch (e) { json(400, { ok: false, error: e.message }); }
+      });
+      return;
+    }
+    return json(404, { error: 'unknown map route' });
+  }
   if (req.url === '/api/course') {
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' }).end(JSON.stringify(course));
     return;
@@ -492,7 +601,7 @@ server.listen(PORT, '0.0.0.0', () => {
 
 if (DEMO) {
   let last = Date.now();
-  setInterval(() => { const now = Date.now(); demoTick(now - last); last = now; }, 250);
+  setInterval(() => { const now = Date.now(); demoTick((now - last) * DEMO_SPEED); last = now; }, 250);
 } else {
   loadExistingCommandIds();
   setInterval(pollTelemetry, 100);
@@ -501,6 +610,11 @@ if (DEMO) {
 }
 }
 
-if (require.main === module) start();
+if (require.main === module) {
+  start();
+  const bye = () => { try { if (maps) maps.flush(Date.now(), true); } finally { process.exit(0); } };
+  process.on('SIGINT', bye);
+  process.on('SIGTERM', bye);
+}
 
 module.exports = { parseXml, telemetryFromXml };

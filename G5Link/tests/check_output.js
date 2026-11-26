@@ -88,6 +88,19 @@ for (const s of ['vanilla_tractor', 'combine_all_mods', 'external_api', 'broken_
     try { telemetryFromXml(fs.readFileSync(f, 'utf8')); } catch (e) { check(false, `${s}: live telemetry parses: ${e.message}`); }
   }
 }
+{
+  const f = path.join(OUT, 'vanilla_tractor', 'telemetry_live.xml');
+  const t = telemetryFromXml(fs.readFileSync(f, 'utf8'));
+  const imp = t.implements[0];
+  eq(t.game.save, 'savegame9', 'live: savegame key');
+  eq(imp.geometry.length, 16, 'live: 16 work-area geometries');
+  eq(imp.geometry[0].sx, 92.5, 'live: geometry start x');
+  eq(imp.areas.length, 16, 'live: section bits exclude auxiliary areas');
+  eq(imp.fills[0].type, 'SEEDS', 'live: fill type');
+  eq(imp.seeder && imp.seeder.unit, 'seedsPerAcre', 'live: seeder unit');
+  eq(imp.seeder && imp.seeder.rows.length, 2, 'live: seeder rows');
+  eq(imp.seeder && imp.seeder.rows[0].actual, 34210, 'live: seeder row actual');
+}
 const live = path.join(OUT, 'combine_all_mods', 'telemetry_live.xml');
 if (fs.existsSync(live)) {
   const t = telemetryFromXml(fs.readFileSync(live, 'utf8'));

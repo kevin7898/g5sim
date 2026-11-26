@@ -24,7 +24,22 @@ files in `Documents\My Games\FarmingSimulator2025\modSettings\FS25_G5Link\`.
 | **Implement Details** | Every attached implement: lowered and turned-on state, working width, section status, fill levels with bars, a Turn On/Off key |
 | **Machine Monitor** | Engine speed and load, ground speed, gear, fuel and DEF, fuel per hour, time to empty, engine hours, condition, farmland, AI worker |
 | **Harvesting** | For combines: grain tank level. With the [Realistic Harvesting](https://github.com/exekx/FS25_RealisticHarvesting) mod also yield, moisture and its limit, throughput, productivity, grain loss (total and by cause, with an A to D grade), engine load against target, RH's recommended speed, fuel rate, the harvest settings against RH's optimum band, and field totals |
+| **Planter** | With FieldPath Realistic Seeder: target and actual rate, singulation, skips, doubles (or distribution CV on drills), seed depth, established population, yield potential, a row-by-row rate chart, downforce and closing, soil moisture and compaction |
 | **Field** | Soil under the machine from [Realistic Soil & Fertilizer](https://github.com/Realistic-Farming/FS25_SoilFertilizer): N, P and K with Good/Fair/Poor, pH, organic matter, compaction, yield potential, last crop, weed, pest and disease pressure, rotation. Ground from Mud System Physics: wheel slip, mud, tire pressure. AI driver from Courseplay or AutoDrive: state, progress, distance and turns left |
+
+**Run pages follow the machine.** Only the pages that fit what you are driving are offered: Harvesting
+for a combine (instead of Tractor), Planter when a Realistic Seeder implement is attached, Implement
+Details and Work Monitor with an implement, Field when soil, ground or AI-driver data exists.
+
+**Map layers.** The bridge records coverage from each implement's real work areas (section by section) and
+saves it per savegame and operation in `modSettings/FS25_G5Link/maps/`. Tap the layers key on the map, or the
+layer chip, for **Select Map View**: pick the operation (Harvest · Wheat, Seeding · Corn, ...), the primary layer
+and the legend. Layers: Coverage (blue, dark blue = overlap), and as available Yield, Moisture, Grain Loss,
+Seeding or Applied Rate, Singulation, Skips, Doubles, Distribution CV, Seed Depth, Soil Moisture, Compaction,
+Yield Potential, Speed, and soil N, P, K and pH. **New Work** in the legend clears the map of that operation.
+
+**Units.** Menu > System > Units: one key for all Metric or all US, and **Unit Settings** for each quantity
+(speed, distance, area, liquid volume, yield and grain, seeding rate, pressure).
 
 **Title bar:** run page name, game clock, link status (tap for the Status Center), and the
 previous/next run page arrows. You can also swipe between pages.

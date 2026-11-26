@@ -25,4 +25,7 @@ echo "== smoke test (mocked engine)"
 
 echo "== bridge reads the output"
 node "$HERE/check_output.js" "$OUT"
+
+echo "== coverage recorder"
+node "$HERE/coverage_test.js"
 echo "all passed"

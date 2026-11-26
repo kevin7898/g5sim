@@ -33,6 +33,8 @@
     <symbol id="i-sat" viewBox="0 0 48 48"><path d="M18 8l8 8-6 6-8-8zM30 20l8 8-6 6-8-8z" fill="currentColor"/><path d="M20 22l6 6" stroke="currentColor" stroke-width="4"/><path d="M10 34a10 10 0 0 0 6 6M6 34a14 14 0 0 0 10 10" fill="none" stroke="currentColor" stroke-width="2.6"/></symbol>
     <symbol id="i-check" viewBox="0 0 48 48"><path d="M8 26l11 11 21-24" fill="none" stroke="currentColor" stroke-width="6" stroke-linejoin="round" stroke-linecap="round"/></symbol>
     <symbol id="i-x" viewBox="0 0 48 48"><path d="M12 12l24 24M36 12L12 36" stroke="currentColor" stroke-width="6" stroke-linecap="round"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 48 48"><path d="M24 6l18 9-18 9-18-9z" fill="currentColor"/><path d="M6 24l18 9 18-9M6 32l18 9 18-9" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linejoin="round"/></symbol>
+    <symbol id="i-seed" viewBox="0 0 48 48"><path d="M24 40V22" stroke="currentColor" stroke-width="3.4" stroke-linecap="round"/><path d="M24 24c-8 0-13-5-13-13 8 0 13 5 13 13zM24 30c7 0 12-4 12-11-7 0-12 4-12 11z" fill="currentColor"/><path d="M10 42h28" stroke="currentColor" stroke-width="3.4" stroke-linecap="round"/></symbol>
     <symbol id="i-gear" viewBox="0 0 48 48"><circle cx="24" cy="24" r="8" fill="none" stroke="currentColor" stroke-width="3.4"/><path d="M24 4v7M24 37v7M4 24h7M37 24h7M10 10l5 5M33 33l5 5M38 10l-5 5M15 33l-5 5" stroke="currentColor" stroke-width="4" stroke-linecap="round"/></symbol>
   </defs>
 </svg>
@@ -76,8 +78,16 @@
               <button class="map-btn" data-zoom="-1" aria-label="Zoom in">+</button>
               <button class="map-btn" data-zoom="1" aria-label="Zoom out">−</button>
               <button class="map-btn" id="mapView" aria-label="Change view">3D</button>
+              <button class="map-btn" id="mapLayers" aria-label="Map layers"><svg><use href="#i-layers"/></svg></button>
             </div>
             <div class="map-note" id="mapNote" hidden></div>
+            <div class="map-legend" id="mapLegend">
+              <div class="ml-title">Map Legend</div>
+              <div class="ml-layer" id="mlLayer">Coverage</div>
+              <div class="ml-op" id="mlOp">---</div>
+              <div class="ml-rows" id="mlRows"></div>
+              <button class="ml-new" id="mlNew"><b>+</b><span>New Work</span></button>
+            </div>
             <div class="map-ai" id="mapAi" hidden><b id="mapAiName">---</b><span id="mapAiTxt"></span></div>
           </div>
           <div class="side">
@@ -247,6 +257,32 @@
         <div class="empty-page" id="hvEmpty" hidden><div class="module"><div class="mod-title">Harvesting</div><p>Enter a combine to see harvest data.</p></div></div>
       </section>
 
+      <!-- Run page: Planter (only with a Realistic Seeder implement; data from its Placement API) -->
+      <section class="page" data-name="Planter">
+        <div class="page-grid main-side">
+          <div class="module">
+            <div class="mod-title" id="plTitle">Planter</div>
+            <div class="tiles t4 compact" id="plTiles"></div>
+            <div class="mod-lower pl-lower">
+              <div class="lower-col">
+                <div class="lower-head"><span>Row Details</span><span class="pl-legend"><i class="ok"></i>±5%<i class="mid"></i>±10%<i class="bad"></i>more<i class="off"></i>off</span></div>
+                <div class="pl-rows" id="plRows"></div>
+              </div>
+            </div>
+          </div>
+          <div class="side">
+            <div class="module side-mod">
+              <div class="mod-title">Seed Monitor</div>
+              <div class="side-body compact" id="plMonitor"></div>
+            </div>
+            <div class="module side-mod grow">
+              <div class="mod-title">Soil</div>
+              <div class="side-body compact" id="plSoil"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- Run page 6: Field (data from other mods: Realistic Soil & Fertilizer, Mud System Physics, Courseplay, AutoDrive) -->
       <section class="page" data-name="Field">
         <div class="page-grid main-side">
@@ -296,21 +332,44 @@
         <div class="ms-panel" id="tab-pages"><div class="app-grid" id="menuPages"></div></div>
         <div class="ms-panel" id="tab-apps" hidden>
           <div class="app-grid">
-            <button class="app" data-goto="2"><span class="app-ico"><svg><use href="#i-work"/></svg></span><b>Work Monitor</b></button>
-            <button class="app" data-goto="3"><span class="app-ico"><svg><use href="#i-hitch"/></svg></span><b>Implement Details</b></button>
-            <button class="app" data-goto="4"><span class="app-ico"><svg><use href="#i-engine"/></svg></span><b>Machine Monitor</b></button>
-            <button class="app" data-goto="5"><span class="app-ico"><svg><use href="#i-work"/></svg></span><b>Harvesting</b></button>
-            <button class="app" data-goto="6"><span class="app-ico"><svg><use href="#i-sat"/></svg></span><b>Field</b></button>
+            <button class="app" data-goto="Work Monitor"><span class="app-ico"><svg><use href="#i-work"/></svg></span><b>Work Monitor</b></button>
+            <button class="app" data-goto="Implement Details"><span class="app-ico"><svg><use href="#i-hitch"/></svg></span><b>Implement Details</b></button>
+            <button class="app" data-goto="Machine Monitor"><span class="app-ico"><svg><use href="#i-engine"/></svg></span><b>Machine Monitor</b></button>
+            <button class="app" data-goto="Planter"><span class="app-ico"><svg><use href="#i-seed"/></svg></span><b>Planter</b></button>
+            <button class="app" data-goto="Harvesting"><span class="app-ico"><svg><use href="#i-work"/></svg></span><b>Harvesting</b></button>
+            <button class="app" data-goto="Field"><span class="app-ico"><svg><use href="#i-sat"/></svg></span><b>Field</b></button>
             <button class="app" id="appStatus"><span class="app-ico"><svg><use href="#i-sat"/></svg></span><b>Status Center</b></button>
             <button class="app" id="appReset"><span class="app-ico"><svg><use href="#i-reset"/></svg></span><b>Reset Work Totals</b></button>
           </div>
         </div>
         <div class="ms-panel" id="tab-display" hidden>
-          <div class="set-row"><span>Units</span><div class="seg" id="unitSeg"><button data-v="metric">Metric</button><button data-v="imperial">US</button></div></div>
+          <div class="set-row"><span>Units <em class="unit-custom" id="unitCustom" hidden>Custom</em></span>
+            <div class="set-right"><div class="seg" id="unitSeg"><button data-v="metric">Metric</button><button data-v="imperial">US</button></div>
+            <button class="g5btn" id="unitsBtn">Unit Settings</button></div></div>
           <div class="set-row"><span>Display Mode</span><div class="seg" id="modeSeg"><button data-v="day">Day</button><button data-v="night">Night</button></div></div>
           <div class="set-row"><span>Alert Sounds</span><div class="seg" id="soundSeg"><button data-v="on">On</button><button data-v="off">Off</button></div></div>
           <p class="about" id="aboutTxt"></p>
         </div>
+      </div>
+    </div>
+
+    <!-- App window: Select Map View (operation, primary layer, legend) -->
+    <div class="window-wrap" id="layerWin" hidden>
+      <div class="window smv">
+        <div class="win-head"><b>Select Map View</b></div>
+        <div class="smv-body"><div class="smv-tabs" id="smvTabs"></div><div class="smv-list" id="smvList"></div></div>
+        <div class="smv-foot">
+          <button class="g5btn smv-cancel" id="smvCancel"><svg><use href="#i-x"/></svg>Cancel</button>
+          <button class="g5btn smv-ok" id="smvOk"><svg><use href="#i-check"/></svg>OK</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- App window: Unit Settings -->
+    <div class="window-wrap" id="unitsWin" hidden>
+      <div class="window">
+        <div class="win-head"><b>Unit Settings</b><button class="win-close" data-close="unitsWin" aria-label="Close"><svg><use href="#i-x"/></svg></button></div>
+        <div class="win-body units-body" id="unitRows"></div>
       </div>
     </div>
 
@@ -372,6 +431,7 @@
   </div>
 </div>
 <script src="app.js"></script>
+<script src="layers.js"></script>
 <script src="guidance.js"></script>
 </body>
 </html>

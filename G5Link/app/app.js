@@ -48,6 +48,8 @@ const PAGE_RULES = {
   'Harvest Automation': d => !!d.combine,
   'Tillage': d => (d.implements || []).some(i => i.tillage),
   'Planter': d => hasSeeder(d),
+  'Hydraulics': d => !!d.hyd,
+  'EPG': d => !!(d.hyd && d.hyd.epg),
   'Work Monitor': d => (d.implements || []).length > 0 || !!d.combine,
   'Implement Details': d => (d.implements || []).length > 0,
   'Machine Monitor': () => true,
@@ -97,7 +99,7 @@ document.addEventListener('click', e => {
   if (e.target.classList && e.target.classList.contains('window-wrap')) closeWin(e.target.id);
 });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') ['menu', 'scPanel', 'confirm', 'numpad', 'trackWin', 'unitsWin', 'layerWin'].forEach(closeWin);
+  if (e.key === 'Escape') ['menu', 'scPanel', 'confirm', 'numpad', 'trackWin', 'unitsWin', 'layerWin', 'hydWin'].forEach(closeWin);
   if (e.key === 'ArrowRight') showPage(curIndex() + 1);
   if (e.key === 'ArrowLeft') showPage(curIndex() - 1);
 });
@@ -309,6 +311,7 @@ function render() {
     ['Mod Version', d.version || '---'], ['Last Command', d.lastCmd ?? '---'],
     ['Realistic Harvesting', d.rh ? 'Found' : d.combine ? 'Not found' : '---'], ['Soil & Fertilizer', modState('soil-fertilizer')],
     ['Courseplay', modState('courseplay')], ['AutoDrive', modState('autodrive')],
+    ['Realistic Hydraulics', d.hyd ? 'Found' + (d.hyd.version && d.hyd.version !== 'demo' ? ' ' + d.hyd.version : '') : inVehicle ? 'Not found' : '---'],
   ].map(([k, val]) => `<div><small>${k}</small><b>${esc(val)}</b></div>`).join(''));
 
   for (const [id, el] of pendingCmds) if ((d.lastCmd || 0) >= id) { el.classList.remove('pending'); pendingCmds.delete(id); }
@@ -374,6 +377,7 @@ function render() {
   if (window.G5Keys) G5Keys.render(d);
   if (window.G5GrainCart) G5GrainCart.render();
   if (window.G5Rate) G5Rate.render();
+  if (window.G5Hyd) G5Hyd.render(d);
 
   const r = rates(w);
   renderWorkMonitor(v, w, imps, r);

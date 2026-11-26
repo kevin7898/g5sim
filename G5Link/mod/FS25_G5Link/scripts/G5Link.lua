@@ -103,6 +103,9 @@ function G5Link:loadMap(name)
     if G5LinkRate ~= nil then
         G5LinkRate:reset()
     end
+    if G5LinkHyd ~= nil then
+        G5LinkHyd:reset()
+    end
     if G5LinkRtk ~= nil then
         G5LinkRtk:reset(true)
         if g_messageCenter ~= nil and MessageType ~= nil and MessageType.PERIOD_CHANGED ~= nil then
@@ -607,6 +610,13 @@ function G5Link:writeTelemetry(vehicle)
         end
         if G5LinkRate ~= nil then
             pcall(G5LinkRate.write, G5LinkRate, xml)
+        end
+        if G5LinkHyd ~= nil then
+            local ok, err = pcall(G5LinkHyd.write, G5LinkHyd, xml, vehicle)
+            if not ok and not self.hydErrorLogged then
+                self.hydErrorLogged = true
+                print("G5Link: Realistic Hydraulics read failed: " .. tostring(err))
+            end
         end
         if G5LinkRtk ~= nil then
             local ok, err = pcall(G5LinkRtk.write_telemetry, G5LinkRtk, xml, vehicle)
@@ -1419,6 +1429,12 @@ function G5Link:runCommand(vehicle, cmd)
     end
     if G5LinkRate ~= nil then
         local ok, handled = pcall(G5LinkRate.run, G5LinkRate, vehicle, cmd, self)
+        if ok and handled then
+            return
+        end
+    end
+    if G5LinkHyd ~= nil then
+        local ok, handled = pcall(G5LinkHyd.run, G5LinkHyd, vehicle, cmd)
         if ok and handled then
             return
         end

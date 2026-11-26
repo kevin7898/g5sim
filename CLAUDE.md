@@ -35,6 +35,7 @@ mod writes telemetry to a file, a Node bridge streams it to a browser or iPad, a
 node G5Link/bridge/g5link-bridge.js --demo          # fake tractor + planter, every key works
 node G5Link/bridge/g5link-bridge.js --demo combine  # fake combine with Realistic Harvesting data
 node G5Link/bridge/g5link-bridge.js --demo tillage  # fake tractor + cultivator (Cultivator Settings, Realistic Tillage)
+node G5Link/bridge/g5link-bridge.js --demo hydraulics  # fake 8R 410 + planter with Realistic Hydraulics SCVs and EPG
 node G5Link/bridge/g5link-bridge.js --demo --demo-speed 8  # demo 8x faster, to fill maps quickly
 node G5Link/bridge/g5link-bridge.js --dir <folder>  # read a real modSettings/FS25_G5Link folder
 LUA=<lua5.1> LUAC=<luac5.1> sh G5Link/tests/run.sh   # Lua syntax + mocked-engine smoke test + bridge parse
@@ -52,11 +53,11 @@ python3 G5Link/tools/make_icon.py                   # regenerate mod icon.dds
 
 ## Layout
 
-- `G5Link/mod/FS25_G5Link/`: modDesc.xml, scripts/G5Link.lua, scripts/Controls.lua (shortcut controls, harvest automation, tillage), scripts/Headland.lua (headland automation), scripts/GrainCart.lua (Courseplay Grain Cart add-on), scripts/Rtk.lua (RTK package), scripts/Steering.lua (AutoTrac, Turn Automation, Resume key), scripts/RateControl.lua (rate control, prescriptions), scripts/Api.lua (public API, documented in API.md), scripts/Rtk.lua (RTK package), scripts/Api.lua (public API, documented in API.md), scripts/Json.lua, scripts/providers/ (FieldPath adapters), icon.dds
+- `G5Link/mod/FS25_G5Link/`: modDesc.xml, scripts/G5Link.lua, scripts/Controls.lua (shortcut controls, harvest automation, tillage), scripts/Headland.lua (headland automation), scripts/GrainCart.lua (Courseplay Grain Cart add-on), scripts/Rtk.lua (RTK package), scripts/Steering.lua (AutoTrac, Turn Automation, Resume key), scripts/RateControl.lua (rate control, prescriptions), scripts/Hydraulics.lua (Realistic Hydraulics SCVs/EPG), scripts/Api.lua (public API, documented in API.md), scripts/Rtk.lua (RTK package), scripts/Api.lua (public API, documented in API.md), scripts/Json.lua, scripts/providers/ (FieldPath adapters), icon.dds
 - `G5Link/bridge/`: g5link-bridge.js, coverage.js (map recording), fields.js (Ops Center fields and records), headland.js (headland files for the mod),
   start-bridge.bat, start-demo.bat
 - `G5Link/app/`: index.html, style.css, app.js (pages, windows, commands, units), layers.js (map layers, legend,
-  Select Map View), boundary.js (Boundary app), guidance.js (Guidance page and map drawing), autotrac.js (AutoTrac window, status pie), keys.js (shortcut key registry, Layout Manager), headland.js (Headland Management), graincart.js (Grain Cart remote), starfire.js (StarFire / RTK), rate.js (Rate Controller), starfire.js (StarFire / RTK), shared.js (settings,
+  Select Map View), boundary.js (Boundary app), guidance.js (Guidance page and map drawing), autotrac.js (AutoTrac window, status pie), keys.js (shortcut key registry, Layout Manager), headland.js (Headland Management), graincart.js (Grain Cart remote), starfire.js (StarFire / RTK), rate.js (Rate Controller), hydraulics.js (Hydraulics and EPG pages, SCV Settings), starfire.js (StarFire / RTK), shared.js (settings,
   units; also used by the Ops Center), ops/ (Ops Center web app at /ops/)
 - `G5Link/tools/`: package.py, make_icon.py
 - `research/`: Deere help-center study notes, page index, simulator exploration log

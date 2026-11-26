@@ -43,6 +43,8 @@ mod companion, not real-machine CAN work.
 9. **Harvest Automation** (combines): Speed Automation state and keys, trends, unloading.
 10. **Tillage** (tillage tools): TruSet-style depth set point, presets and levels.
 6. **Harvesting**: combine grain tank. With Realistic Harvesting (RH) it adds yield, moisture, throughput, grain loss by cause, engine load against target, recommended speed, the harvest settings against RH's optimum, and field totals.
+11. **Hydraulics** (with Realistic Hydraulics): pump flow, flow used, pressure, oil temperature and one card per SCV (function, state, flow, detent, Float).
+12. **EPG** (with Realistic Hydraulics and an electric power source): power used against available, bus voltage, mode (Off/Auto/ICM), consumers.
 
 Plus a full-screen **Menu** (Run Pages / Applications / System tabs), Status Center, and window shades for alerts.
 
@@ -304,6 +306,42 @@ from `FieldPathPrivateIntegration.lua`:
 - Telemetry g5.rate (system, auto, value, min/max or steps, rx, rxName, rxActive, rxRate, applied); commands rateAuto,
   rateStep. API /api/ops/rx (create, update, delete, activate).
 - **Not yet checked in game:** both soil mods' tables at runtime, PF's level meaning per product (N vs lime).
+
+## Realistic Hydraulics (scripts/Hydraulics.lua, app/hydraulics.js)
+
+G5Link side of the planned companion mod **FS25_RealHydraulicsSCV** (plan: "FS25 Realistic Hydraulics, SCV & EPG Mod -
+Feasibility & Architecture Plan", 2026-11-26). That mod does not exist yet, so the contract below is what G5Link expects;
+the hydraulics mod's own `API.md` should match it. Neither mod lists the other in modDesc.
+
+- **API** `g_currentMission.realHydraulicsAPI`, looked up lazily each write (mods load alphabetically), same conventions as
+  `g5linkAPI`: dot calls, `isReady()`, `getVersion()`, reads return copies, writes return `ok, reason`.
+  - `getState(vehicle)` -> `nil` (no hydraulics on this machine) or
+    `{circuit = {pumpLpm, maxPumpLpm, usedLpm, pressureBar, maxPressureBar, oilTempC, hitchLpm, flowShared},
+      scvs = {{index, label, bound, boundLabel, state, mode, detent, flowExt, flowRet, timer, timerLeft, prio, allottedLpm,
+      demandLpm, position, float, front}}, epg = {source, mode, capKw, availableKw, usedKw, busV, nominalV, fault,
+      uses = {{name, kw, demandKw}}} | nil, warnings = {{code, text} | code}}`.
+    `state` neutral/extend/retract/float; `mode` standard/independent/feature; `detent` none/timed/continuous;
+    flows in % of the valve's maximum; `timer`/`timerLeft` in s; `source` tractor_epg/pto_generator/hyd_generator;
+    EPG `mode` off/auto/icm. Unknown words and NaN/inf numbers are dropped by G5Link.
+  - `getFunctions(vehicle)` -> `{{id, label, implementName, kind}}`; ids use `[%w_.:-]` only (the bridge strips anything else
+    from command args).
+  - `setScv(vehicle, index, cfg)` with only the changed fields (`flowExt, flowRet, mode, detent, timer, prio, float`),
+    `assign(vehicle, index, functionId | nil)`, `setEpgMode(vehicle, mode)`. On a client they send the mod's own event;
+    a refusal reason (e.g. `notServer`) is shown on the display.
+- **Telemetry** `g5.hyd` (circuit attributes), `g5.hyd.scv(i)`, `g5.hyd.func(i)` (max 40), `g5.hyd.epg` + `epg.use(i)`,
+  `g5.hyd.warn(i)` (code, text), `g5.hyd.result` (ok, reason, cmd, id of the last SCV/EPG command). Bridge `hydFromNode`.
+- **Commands**: `scvSet` (index = SCV number from 1, arg `flowExt=80;flowRet=60;mode=independent;detent=timed;timer=4;prio=2`,
+  clamped: flow 0-100, timer 0-120, prio 1-8), `scvAssign` (arg `fn=<function id>`, empty unassigns), `scvFloat`
+  (value 1/0), `epgMode` (arg `mode=off|auto|icm`).
+- **Display**: flow is shown as the G5's 0-10 setting (10 = 100 %), detent times step like the G5 (1 s to 10, 2 s to 20,
+  5 s to 30, 10 s to 60, 30 s to 120, then C). Units: flow follows Volume (L/min or gpm), Pressure (bar/psi), and the new
+  Temperature unit (°C/°F). Warnings HYD_OIL_HOT / HYD_PUMP / EPG fault raise window shades. No hidden ADS condition
+  numbers are shown, only symptoms the hydraulics mod reports as warnings.
+- **Demo** `--demo hydraulics`: 8R 410 (321 L/min at 2100 rpm, 207 bar relief), four rear SCVs on a 1775NT (Fold timed,
+  Lift Assist timed and kicked at each headland, Vacuum Fan continuous, Downforce in float), flow sharing (continuous first,
+  then priority), first-order oil temperature, 56 V / 15 kW tractor EPG feeding the row drives. The fold key runs SCV I.
+- **Not yet checked:** the SCV Settings window and the two pages against the real G5 in the Deere Display Simulator (needs a
+  Deere login); the hydraulics mod itself; multiplayer (the API's event path).
 
 ## Coverage for every machine (fleet.xml)
 

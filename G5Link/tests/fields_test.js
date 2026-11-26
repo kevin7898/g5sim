@@ -139,6 +139,18 @@ try {
   near(f1b.expenses.machinery, sRec.coveredHa * 25, 0.5, 'changed machinery rate applied');
   store.setProfitSettings(SAVE, { prices: { SOYBEAN: null } });
   check(store.profit(SAVE, econ).fields.find(x => x.field === '1').priceSource === 'game', 'clearing the override returns to the game price');
+  // Farm Finance leases: crop share on farmland 11 (field 1), then a cash lease
+  const shareEcon = { ...econ, farmFinance: { creditScore: 700, creditGrade: 'B', contracts: { 11: { kind: 'in', leaseType: 'share', landownerShare: 0.3, inputShare: 0.25 } } } };
+  const base = store.profit(SAVE, econ).fields.find(x => x.field === '1');
+  const sh = store.profit(SAVE, shareEcon).fields.find(x => x.field === '1');
+  near(sh.revenue, base.revenue * 0.7, 0.05, 'crop share: farm keeps 70 % of revenue');
+  near(sh.expenses.seed, base.expenses.seed * 0.75, 0.05, 'crop share: landowner pays 25 % of inputs');
+  check(sh.expenses.rent === 0 && sh.lease.type === 'share', 'crop share: no cash rent');
+  check(store.profit(SAVE, shareEcon).finances.farmFinance.creditGrade === 'B', 'Farm Finance credit passed through');
+  const cashEcon = { ...econ, farmFinance: { contracts: { 11: { kind: 'in', leaseType: 'cash', annualRent: 450 } } } };
+  near(store.profit(SAVE, cashEcon).fields.find(x => x.field === '1').expenses.rent, 450, 0.01, 'cash lease rent replaces the rent setting');
+  const outEcon = { ...econ, farmFinance: { contracts: { 11: { kind: 'out', leaseType: 'cash', annualRent: 450 } } } };
+  near(store.profit(SAVE, outEcon).fields.find(x => x.field === '1').expenses.rent, base.expenses.rent, 0.01, 'land leased out is not charged as rent');
   const noEcon = store.profit(SAVE, null).fields.find(x => x.field === '1');
   check(noEcon.revenue === 0 && noEcon.missing.some(m => /price/.test(m)), 'without prices the P&L says what is missing');
 

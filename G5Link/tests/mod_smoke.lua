@@ -550,6 +550,15 @@ do
     end
     g_farmManager = {getFarmById = function(self, id) return {name = "Test Farm", getBalance = function() return 1000.5 end,
         getLoan = function() return 200 end, getEquity = function() return 5000 end} end}
+    -- Farm Finance public API (API.md): dot calls
+    g_currentMission.farmFinanceAPI = {
+        isReady = function() return true end, getVersion = function() return "1.0.0", "0.3.0.0" end,
+        isBankActive = function() return true end, getCreditScore = function(id) return 731, "B" end,
+        getInputAccount = function(id) return {enabled = true, limit = 50000, balance = 1200, available = 48800, pastDue = 0} end,
+        getLandContract = function(farmlandId)
+            if farmlandId == 23 then return {kind = "in", leaseType = "share", farmId = 1, landownerShare = 0.33, inputShare = 0.25, endCropYear = 2028} end
+            return nil
+        end}
 
     mod:loadMap("test")
     seederCalls = 0
@@ -593,6 +602,9 @@ do
     check(string.find(econ, '"WHEAT":{', 1, true) ~= nil and string.find(econ, '"price":0.218', 1, true) ~= nil, "economy.json crop price")
     check(string.find(econ, '"cost":0.9', 1, true) ~= nil, "economy.json input cost")
     check(string.find(econ, "STONE", 1, true) == nil, "fill types without a price or cost left out")
+    check(string.find(econ, '"creditGrade":"B"', 1, true) ~= nil, "Farm Finance credit grade")
+    check(string.find(econ, '"23":{', 1, true) ~= nil and string.find(econ, '"landownerShare":0.33', 1, true) ~= nil, "Farm Finance lease on the field's farmland")
+    check(string.find(econ, '"available":48800', 1, true) ~= nil, "Farm Finance input account")
     check(string.find(fj, '"farmName":"Test Farm"', 1, true) ~= nil, "fields.json farm name")
     local t = telemetry(dir)
     eq(t["g5#state"], "vehicle", "state")

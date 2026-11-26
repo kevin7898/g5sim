@@ -376,10 +376,19 @@ class FieldStore {
     const costOf = name => { const ft = econ && econ.fillTypes && econ.fillTypes[String(name || '').toUpperCase()]; return ft && ft.cost > 0 ? ft.cost : null; };
     const chemical = name => /HERBICIDE|PESTICIDE|INSECTICIDE|FUNGICIDE|CHEMICAL|DEFOLIANT|GROWTHREGULATOR/i.test(String(name || ''));
     const out = [];
+    // Farm Finance leases: cash rent per farmland (split over its fields by area), crop-share splits
+    const ff = econ && econ.farmFinance, contracts = (ff && ff.contracts) || {};
+    const farmlandArea = {};
+    for (const f of fields) if (f.farmland !== undefined && f.farmland !== null) farmlandArea[f.farmland] = (farmlandArea[f.farmland] || 0) + (f.areaHa || 0);
     for (const f of fields) {
       const fr = recs.filter(r => r.field === f.id);
       if (!fr.length) continue;
-      const e = { seed: 0, fertilizer: 0, chemical: 0, machinery: 0, rent: f.areaHa * ps.rent };
+      const c = f.farmland !== undefined && f.farmland !== null ? contracts[String(f.farmland)] : null;
+      const lease = c && c.kind === 'in' ? c : null;
+      const share = lease && lease.leaseType === 'share' ? { crop: lease.landownerShare || 0, inputs: lease.inputShare || 0 } : null;
+      const leaseRent = lease && lease.leaseType !== 'share' && typeof lease.annualRent === 'number'
+        ? lease.annualRent * (f.areaHa || 0) / (farmlandArea[f.farmland] || f.areaHa || 1) : null;
+      const e = { seed: 0, fertilizer: 0, chemical: 0, machinery: 0, rent: share ? 0 : leaseRent !== null ? leaseRent : f.areaHa * ps.rent };
       let tonnes = 0, revenue = 0, crop = null, harvestHa = 0, missing = [];
       for (const r of fr) {
         const ha = r.coveredHa || 0, a = r.avg || {};
@@ -401,6 +410,10 @@ class FieldStore {
           else missing.push('cost of ' + (r.product || 'product'));
         }
       }
+      if (share) {                                       // crop share: the landowner takes part of the crop and pays part of the inputs
+        revenue *= 1 - share.crop;
+        for (const k of ['seed', 'fertilizer', 'chemical']) e[k] *= 1 - share.inputs;
+      }
       const total = e.seed + e.fertilizer + e.chemical + e.machinery + e.rent;
       const price = crop ? this.pricePerT(save, crop, econ) : { price: null, source: 'none' };
       const ha = f.areaHa || 1;
@@ -410,12 +423,16 @@ class FieldStore {
         pricePerT: price.price === null ? null : +price.price.toFixed(2), priceSource: price.source,
         breakEvenYield: price.price ? +(total / ha / price.price).toFixed(3) : null,          // t/ha
         breakEvenPrice: tonnes > 0 ? +(total / tonnes).toFixed(2) : null,                     // per tonne
-        operations: fr.map(r => r.title), missing: [...new Set(missing)] });
+        operations: fr.map(r => r.title), missing: [...new Set(missing)],
+        lease: lease ? { type: lease.leaseType || 'cash', annualRent: lease.annualRent ?? null, landownerShare: lease.landownerShare ?? null,
+          inputShare: lease.inputShare ?? null, endCropYear: lease.endCropYear ?? null } : null });
     }
     const sum = k => out.reduce((s, x) => s + (k === 'expenses' ? x.expensesTotal : x[k]), 0);
     return { currency: ps.currency, settings: ps, fields: out.sort((a, b) => b.netPerHa - a.netPerHa),
       totals: { revenue: +sum('revenue').toFixed(2), expenses: +sum('expenses').toFixed(2), net: +sum('net').toFixed(2), areaHa: +out.reduce((s, x) => s + x.areaHa, 0).toFixed(3) },
-      finances: econ ? { balance: econ.balance ?? null, loan: econ.loan ?? null, equity: econ.equity ?? null } : null };
+      finances: econ ? { balance: econ.balance ?? null, loan: econ.loan ?? null, equity: econ.equity ?? null,
+        farmFinance: ff ? { creditScore: ff.creditScore ?? null, creditGrade: ff.creditGrade ?? null, bankActive: ff.bankActive !== false,
+          inputAccount: ff.inputAccount || null, leases: Object.keys(contracts).length } : null } : null };
   }
 
   // ---------------------------------------------------------------- boundary from coverage

@@ -710,10 +710,18 @@ function renderProfit() {
       <div class="pl-net ${t.net >= 0 ? 'pos' : 'neg'}">${money(t.net)}</div>
       <div class="pl-grid"><span>Revenue</span><b>${money(t.revenue)}</b><span>Expenses</span><b>${money(t.expenses)}</b>
         <span>Net per ${areaU()}</span><b>${t.areaHa ? money(perArea(t.net / t.areaHa)) : '---'}</b>
-        ${fin ? `<div class="sep"></div><span>Farm balance</span><b>${money(fin.balance)}</b><span>Loan</span><b>${money(fin.loan)}</b><span>Equity</span><b>${money(fin.equity)}</b>` : ''}</div></div>
+        ${fin ? `<div class="sep"></div><span>Farm balance</span><b>${money(fin.balance)}</b><span>Loan</span><b>${money(fin.loan)}</b><span>Equity</span><b>${money(fin.equity)}</b>` : ''}
+        ${fin && fin.farmFinance ? farmFinanceLines(fin.farmFinance) : ''}</div></div>
     ${sel ? budgetCard(sel) : ''}
     <h3 style="margin:12px 0 4px;font-size:15px">Fields by profit per ${areaU()}</h3>
     ${P.fields.length ? P.fields.map(row).join('') : '<p class="empty">No work recorded on any field yet. Harvest, seeding and application work fills this in.</p>'}`);
+}
+function farmFinanceLines(ff) {
+  const a = ff.inputAccount;
+  return `<div class="sep"></div><span>Credit (Farm Finance)</span><b>${ff.creditScore ? fmt(ff.creditScore, 0) + ' · ' + esc(ff.creditGrade || '') : '---'}</b>
+    ${a && a.enabled ? `<span>Input account</span><b>${money(a.balance)} of ${money(a.limit)}</b><span class="sub">Available</span><b>${money(a.available)}</b>
+      ${a.pastDue > 0 ? `<span class="sub">Past due</span><b style="color:var(--red)">${money(a.pastDue)}</b>` : ''}` : ''}
+    <span>Leased farmlands</span><b>${ff.leases}</b>`;
 }
 function budgetCard(r) {
   const ha = r.areaHa || 1, e = r.expenses;
@@ -723,13 +731,15 @@ function budgetCard(r) {
     <div class="pl-grid">
       <span>Revenue</span><b>${money(perArea(r.revenue / ha), 2)}</b>
       <span>Expenses</span><b>${money(perArea(r.expensesPerHa), 2)}</b>
-      ${line('Seed', e.seed)}${line('Fertilizer', e.fertilizer)}${line('Chemical', e.chemical)}${line('Machinery', e.machinery)}${line('Rent', e.rent)}
+      ${line('Seed', e.seed)}${line('Fertilizer', e.fertilizer)}${line('Chemical', e.chemical)}${line('Machinery', e.machinery)}
+      ${line(r.lease ? (r.lease.type === 'share' ? 'Rent (crop share)' : 'Rent (lease)') : 'Rent', e.rent)}
       <div class="sep"></div>
       <span>Harvested</span><b>${r.tonnes ? qty(r.tonnes, r.crop) : '---'}</b>
       <span>Market price</span><b>${r.pricePerT !== null ? money(pricePer(r.pricePerT, r.crop), 2) + '/' + priceU() : '---'}${r.priceSource === 'set' ? ' (set)' : r.priceSource === 'game' ? ' (game)' : ''}</b>
       <span>Cost per ${priceU()}</span><b>${r.breakEvenPrice !== null ? money(pricePer(r.breakEvenPrice, r.crop), 2) : '---'}</b>
       <span>Break-even yield</span><b>${r.breakEvenYield !== null ? fmt(HU.yield(r.breakEvenYield, r.crop), metric('grain') ? 2 : 1) + ' ' + HU.yieldUnit() : '---'}</b>
-    </div>${r.missing.length ? `<div class="pl-warn">Not counted: ${esc(r.missing.join(', '))}.</div>` : ''}</div>`;
+    </div>${r.lease ? `<p class="note">Farm Finance ${r.lease.type === 'share' ? `crop-share lease: landowner takes ${fmt((r.lease.landownerShare || 0) * 100, 0)} % of the crop and pays ${fmt((r.lease.inputShare || 0) * 100, 0)} % of inputs` : `cash lease: ${money(r.lease.annualRent)} a year for the farmland`}${r.lease.endCropYear ? ', to crop year ' + r.lease.endCropYear : ''}.</p>` : ''}
+    ${r.missing.length ? `<div class="pl-warn">Not counted: ${esc(r.missing.join(', '))}.</div>` : ''}</div>`;
 }
 function renderCosts() {
   const P = S.profit, ps = P.settings, per = areaU();
@@ -783,12 +793,13 @@ function renderService() {
   const withPlan = list.filter(e => e.ads && typeof e.ads.interval === 'number');
   const ratio = e => e.ads.hours / e.ads.interval;
   const pastDue = withPlan.filter(e => ratio(e) >= 1), soon = withPlan.filter(e => ratio(e) >= DUE_SOON && ratio(e) < 1);
-  const shop = list.filter(e => e.ads && e.ads.state && !['READY', 'UNKNOWN'].includes(e.ads.state));
+  const shop = list.filter(e => e.ads && ['INSPECTION', 'MAINTENANCE', 'REPAIR'].includes(e.ads.state));
+  const broken = list.filter(e => e.ads && e.ads.state === 'BROKEN');
   const noPlan = list.filter(e => !e.ads || typeof e.ads.interval !== 'number');
   const row = e => {
     const has = e.ads && typeof e.ads.interval === 'number', r = has ? ratio(e) : 0;
     return `<div class="svc-row" data-eq="${esc(e.id)}"><b>${esc(e.name)}</b><span>${has ? `${fmt(e.ads.hours, 1)} of ${fmt(e.ads.interval, 0)} h` : typeof e.damage === 'number' ? `Condition ${fmt(100 - e.damage, 0)} %` : ''}</span>
-      <span>${e.ads && e.ads.state && e.ads.state !== 'READY' ? 'In workshop: ' + esc(prettyState(e.ads.state)) : has ? (r >= 1 ? 'Service overdue' : r >= DUE_SOON ? 'Service due soon' : 'Ready') : 'No maintenance plan'}${typeof e.hours === 'number' ? ` · ${fmt(e.hours, 1)} engine h` : ''}</span><span></span>
+      <span>${e.ads && e.ads.state === 'BROKEN' ? 'Broken down' : e.ads && e.ads.state && e.ads.state !== 'READY' ? 'In workshop: ' + esc(prettyState(e.ads.state)) : has ? (r >= 1 ? 'Service overdue' : r >= DUE_SOON ? 'Service due soon' : 'Ready') : 'No maintenance plan'}${typeof e.hours === 'number' ? ` · ${fmt(e.hours, 1)} engine h` : ''}</span><span></span>
       ${has ? `<div class="svc-bar"><i class="${r >= 1 ? 'due' : r >= DUE_SOON ? 'soon' : ''}" style="width:${Math.min(100, r * 100).toFixed(0)}%"></i></div>` : ''}</div>`;
   };
   const card = (title, items, empty) => `<div class="svc-card"><h3>${title} (${items.length})</h3>${items.length ? items.map(row).join('') : `<p class="empty">${empty}</p>`}</div>`;
@@ -796,9 +807,11 @@ function renderService() {
   setHtml($('serviceBody'), S.serviceSub === 'all'
     ? `<div class="svc-card"><h3>All Equipment (${list.length})</h3>${list.map(row).join('') || '<p class="empty">No machines reported yet.</p>'}</div>${note}`
     : card('Maintenance Past Due', pastDue, 'No equipment with maintenance past due.') + card('Maintenance Due Soon', soon, 'No equipment with maintenance due soon.')
-      + card('In the Workshop', shop, 'No equipment in the workshop.') + card('Equipment Without a Maintenance Plan', noPlan, 'Every machine has a maintenance plan.')
+      + card('Broken Down', broken, 'No broken-down equipment.') + card('In the Workshop', shop, 'No equipment in the workshop.')
+      + card('Equipment Without a Maintenance Plan', noPlan, 'Every machine has a maintenance plan.')
       + `<div class="svc-card"><h3>Summary</h3><div class="svc-sum"><div><small>Machines</small><b>${list.length}</b></div><div><small>With a plan</small><b>${withPlan.length}</b></div>
-        <div><small>Past due</small><b>${pastDue.length}</b></div><div><small>In workshop</small><b>${shop.length}</b></div></div></div>${note}`);
+        <div><small>Past due</small><b>${pastDue.length}</b></div><div><small>In workshop</small><b>${shop.length}</b></div>
+        <div><small>Broken down</small><b>${broken.length}</b></div><div><small>Due soon</small><b>${soon.length}</b></div></div></div>${note}`);
 }
 $('serviceTabs').onclick = e => { const b = e.target.closest('[data-sub]'); if (b) { S.serviceSub = b.dataset.sub; renderService(); } };
 $('serviceBody').onclick = e => { const q = e.target.closest('[data-eq]'); if (q) focusMachine(q.dataset.eq); };

@@ -51,7 +51,8 @@ Ops Center on the display). Laid out like the real Operations Center:
   (Realistic Seeder litres per hectare x the game's seed cost), fertilizer and chemical (applied litres x the game's
   product cost), machinery per acre by work type and land rent (both editable under Prices & Costs). Each field has a
   budget card (net, revenue, expenses, cost per bushel, market price, break-even yield) and a **Profit Map**: every
-  harvested swath colored by its own profit per acre. Farm balance, loan and equity come from the game.
+  harvested swath colored by its own profit per acre. Farm balance, loan and equity come from the game. With Farm
+  Finance: credit score, the input account, and leases (cash rent, or the crop-share split) on each field.
 - **Service** (Maintenance, after the Operations Center): Past Due, Due Soon, In the Workshop and Without a
   Maintenance Plan, from Advanced Damage System's service interval and workshop state. Machine condition stays
   hidden until inspected, as in that mod.

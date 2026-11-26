@@ -16,7 +16,7 @@
 -- one odd vehicle can never break the game loop.
 
 G5Link = {}
-G5Link.VERSION = "0.6.0"
+G5Link.VERSION = "0.6.1"
 G5Link.WRITE_INTERVAL = 250   -- ms between telemetry writes (4 Hz)
 G5Link.CMD_INTERVAL = 250     -- ms between command file polls
 G5Link.MAX_IMPLEMENTS = 8
@@ -959,7 +959,55 @@ function G5Link:writeEconomy()
             end
         end
     end
+    local ok, ff = pcall(self.readFarmFinance, self, farmId)
+    if ok and ff ~= nil then
+        out.farmFinance = ff
+    end
     self:writeTextFile(self.economyPath, G5Json.encode(out))
+end
+
+-- Farm Finance (FS25_FarmFinance) public API 1.x: g_currentMission.farmFinanceAPI, dot calls, read-only here.
+-- Credit score, the input account, and the lease contract on each field's farmland (API.md).
+function G5Link:readFarmFinance(farmId)
+    local api = g_currentMission and g_currentMission.farmFinanceAPI
+    if type(api) ~= "table" or type(api.isReady) ~= "function" then
+        return nil
+    end
+    local okReady, ready = pcall(api.isReady)
+    if not okReady or ready ~= true then
+        return nil
+    end
+    local function get(fname, ...)
+        local fn = api[fname]
+        if type(fn) ~= "function" then return nil end
+        local ok, a, b = pcall(fn, ...)
+        if ok then return a, b end
+        return nil
+    end
+    local out = {}
+    out.apiVersion, out.modVersion = get("getVersion")
+    out.bankActive = get("isBankActive") == true
+    out.creditScore, out.creditGrade = get("getCreditScore", farmId)
+    local acc = get("getInputAccount", farmId)
+    if type(acc) == "table" then
+        out.inputAccount = {enabled = acc.enabled == true, limit = acc.limit, balance = acc.balance, available = acc.available,
+            pastDue = acc.pastDue, dueCropYear = acc.dueCropYear, earlyPayDiscount = acc.earlyPayDiscount}
+    end
+    out.contracts = {}
+    local seen = {}
+    local fields = g_fieldManager and g_fieldManager.fields or {}
+    for _, field in ipairs(fields) do
+        local farmlandId = type(field.farmland) == "table" and field.farmland.id or nil
+        if farmlandId ~= nil and not seen[farmlandId] then
+            seen[farmlandId] = true
+            local c = get("getLandContract", farmlandId)
+            if type(c) == "table" and c.farmId == farmId then
+                out.contracts[tostring(farmlandId)] = {kind = c.kind, leaseType = c.leaseType, annualRent = c.annualRent,
+                    landownerShare = c.landownerShare, inputShare = c.inputShare, endCropYear = c.endCropYear}
+            end
+        end
+    end
+    return out
 end
 
 -- equipment.json for the Ops Center: the farm's motorized machines (VehicleSystem.vehicles).

@@ -575,7 +575,10 @@ function demoEconomy() {
     WHEAT: { title: 'Wheat', price: 0.218, cost: 0.24, mass: 0.00078 }, MAIZE: { title: 'Corn', price: 0.162, cost: 0.18, mass: 0.00072 },
     SOYBEAN: { title: 'Soybeans', price: 0.35, cost: 0.38, mass: 0.00072 }, SEEDS: { title: 'Seeds', price: 0.9, cost: 0.9, mass: 0.00045 },
     FERTILIZER: { title: 'Fertilizer', price: 1.6, cost: 1.6, mass: 0.001 }, LIQUIDFERTILIZER: { title: 'Liquid Fertilizer', price: 1.3, cost: 1.3, mass: 0.001 },
-    HERBICIDE: { title: 'Herbicide', price: 1.2, cost: 1.2, mass: 0.001 }, DIESEL: { title: 'Diesel', price: 1.4, cost: 1.4, mass: 0.00084 } } };
+    HERBICIDE: { title: 'Herbicide', price: 1.2, cost: 1.2, mass: 0.001 }, DIESEL: { title: 'Diesel', price: 1.4, cost: 1.4, mass: 0.00084 } },
+    farmFinance: { apiVersion: '1.0.0', bankActive: true, creditScore: 742, creditGrade: 'B',
+      inputAccount: { enabled: true, limit: 120000, balance: 18450, available: 101550, pastDue: 0, dueCropYear: 2027, earlyPayDiscount: 0.03 },
+      contracts: { 23: { kind: 'in', leaseType: 'share', landownerShare: 0.33, inputShare: 0.25, endCropYear: 2029 } } } };
 }
 function demoEquipment() {
   return { farmId: 1, vehicles: [

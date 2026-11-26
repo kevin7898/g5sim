@@ -168,8 +168,14 @@ from `FieldPathPrivateIntegration.lua`:
 - Advanced Damage System: `equipment.json` carries `ads: {state, hours, interval}` read through the surface VDTelemetry
   uses (checked there against ADS 0.10.0.3): `spec_AdvancedDamageSystem`, `getIsADSExcluded()`,
   `getServiceIntervalElapsedHours()`, `getServiceInterval()`, `spec.currentState` via `ADS.STATUS`. Condition is
-  deliberately not read. **Not checked against the installed 0.12.1.3**: its source is only in the 185 MB release zip
-  (the repository branches are 0.9.x). If the Service page shows no plans with ADS installed, those names changed.
+  deliberately not read. Checked against the v0.12.1.3 release zip (its modDesc says 0.12.1.5): all of these exist,
+  `STATUS` is READY / INSPECTION / MAINTENANCE / REPAIR / BROKEN, and the service functions return operating hours.
+  The repository branches are still 0.9.x; only the release zip has current code.
+- Farm Finance (your FS25_FarmFinance, API 1.0.0 in its API.md): `g_currentMission.farmFinanceAPI`, read only:
+  `getCreditScore`, `getInputAccount`, `getLandContract(farmlandId)` for every field's farmland. In the P&L a cash lease
+  ("in") replaces the rent setting (split over the farmland's fields by area); a crop share keeps (1 - landownerShare) of
+  revenue and (1 - inputShare) of seed, fertilizer and chemical (both fractions, as FFCropShare uses them). Machinery
+  loans and leases are internal to Farm Finance, not in its public API, so they are not shown.
 - Due soon = 85 % of the interval; past due = 100 % (ADS's own service lamp threshold).
 
 ## Design reference (how the look was matched)

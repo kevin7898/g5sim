@@ -578,7 +578,22 @@ function demoEconomy() {
     HERBICIDE: { title: 'Herbicide', price: 1.2, cost: 1.2, mass: 0.001 }, DIESEL: { title: 'Diesel', price: 1.4, cost: 1.4, mass: 0.00084 } },
     farmFinance: { apiVersion: '1.0.0', bankActive: true, creditScore: 742, creditGrade: 'B',
       inputAccount: { enabled: true, limit: 120000, balance: 18450, available: 101550, pastDue: 0, dueCropYear: 2027, earlyPayDiscount: 0.03 },
-      contracts: { 23: { kind: 'in', leaseType: 'share', landownerShare: 0.33, inputShare: 0.25, endCropYear: 2029 } } } };
+      contracts: { 23: { kind: 'in', leaseType: 'share', landownerShare: 0.33, inputShare: 0.25, endCropYear: 2029 } },
+      market: { baseRate: 0.0625, trend: 1, trendMonthsLeft: 3, cropYear: 2027, period: 4 },
+      summary: {
+        credit: { score: 742, grade: 'B', parts: { payment: 0.92, solvency: 0.71, liquidity: 0.58, repayment: 0.8, length: 0.35 },
+          ratios: { debtToAsset: 0.21, currentRatio: 1.85, termDebtCoverage: 1.6, workingCapital: 268000, netWorth: 1890000, totalAssets: 2390000, totalDebt: 500000 },
+          history: { onTime: 22, late: 1, missed: 0, monthsOnRecord: 23 } },
+        loans: [
+          { id: 'L1', productId: 'realEstate', label: 'Field 23 purchase', principal: 380000, balance: 318400, rate: 0.059, payment: 3100, monthsTotal: 180, monthsLeft: 141, status: 'active' },
+          { id: 'L2', productId: 'equipment', label: 'Demo 9RX Tractor', principal: 210000, balance: 131600, rate: 0.071, payment: 4180, monthsTotal: 60, monthsLeft: 35, status: 'active', collateralUid: 'demo2' }],
+        leases: [{ id: 'E1', name: 'Demo R4045 Sprayer', price: 420000, payment: 5200, residual: 210000, deposit: 25000, rate: 0.068, months: 48, monthsLeft: 30, hoursPerYear: 500, status: 'active', vehicleUid: 'demo3' }],
+        land: [{ id: 'C1', kind: 'in', leaseType: 'share', farmlandId: 23, name: 'Field 23 (crop share)', landownerShare: 0.33, inputShare: 0.25, endCropYear: 2029 },
+          { id: 'C2', kind: 'in', leaseType: 'cash', farmlandId: 24, name: 'Field 24', annualRent: 3400, endCropYear: 2028 }],
+        operatingLine: { open: true, limit: 150000, balance: 42000, rate: 0.081 },
+        inputAccount: { enabled: true, limit: 120000, balance: 18450, available: 101550, pastDue: 0, dueCropYear: 2027, earlyPayDiscount: 0.03 },
+        ledger: { interestPaid: 48210, principalPaid: 139800, rentPaid: 10200, rentIncome: 0, income12: 612000, opex12: 388000 },
+        debt: { debts: { realEstate: 318400, equipment: 131600, operating: 42000, imported: 0 }, total: 492000, debtService12: 87360, principal12: 58900, interest12: 28460, monthlyPayments: 7280 } } } };
 }
 function demoEquipment() {
   return { farmId: 1, vehicles: [
@@ -682,6 +697,7 @@ const server = http.createServer((req, res) => {
       }
       if (u.pathname === '/api/ops/records') return json(200, { records: store.records(save) });
       if (u.pathname === '/api/ops/profit') return json(200, { ...store.profit(save, economy), economyAge: economy ? 'live' : null });
+      if (u.pathname === '/api/ops/finance') return json(200, { farmFinance: economy && economy.farmFinance || null, equipment: equipment.vehicles });
       if (u.pathname === '/api/boundary') return json(200, { ...boundaryStatus(), path: rec.active ? rec.points : [] });
       return json(404, { error: 'unknown route' });
     }

@@ -16,7 +16,7 @@
 -- one odd vehicle can never break the game loop.
 
 G5Link = {}
-G5Link.VERSION = "0.6.1"
+G5Link.VERSION = "0.6.2"
 G5Link.WRITE_INTERVAL = 250   -- ms between telemetry writes (4 Hz)
 G5Link.CMD_INTERVAL = 250     -- ms between command file polls
 G5Link.MAX_IMPLEMENTS = 8
@@ -992,6 +992,16 @@ function G5Link:readFarmFinance(farmId)
     if type(acc) == "table" then
         out.inputAccount = {enabled = acc.enabled == true, limit = acc.limit, balance = acc.balance, available = acc.available,
             pastDue = acc.pastDue, dueCropYear = acc.dueCropYear, earlyPayDiscount = acc.earlyPayDiscount}
+    end
+    -- full read access (Farm Finance read API): everything for this farm in one table, plus the rate market
+    local summary = get("getFarmSummary", farmId)
+    if type(summary) == "table" then
+        out.summary = summary
+    end
+    local market = get("getMarket")
+    if type(market) == "table" then
+        out.market = {baseRate = market.baseRate, trend = market.trend, trendMonthsLeft = market.trendMonthsLeft,
+            cropYear = market.cropYear, period = market.period, monthIndex = market.monthIndex}
     end
     out.contracts = {}
     local seen = {}

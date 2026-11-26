@@ -175,7 +175,8 @@ from `FieldPathPrivateIntegration.lua`:
   `getCreditScore`, `getInputAccount`, `getLandContract(farmlandId)` for every field's farmland. In the P&L a cash lease
   ("in") replaces the rent setting (split over the farmland's fields by area); a crop share keeps (1 - landownerShare) of
   revenue and (1 - inputShare) of seed, fertilizer and chemical (both fractions, as FFCropShare uses them). Machinery
-  loans and leases are internal to Farm Finance, not in its public API, so they are not shown.
+  loans and leases come from its full read API (`getFarmSummary`, `getMarket`) on the Harvest Profit Finances tab,
+  and each machine's loan or lease (matched by `uniqueId`) shows on the Equipment list.
 - Due soon = 85 % of the interval; past due = 100 % (ADS's own service lamp threshold).
 
 ## Design reference (how the look was matched)

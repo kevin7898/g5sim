@@ -554,6 +554,8 @@ do
     g_currentMission.farmFinanceAPI = {
         isReady = function() return true end, getVersion = function() return "1.0.0", "0.3.0.0" end,
         isBankActive = function() return true end, getCreditScore = function(id) return 731, "B" end,
+        getFarmSummary = function(id) return {loans = {{id = "L1", balance = 900, payment = 50, rate = 0.07}}, debt = {total = 900}} end,
+        getMarket = function() return {baseRate = 0.0625, trend = 1} end,
         getInputAccount = function(id) return {enabled = true, limit = 50000, balance = 1200, available = 48800, pastDue = 0} end,
         getLandContract = function(farmlandId)
             if farmlandId == 23 then return {kind = "in", leaseType = "share", farmId = 1, landownerShare = 0.33, inputShare = 0.25, endCropYear = 2028} end
@@ -605,6 +607,7 @@ do
     check(string.find(econ, '"creditGrade":"B"', 1, true) ~= nil, "Farm Finance credit grade")
     check(string.find(econ, '"23":{', 1, true) ~= nil and string.find(econ, '"landownerShare":0.33', 1, true) ~= nil, "Farm Finance lease on the field's farmland")
     check(string.find(econ, '"available":48800', 1, true) ~= nil, "Farm Finance input account")
+    check(string.find(econ, '"loans":[{', 1, true) ~= nil and string.find(econ, '"baseRate":0.0625', 1, true) ~= nil, "Farm Finance summary and market")
     check(string.find(fj, '"farmName":"Test Farm"', 1, true) ~= nil, "fields.json farm name")
     local t = telemetry(dir)
     eq(t["g5#state"], "vehicle", "state")

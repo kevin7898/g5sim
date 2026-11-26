@@ -687,8 +687,63 @@ $('workList').onclick = e => {
 
 // ---------------------------------------------------------------- Harvest Profit
 async function loadProfit(render = true) {
-  try { S.profit = await api('/api/ops/profit'); } catch (e) { return; }
+  try { S.profit = await api('/api/ops/profit'); S.finance = await api('/api/ops/finance'); } catch (e) { return; }
   if (render) renderProfit();
+}
+
+// Farm Finance (full read API: getFarmSummary + getMarket), shown like a lender's view of the farm
+const pct = (v, d = 1) => typeof v === 'number' ? `${fmt(v * 100, d)} %` : '---';
+const machineName = uid => { const m = uid && (S.summary.equipment || []).find(e => String(e.id) === String(uid)); return m ? m.name : null; };
+function financeOf(e) {
+  const sm = S.finance && S.finance.farmFinance && S.finance.farmFinance.summary;
+  if (!sm) return null;
+  const lease = (sm.leases || []).find(l => String(l.vehicleUid) === String(e.id) && l.status !== 'ended');
+  if (lease) return { kind: 'lease', text: `Leased · ${money(lease.payment)}/mo · ${lease.monthsLeft} mo left` };
+  const loan = (sm.loans || []).find(l => String(l.collateralUid) === String(e.id) && l.balance > 0);
+  if (loan) return { kind: 'loan', text: `Financed · ${money(loan.balance)} left · ${money(loan.payment)}/mo` };
+  return null;
+}
+function renderFinance() {
+  const ff = S.finance && S.finance.farmFinance, sm = ff && ff.summary;
+  if (!sm) {
+    setHtml($('profitBody'), `<p class="empty">${ff ? 'Farm Finance is installed, but its full read API (getFarmSummary) is not available. Update Farm Finance.' : 'Farm Finance is not installed or not ready. With it, loans, leases, credit and land contracts appear here.'}</p>`);
+    return;
+  }
+  const cr = sm.credit || {}, ra = cr.ratios || {}, parts = cr.parts || {}, debt = sm.debt || {}, led = sm.ledger || {}, line = sm.operatingLine, mk = ff.market;
+  const bar = (label, v) => `<div class="cost-row"><span>${label}</span><span><div class="svc-bar"><i class="${v < 0.4 ? 'due' : v < 0.7 ? 'soon' : ''}" style="width:${Math.round((v || 0) * 100)}%"></i></div></span></div>`;
+  const card = (title, body) => `<div class="pl-card"><h3><span>${title}</span></h3>${body}</div>`;
+  const grid = rows => `<div class="pl-grid">${rows.filter(Boolean).map(([k, v]) => `<span>${k}</span><b>${v}</b>`).join('')}</div>`;
+  const loans = (sm.loans || []).filter(l => l.status !== 'paid');
+  const leases = sm.leases || [];
+  const land = sm.land || [];
+  setHtml($('profitBody'), [
+    card(`Credit · ${cr.score ? fmt(cr.score, 0) : '---'} ${esc(cr.grade || '')}`, grid([
+      ['Net worth', money(ra.netWorth)], ['Total assets', money(ra.totalAssets)], ['Total debt', money(ra.totalDebt ?? debt.total)],
+      ['Debt to asset', pct(ra.debtToAsset)], ['Current ratio', typeof ra.currentRatio === 'number' ? fmt(ra.currentRatio, 2) : '---'],
+      ['Term debt coverage', typeof ra.termDebtCoverage === 'number' ? fmt(ra.termDebtCoverage, 2) : '---'], ['Working capital', money(ra.workingCapital)],
+    ]) + (Object.keys(parts).length ? Object.entries(parts).map(([k, v]) => bar(k[0].toUpperCase() + k.slice(1), v)).join('') : '')
+      + (cr.history ? `<p class="note">Payments on time ${cr.history.onTime ?? 0}, late ${cr.history.late ?? 0}, missed ${cr.history.missed ?? 0}${cr.history.monthsOnRecord ? ` · ${cr.history.monthsOnRecord} months on record` : ''}.</p>` : '')),
+    card('Debt', grid([
+      ['Real estate', money(debt.debts && debt.debts.realEstate)], ['Equipment', money(debt.debts && debt.debts.equipment)],
+      ['Operating', money(debt.debts && debt.debts.operating)], debt.debts && debt.debts.imported ? ['Imported', money(debt.debts.imported)] : null,
+      ['Monthly payments', money(debt.monthlyPayments)], ['Next 12 months', money(debt.debtService12)],
+      ['  of which interest', money(debt.interest12)],
+      mk ? ['Base rate', `${pct(mk.baseRate, 2)} ${mk.trend > 0 ? '↑' : mk.trend < 0 ? '↓' : '→'}`] : null,
+    ])),
+    card(`Loans (${loans.length})`, loans.length ? loans.map(l => `<div class="svc-row"><b>${esc(l.label || l.productId || 'Loan')}</b><span>${money(l.balance)}</span>
+      <span>${esc(l.productId || '')} · ${pct(l.rate, 2)} · ${money(l.payment)}/mo · ${l.monthsLeft} of ${l.monthsTotal} mo${machineName(l.collateralUid) ? ' · on ' + esc(machineName(l.collateralUid)) : ''}${l.status && l.status !== 'active' ? ' · ' + esc(l.status) : ''}</span><span></span>
+      <div class="svc-bar"><i style="width:${l.principal ? Math.round((1 - l.balance / l.principal) * 100) : 0}%"></i></div></div>`).join('') : '<p class="empty">No loans.</p>'),
+    card(`Machine Leases (${leases.length})`, leases.length ? leases.map(l => `<div class="svc-row"><b>${esc(l.name || machineName(l.vehicleUid) || 'Lease')}</b><span>${money(l.payment)}/mo</span>
+      <span>${l.monthsLeft} of ${l.months} mo left · residual ${money(l.residual)}${l.hoursPerYear ? ` · ${fmt(l.hoursPerYear, 0)} h/yr allowed` : ''}${l.status && l.status !== 'active' ? ' · ' + esc(l.status) : ''}</span><span></span></div>`).join('') : '<p class="empty">No machine leases.</p>'),
+    line ? card('Operating Line', grid([['Limit', money(line.limit)], ['Balance', money(line.balance)], ['Rate', pct(line.rate, 2)], ['Open', line.open ? 'Yes' : 'No']])) : '',
+    sm.inputAccount ? card('Input Account', grid([['Balance', money(sm.inputAccount.balance)], ['Limit', money(sm.inputAccount.limit)], ['Available', money(sm.inputAccount.available)],
+      sm.inputAccount.pastDue > 0 ? ['Past due', money(sm.inputAccount.pastDue)] : null, ['Due crop year', sm.inputAccount.dueCropYear ?? '---'],
+      ['Early-pay discount', pct(sm.inputAccount.earlyPayDiscount, 1)]])) : '',
+    card(`Land Contracts (${land.length})`, land.length ? land.map(c => `<div class="svc-row"><b>${esc(c.name || 'Farmland ' + c.farmlandId)}</b><span>${c.leaseType === 'share' ? `${pct(c.landownerShare, 0)} share` : money(c.annualRent) + '/yr'}</span>
+      <span>${c.kind === 'in' ? 'Rented in' : 'Rented out'} · ${c.leaseType === 'share' ? `crop share, landowner pays ${pct(c.inputShare, 0)} of inputs` : 'cash rent'}${c.endCropYear ? ' · to crop year ' + c.endCropYear : ''}</span><span></span></div>`).join('') : '<p class="empty">No land contracts.</p>'),
+    card('Ledger', grid([['Interest paid', money(led.interestPaid)], ['Principal paid', money(led.principalPaid)], ['Rent paid', money(led.rentPaid)],
+      ['Rent received', money(led.rentIncome)], ['Income, 12 months', money(led.income12)], ['Operating costs, 12 months', money(led.opex12)]])),
+  ].join(''));
 }
 const CROP_NAMES = { MAIZE: 'Corn', SOYBEAN: 'Soybeans', WV_SPRINGWHEAT: 'Spring Wheat', WV_WINTERWHEAT: 'Winter Wheat' };
 const cropName = c => !c ? '---' : CROP_NAMES[String(c).toUpperCase()] || String(c).toLowerCase().replace(/(^|_)([a-z])/g, (m, a, b) => (a ? ' ' : '') + b.toUpperCase());
@@ -700,6 +755,7 @@ function renderProfit() {
   const P = S.profit;
   if (!P) { setHtml($('profitBody'), '<p class="empty">Loading…</p>'); return; }
   if (S.profitSub === 'costs') return renderCosts();
+  if (S.profitSub === 'finance') return renderFinance();
   const t = P.totals, fin = P.finances;
   const row = r => `<div class="row pl-row ${r.field === S.profitField ? 'on' : ''}" data-pf="${esc(r.field)}">${shapeSvg((S.summary.fields.find(f => f.id === r.field) || {}).polygon, r.net >= 0 ? '#5fa83a' : '#c40b0b', 'ico')}
     <div class="nm"><b>${esc(r.name)}</b><span>${esc(cropName(r.crop))} · ${area(r.areaHa)}</span></div>
@@ -823,7 +879,7 @@ function equipmentRows(list) {
   return list.length ? `<div class="group"><span>Machines (${list.length})</span><span>Fuel</span></div>` + list.map(e => `
     <div class="row" data-eq="${esc(e.id)}"><span>${e.kind === 'combine' ? '🌾' : e.kind === 'truck' ? '🚚' : e.kind === 'sprayer' ? '💧' : '🚜'}</span>
       <div class="nm"><b>${esc(e.name)}<span class="badge ${e.inUse ? 'inuse' : e.ai ? 'ai' : 'parked'}">${e.inUse ? 'In use' : e.ai ? 'AI worker' : e.motorOn ? 'Running' : 'Parked'}</span></b>
-        <span>${fieldName(e.field) ? esc(fieldName(e.field)) + ' · ' : ''}${typeof e.hours === 'number' ? fmt(e.hours, 1) + ' h' : ''}${e.ads && typeof e.ads.interval === 'number' ? ` · service ${fmt(e.ads.hours, 0)}/${fmt(e.ads.interval, 0)} h` : typeof e.damage === 'number' && !e.ads ? ` · condition ${fmt(100 - e.damage, 0)} %` : ''}${e.speed > 0.5 ? ` · ${fmt(U.speed(e.speed), 1)} ${U.speedUnit()}` : ''}${e.implements && e.implements.length ? ' · ' + esc(e.implements.join(', ')) : ''}</span></div>
+        <span>${fieldName(e.field) ? esc(fieldName(e.field)) + ' · ' : ''}${typeof e.hours === 'number' ? fmt(e.hours, 1) + ' h' : ''}${e.ads && typeof e.ads.interval === 'number' ? ` · service ${fmt(e.ads.hours, 0)}/${fmt(e.ads.interval, 0)} h` : typeof e.damage === 'number' && !e.ads ? ` · condition ${fmt(100 - e.damage, 0)} %` : ''}${e.speed > 0.5 ? ` · ${fmt(U.speed(e.speed), 1)} ${U.speedUnit()}` : ''}${e.implements && e.implements.length ? ' · ' + esc(e.implements.join(', ')) : ''}</span>${financeOf(e) ? `<span>${esc(financeOf(e).text)}</span>` : ''}</div>
       <span class="num">${typeof e.fuelPct === 'number' ? fmt(e.fuelPct, 0) + ' %' : ''}</span><span class="chev">›</span></div>`).join('')
     : '<p class="empty">No machines reported yet.</p>';
 }

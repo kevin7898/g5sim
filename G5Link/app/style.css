@@ -337,7 +337,7 @@ svg { display: block; }
 .lightbar b.ok { background: #8ee86a; }
 .map-tag { position: absolute; left: 6px; top: 46px; z-index: 2; background: rgba(32,32,28,.78); color: #fff; font-size: var(--fs-lg); font-weight: 600;
   padding: 2px 10px 4px; border-radius: 3px; max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.map-arrow { position: absolute; left: 22px; top: 92px; z-index: 2; width: 30px; height: 54px;
+.map-arrow { position: absolute; left: 15px; top: 92px; z-index: 2; width: 44px; height: 54px;
   filter: drop-shadow(0 0 1px rgba(0,0,0,.6)); transform-origin: 50% 50%; }
 .map-chip { position: absolute; left: 50%; transform: translateX(-50%); top: 46px; z-index: 2; background: rgba(32,32,28,.82); color: #fff;
   font-size: var(--fs-lg); font-weight: 700; padding: 3px 12px 4px; border-radius: 4px; border: 1px solid rgba(255,255,255,.25); white-space: nowrap; }
@@ -792,3 +792,9 @@ a.app { text-decoration: none; color: inherit; }
 .km-help-row { display: flex; align-items: center; gap: 12px; } .km-help-row p { margin: 0; font-size: var(--fs-sm); }
 .km-help { max-height: 500px; overflow-y: auto; }
 .win-foot[hidden] { display: none; }
+
+/* map: recenter shows while panned; the compass toggles north up (yellow ring when on) */
+.map-btn[hidden] { display: none; }
+.map-btn.center { border-color: #ffd200; }
+.map-arrow { cursor: pointer; }
+.map-arrow.north { filter: drop-shadow(0 0 0 #ffd200) drop-shadow(0 0 3px #ffd200); }

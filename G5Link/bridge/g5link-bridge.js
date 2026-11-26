@@ -766,7 +766,7 @@ function demoTick(dt) {
   const frame = ({
     seq: Math.floor(demo.t / 250), version: 'demo', state: 'vehicle', time: Math.floor(demo.t),
     lastCmd: demo.lastCmd || 0,
-    game: { day: 3, hour: Math.floor(minutes / 60) % 24, minute: minutes % 60 },
+    game: { day: DEMO_DAY, hour: Math.floor(minutes / 60) % 24, minute: minutes % 60 },
     vehicle: {
       name: 'Demo 8R Tractor', speed: +demo.speed.toFixed(1), motorOn: demo.motorOn, ai: false, onField: true,
       rpm: Math.round(rpm), maxRpm: 2100, load: demo.motorOn ? Math.round(working ? 62 + 8 * Math.sin(demo.t / 3000) : 18) : 0,
@@ -795,13 +795,20 @@ function demoTick(dt) {
   });
   setExtras(demoProviders(working));
   if (!gameFields) takeGameFields(demoFields());
+  // tracks, a re-driven boundary and a prescription, once the farm's fields are in the field store
+  if (!demo.farmStore && gameFieldsSave === currentSave()) {
+    demo.farmStore = true;
+    try { const r = require('./demo-farm.js').seedStore(fieldStore(), currentSave(), demoFarm(), DEMO_DAY); console.log(`Demo farm: ${r.tracks} tracks${r.rx ? ', prescription ' + r.rx : ''}`); }
+    catch (e) { console.warn('Demo farm setup failed:', e.message); }
+  }
   if (!economy) economy = demoEconomy();
   equipment = demoEquipment(); equipmentAt = Date.now();
   let arx = null;
   try { arx = fieldStore().activeRx(currentSave()); } catch (e) { /* none */ }
   demo.rate = demo.rate || { auto: true, idx: 3 };
   const steps = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
-  frame.rate = { system: 'sf', auto: arx ? false : demo.rate.auto, value: steps[demo.rate.idx - 1], steps: steps.join(','),
+  // rate control only on the planter demo (its liquid fertilizer); a combine or a cultivator has none
+  if (!DEMO_COMBINE && !DEMO_TILLAGE) frame.rate = { system: 'sf', auto: arx ? false : demo.rate.auto, value: steps[demo.rate.idx - 1], steps: steps.join(','),
     rx: arx ? arx.id : undefined, rxName: arx ? arx.name : undefined, rxActive: !!arx && working,
     rxRate: arx && working ? arx.rates[Math.floor(demo.t / 20000) % arx.zones] : undefined };
   const gs = guidanceState;
@@ -908,18 +915,27 @@ function demoCourse() {
 if (DEMO) course = demoCourse();
 // Demo map fields: Field 23 covers the first ten passes only, so the last four show up as
 // work outside the field (as after cultivating new ground) for "Expand from coverage".
-function demoFields() {
+// The demo farm (demo-farm.js): 50 fields, 2500 ac, in different states of the season, with Field 23 the
+// one the demo machine works. Field 23 covers the first ten passes of the demo route only, so the last four show up
+// as work outside the field (as after cultivating new ground) for "Expand from coverage".
+const DEMO_DAY = 60;                                  // game day: the farm's records are spread over the days before
+let FARM = null;
+function demoFarm() {
+  if (FARM) return FARM;
+  const farmLib = require('./demo-farm.js');
   const h = DEMO_H * Math.PI / 180, f = { x: Math.sin(h), z: -Math.cos(h) }, r = { x: Math.cos(h), z: Math.sin(h) };
   const pt = (L, off) => [+(-120 + f.x * L + r.x * off).toFixed(1), +(340 + f.z * L + r.z * off).toFixed(1)];
   const edge = DEMO_W * 0.95 * 10 - DEMO_W / 2;      // ~ the first ten passes
-  if (BIG) return { farmId: 1, farmName: 'Demo Farm', fields: [
-    { id: 23, name: 'Field 23', farmland: 23, owner: 1, polygon: BIG.field.filter((q, i) => i % 3 === 0).map(q => q.map(n => +n.toFixed(1))) }] };
-  return { farmId: 1, farmName: 'Demo Farm', fields: [
-    { id: 23, name: 'Field 23', farmland: 23, owner: 1, polygon: [pt(-8, -DEMO_W / 2), pt(DEMO_LEN + 8, -DEMO_W / 2), pt(DEMO_LEN + 8, edge), pt(-8, edge)] },
-    { id: 24, name: 'Field 24', farmland: 24, owner: 1, polygon: [pt(-8, -60), pt(DEMO_LEN + 8, -60), pt(DEMO_LEN + 8, -20), pt(-8, -20)] },
-    { id: 25, name: 'Field 25', farmland: 25, owner: 0, polygon: [pt(DEMO_LEN + 60, 0), pt(DEMO_LEN + 260, 0), pt(DEMO_LEN + 260, 150), pt(DEMO_LEN + 60, 150)] },
-  ] };
+  const f23 = BIG ? BIG.field.filter((q, i) => i % 3 === 0).map(q => q.map(n => +n.toFixed(1)))
+    : [pt(-8, -DEMO_W / 2), pt(DEMO_LEN + 8, -DEMO_W / 2), pt(DEMO_LEN + 8, edge), pt(-8, edge)];
+  const route = demoPath.reduce((b, p) => ({ x0: Math.min(b.x0, p.x), x1: Math.max(b.x1, p.x), z0: Math.min(b.z0, p.z), z1: Math.max(b.z1, p.z) }), { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity });
+  FARM = farmLib.build({ fixed: { id: 23, polygon: f23 }, exclude: [{ x0: -230, x1: -130, z0: 270, z1: 390 }, route],
+    region: BIG ? { x0: -2600, x1: 2600, z0: -3500 } : { x0: -1700, x1: 1900, z0: -1400 } });
+  const t = farmLib.seedCoverage(mapStore(), 'unsaved', FARM, DEMO_DAY);
+  console.log(`Demo farm: ${FARM.fields.length} fields, ${(FARM.ha * 2.47105).toFixed(0)} ac, ${t.frames} recorded frames (${t.ms} ms)`);
+  return FARM;
 }
+function demoFields() { return require('./demo-farm.js').gameFields(demoFarm()); }
 // Demo prices per litre and tonnes per litre, in the shape the mod writes economy.json.
 function demoEconomy() {
   return { farmId: 1, balance: 412350, loan: 150000, equity: 1890000, fillTypes: {
@@ -1164,6 +1180,7 @@ server.listen(PORT, '0.0.0.0', () => {
 });
 
 if (DEMO) {
+  demoFarm();                       // the farm's fields and recorded history first (a few seconds)
   let last = Date.now();
   setInterval(() => {
     const now = Date.now();

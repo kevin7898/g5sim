@@ -68,8 +68,31 @@ function showPage(target) {
   document.querySelectorAll('#tab-apps [data-goto]').forEach(b => { b.hidden = !available.includes(b.dataset.goto); });
   saveSettings();
 }
+// What the machine is, for everything that follows it: run pages, Menu apps, unit rows, Work Setup.
+// operation is what Work Setup records: harvest, seeding, application, tillage or none.
+let MACHINE = { combine: false, seeder: false, tillage: false, sprayer: false, lifts: false, cart: false, operation: 'none' };
+function machineOf(d) {
+  const imps = d.implements || [];
+  const m = {
+    combine: !!d.combine, seeder: imps.some(i => i.seeder), tillage: imps.some(i => i.tillage),
+    sprayer: !!d.rate, lifts: imps.some(i => i.canLower),
+    cart: !!(d.grainCart && (d.grainCart.carts > 0 || d.grainCart.inCart)),
+  };
+  m.operation = m.combine ? 'harvest' : m.seeder ? 'seeding' : m.sprayer ? 'application' : m.tillage ? 'tillage' : 'none';
+  return m;
+}
+// Menu apps that open a window show only on machines that can use them (page apps follow their pages)
+const APP_RULES = { appGrainCart: m => m.combine || m.cart, appHeadland: m => m.lifts, appRate: m => m.sprayer };
+function updateMachine(d) {
+  const m = machineOf(d), key = JSON.stringify(m);
+  if (key === JSON.stringify(MACHINE)) return;
+  MACHINE = m;
+  for (const [id, rule] of Object.entries(APP_RULES)) if ($(id)) $(id).hidden = !rule(m);
+  if (!$('unitsWin').hidden) paintUnits();
+}
 function updateAvailablePages(d) {
   if (d.state !== 'vehicle' || !d.vehicle) return;      // keep the last machine's pages while on foot or paused
+  updateMachine(d);
   const next = pageNames.filter(n => (PAGE_RULES[n] || (() => true))(d));
   if (next.join('|') === available.join('|')) return;
   available = next;
@@ -80,7 +103,11 @@ $('nextPage').onclick = () => showPage(curIndex() + 1);
 $('menuPages').onclick = e => { const b = e.target.closest('[data-page]'); if (b) { showPage(b.dataset.page); closeWin('menu'); } };
 
 let touchX = null;
-$('pages').addEventListener('touchstart', e => { touchX = e.touches[0].clientX; }, { passive: true });
+$('pages').addEventListener('touchstart', e => {
+  const x = e.touches[0].clientX, edge = x < 30 || x > window.innerWidth - 30;
+  // dragging the map pans it; a swipe that starts at the screen edge still flips pages (as on the G5)
+  touchX = e.target.closest && e.target.closest('#map') && !edge ? null : x;
+}, { passive: true });
 $('pages').addEventListener('touchend', e => {
   if (touchX === null) return;
   const dx = e.changedTouches[0].clientX - touchX;
@@ -122,7 +149,9 @@ function paintUnits() {
   const preset = unitPreset();
   $('unitSeg').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === preset));
   $('unitCustom').hidden = preset !== 'custom';
-  setHtml($('unitRows'), UNIT_KINDS.map(([k, label, m, us]) => `
+  // yield units only in a combine (or with a grain cart), seeding rates only with a planter or a rate controller
+  const showUnit = k => k === 'grain' ? MACHINE.combine || MACHINE.cart : k === 'rate' ? MACHINE.seeder || MACHINE.sprayer : true;
+  setHtml($('unitRows'), UNIT_KINDS.filter(([k]) => showUnit(k)).map(([k, label, m, us]) => `
     <div class="set-row"><span>${label}</span><div class="seg" data-unit="${k}">
       <button data-v="metric" class="${metric(k) ? 'on' : ''}">${m}</button><button data-v="imperial" class="${metric(k) ? '' : 'on'}">${us}</button>
     </div></div>`).join(''));

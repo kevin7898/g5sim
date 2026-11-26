@@ -29,4 +29,5 @@
   };
   function open() { closeWin('menu'); openWin('rateWin'); render(); }
   window.G5Rate = { open, render, shortTxt };
+  $('appRate').onclick = open;
 })();

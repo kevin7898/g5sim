@@ -54,7 +54,7 @@ python3 G5Link/tools/make_icon.py                   # regenerate mod icon.dds
 ## Layout
 
 - `G5Link/mod/FS25_G5Link/`: modDesc.xml, scripts/G5Link.lua, scripts/Controls.lua (shortcut controls, harvest automation, tillage), scripts/Headland.lua (headland automation), scripts/GrainCart.lua (Courseplay Grain Cart add-on), scripts/Rtk.lua (RTK package), scripts/Steering.lua (AutoTrac, Turn Automation, Resume key), scripts/RateControl.lua (rate control, prescriptions), scripts/Api.lua (public API, documented in API.md), scripts/Rtk.lua (RTK package), scripts/Api.lua (public API, documented in API.md), scripts/Json.lua, scripts/providers/ (FieldPath adapters), icon.dds
-- `G5Link/bridge/`: g5link-bridge.js, coverage.js (map recording), fields.js (Ops Center fields and records), headland.js (headland files for the mod),
+- `G5Link/bridge/`: g5link-bridge.js, coverage.js (map recording), fields.js (Ops Center fields and records), headland.js (headland files for the mod), demo-farm.js (demo farm: 50 fields, 2500 ac with histories), demo-bigfield.js (1500 ac stress-test field),
   start-bridge.bat, start-demo.bat
 - `G5Link/app/`: index.html, style.css, app.js (pages, windows, commands, units), layers.js (map layers, legend,
   Select Map View), boundary.js (Boundary app), guidance.js (Guidance page and map drawing), autotrac.js (AutoTrac window, status pie), keys.js (shortcut key registry, Layout Manager), headland.js (Headland Management), graincart.js (Grain Cart remote), starfire.js (StarFire / RTK), rate.js (Rate Controller), starfire.js (StarFire / RTK), shared.js (settings,

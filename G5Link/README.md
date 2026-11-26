@@ -53,6 +53,16 @@ Add Shortcut from each app (every key once, up to 12 plus MENU), move keys left 
 choose which bar tractors and combines use. Extra keys there: Resume, Guidance, Swap Track, StarFire, Layout and Help
 (what each key on the bar does).
 
+**The map pans and zooms.** Drag to pan (it switches to overhead), pinch or use the mouse wheel to zoom, double-tap to
+zoom in. **Whole Field** fits the field north-up; **Recenter** (shown while panned) goes back to the machine. Tap the
+compass to switch between heading-up and north-up. Overhead coverage is drawn from cached 64 m tiles, so a whole
+1500 ac field stays at 60 fps. A drag on the map never flips run pages; a swipe from the screen edge still does.
+
+**Apps and settings follow the machine too.** Grain Cart shows in a combine (or with a cart), Headland with an
+implement that lifts, Rate Controller with a rate controller. Units show Yield only in a combine and Seeding Rate only
+with a planter or rate controller. Work Setup shows only what the operation records: harvest crop and variety, seeding
+crop, variety and seed, application the product, tillage none of them.
+
 **Run pages follow the machine.** Only the pages that fit what you are driving are offered: Harvesting
 and Harvest Automation for a combine (instead of Tractor), Tillage with a tillage tool, Planter when a Realistic Seeder implement is attached, Implement
 Details and Work Monitor with an implement, Field when soil, ground or AI-driver data exists.
@@ -219,6 +229,10 @@ printed address. A simulated tractor and planter drive around, and every key wor
 
 For a combine with Realistic Harvesting data, run `node bridge/g5link-bridge.js --demo combine`.
 For a tractor and field cultivator with Cultivator Settings and Realistic Tillage depth, run `--demo tillage`.
+To stress-test the display, `--demo bigfield --demo-speed 60` harvests a 1500 ac odd-shaped field (four headland laps,
+varied yield and moisture). Every demo has a **demo farm** in the Ops Center: 50 fields and 2500 ac (in bigfield, the
+1500 ac field plus 49 small ones) in different states: harvested, harvest in progress, growing, just seeded, tilled,
+idle and not owned, with work records, guidance tracks, a re-driven boundary and a yield-based seeding prescription.
 
 ## Options
 

@@ -76,6 +76,8 @@
     <symbol id="i-trash" viewBox="0 0 48 48"><path d="M8 12h32M19 12V7h10v5" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linejoin="round"/><path d="M12 12l2 29h20l2-29" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linejoin="round"/><path d="M20 18v17M28 18v17" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/></symbol>
     <symbol id="i-plus" viewBox="0 0 48 48"><path d="M24 8v32M8 24h32" stroke="currentColor" stroke-width="7"/></symbol>
     <symbol id="i-move" viewBox="0 0 48 48"><path d="M24 4l7 9H17zM24 44l7-9H17zM4 24l9-7v14zM44 24l-9-7v14z" fill="currentColor"/></symbol>
+    <symbol id="i-fitfield" viewBox="0 0 48 48"><path d="M14 14l9-4 11 5 2 13-9 8-12-3z" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round"/><path d="M4 12V4h8M36 4h8v8M44 36v8h-8M12 44H4v-8" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-recenter" viewBox="0 0 48 48"><circle cx="24" cy="24" r="12" fill="none" stroke="currentColor" stroke-width="3.4"/><circle cx="24" cy="24" r="4.5" fill="currentColor"/><path d="M24 3v8M24 37v8M3 24h8M37 24h8" stroke="currentColor" stroke-width="3.4" stroke-linecap="round"/></symbol>
     <symbol id="i-bang" viewBox="0 0 48 48"><circle cx="24" cy="24" r="20" fill="none" stroke="currentColor" stroke-width="3.4"/><path d="M24 12v15" stroke="currentColor" stroke-width="5" stroke-linecap="round"/><circle cx="24" cy="35" r="3.2" fill="currentColor"/></symbol>
   </defs>
 </svg>
@@ -120,6 +122,8 @@
               <button class="map-btn" data-zoom="1" aria-label="Zoom out"><svg><use href="#i-zoomout"/></svg></button>
               <button class="map-btn" id="mapView" aria-label="Change view"><svg><use href="#i-overhead"/></svg></button>
               <button class="map-btn" id="mapLayers" aria-label="Map layers"><svg><use href="#i-layers"/></svg></button>
+              <button class="map-btn" id="mapFit" aria-label="Whole field"><svg><use href="#i-fitfield"/></svg></button>
+              <button class="map-btn center" id="mapCenter" aria-label="Recenter on the machine" hidden><svg><use href="#i-recenter"/></svg></button>
             </div>
             <div class="map-note" id="mapNote" hidden></div>
             <div class="map-legend" id="mapLegend">
@@ -483,6 +487,7 @@
             <button class="app" id="appStarfire"><span class="app-ico"><svg><use href="#i-receiver"/></svg></span><b>StarFire</b></button>
             <button class="app" id="appGrainCart"><span class="app-ico"><svg><use href="#i-graincart"/></svg></span><b>Grain Cart</b></button>
             <button class="app" id="appLayout"><span class="app-ico"><svg><use href="#i-layout"/></svg></span><b>Layout Manager</b></button>
+            <button class="app" id="appRate" hidden><span class="app-ico"><svg><use href="#i-rate"/></svg></span><b>Rate Controller</b></button>
             <button class="app" id="appHeadland"><span class="app-ico"><svg><use href="#i-headland"/></svg></span><b>Headland</b></button>
             <button class="app" id="appBoundary"><span class="app-ico"><svg><use href="#i-boundary"/></svg></span><b>Boundary</b></button>
             <a class="app" href="/ops/"><span class="app-ico"><svg><use href="#i-cloud"/></svg></span><b>Ops Center</b></a>

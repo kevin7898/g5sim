@@ -305,14 +305,121 @@
 
   // ---------------------------------------------------------------- map
   const canvas = $('map'), ctx = canvas.getContext('2d');
+  // ---------------------------------------------------------------- view: zoom, pan, pinch, whole field, orientation
+  // Overhead zooms out far enough for the whole field (up to ~7 km across); perspective stays near the machine.
+  const ZOOM = { '2d': [0.3, 80], '3d': [0.5, 4] };
+  const V = { free: false, cx: 0, cz: 0, h: 0, zoomBack: null };    // free = panned away from the machine
+  const clampZoom = z => { const [lo, hi] = ZOOM[G.view] || ZOOM['3d']; return Math.min(hi, Math.max(lo, z)); };
+  function zoomBy(k) { G.zoom = clampZoom(G.zoom * k); save(); }
   document.querySelectorAll('[data-zoom]').forEach(b => {
-    b.onclick = () => { G.zoom = Math.min(4, Math.max(0.5, G.zoom * (+b.dataset.zoom > 0 ? 1.4 : 1 / 1.4))); save(); };
+    b.onclick = () => zoomBy(+b.dataset.zoom > 0 ? 1.4 : 1 / 1.4);
   });
+  const frameHeading = p => G.northUp ? 0 : V.free ? V.h : p.h;
+  function goFree(p) {
+    if (V.free || !p) return;
+    V.free = true; V.cx = p.x; V.cz = p.z; V.h = frameHeading(p); V.zoomBack = G.zoom;
+    if (G.view === '3d') { G.view = '2d'; paintView(); }
+    paintFree();
+  }
+  function recenter() {
+    V.free = false;
+    G.zoom = clampZoom(V.zoomBack !== null ? V.zoomBack : Math.min(G.zoom, 1.5)); V.zoomBack = null;
+    save(); paintFree();
+  }
+  function paintFree() { $('mapCenter').hidden = !V.free; }
+  // Whole field: overhead, north up, the field (or the recorded work) filling the map
+  function wholeField() {
+    const wf = workField();
+    const fb = wf && window.G5Bounds ? G5Bounds.fields().find(x => String(x.id) === wf) : null;
+    let pts = fb && fb.polygon && fb.polygon.length ? fb.polygon : course && course.field && course.field.length ? course.field : null;
+    if (!pts && window.G5Layers) {
+      const runs = [...G5Layers.coverageRuns().values()].flat();
+      if (runs.length) pts = runs.flatMap(([x0, x1, z0]) => [[x0, z0], [x1, z0]]);
+    }
+    if (!pts) return shade('Whole field: no field boundary or recorded work here yet.', 'info', 3000);
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const q of pts) { x0 = Math.min(x0, q[0]); x1 = Math.max(x1, q[0]); z0 = Math.min(z0, q[1]); z1 = Math.max(z1, q[1]); }
+    if (!V.free) V.zoomBack = G.zoom;
+    V.free = true; V.cx = (x0 + x1) / 2; V.cz = (z0 + z1) / 2; V.h = 0;
+    G.northUp = true; G.view = '2d'; paintView();
+    const { W, H } = size();
+    G.zoom = clampZoom(Math.max(z1 - z0, (x1 - x0) * H / W) * 1.12 / 90);
+    save(); paintFree(); paintNorth();
+  }
+  function paintNorth() { $('mapArrow').classList.toggle('north', !!G.northUp); }
+  $('mapArrow').onclick = () => {
+    G.northUp = !G.northUp;
+    if (G.northUp && G.view === '3d') { G.view = '2d'; paintView(); }
+    if (V.free && !G.northUp) { const p = livePose(); V.h = p ? p.h : 0; }
+    save(); paintNorth();
+    shade(`Map: ${G.northUp ? 'north up' : 'heading up'}.`, 'info', 1500);
+  };
+  $('mapFit').onclick = wholeField;
+  $('mapCenter').onclick = recenter;
+
+  // touch and mouse: one finger drags (pan), two fingers pinch (zoom), wheel zooms, double tap zooms in
+  const touches = new Map();
+  let pinch = null, lastTap = 0, dragged = false;
+  canvas.style.touchAction = 'none';
+  function screenToWorld(dxPx, dyPx) {
+    // a drag of (dx, dy) canvas pixels moves the view centre the other way, in the map frame
+    const { H } = size();
+    const ppm = H / (90 * G.zoom);
+    const r = -dxPx * 2 / ppm, f = dyPx * 2 / ppm;          // canvas is drawn at 2x
+    const fw = fwdOf(V.h), rt = rightOf(V.h);
+    return { x: r * rt.x + f * fw.x, z: r * rt.z + f * fw.z };
+  }
+  canvas.addEventListener('pointerdown', e => {
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    canvas.setPointerCapture(e.pointerId);
+    dragged = false;
+    if (touches.size === 2) {
+      const [a, b] = [...touches.values()];
+      pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), zoom: G.zoom };
+    }
+  });
+  canvas.addEventListener('pointermove', e => {
+    const t = touches.get(e.pointerId);
+    if (!t) return;
+    const scale = canvas.getBoundingClientRect().width / canvas.clientWidth || 1;   // the display is scaled to fit
+    const dx = (e.clientX - t.x) / scale, dy = (e.clientY - t.y) / scale;
+    if (touches.size === 2 && pinch) {
+      t.x = e.clientX; t.y = e.clientY;
+      const [a, b] = [...touches.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (d > 10) { G.zoom = clampZoom(pinch.zoom * pinch.d / d); }
+      dragged = true;
+      return;
+    }
+    if (!dragged && Math.hypot(dx, dy) < 8) return;
+    if (!dragged) { dragged = true; goFree(livePose()); }
+    t.x = e.clientX; t.y = e.clientY;
+    if (!V.free) return;
+    const m = screenToWorld(dx, dy);
+    V.cx += m.x; V.cz += m.z;
+  });
+  const up = e => {
+    touches.delete(e.pointerId);
+    if (touches.size < 2) pinch = null;
+    if (!dragged && touches.size === 0) {
+      const now = performance.now();
+      if (now - lastTap < 320) { zoomBy(1 / 1.6); lastTap = 0; } else lastTap = now;
+    }
+    if (touches.size === 0) save();
+  };
+  canvas.addEventListener('pointerup', up);
+  canvas.addEventListener('pointercancel', up);
+  canvas.addEventListener('wheel', e => { e.preventDefault(); zoomBy(e.deltaY > 0 ? 1.15 : 1 / 1.15); }, { passive: false });
+  window.G5Map = { recenter, wholeField, isFree: () => V.free };
   // the button shows the view it switches to: overhead (flat grid) or perspective
   const paintView = () => { setHtml($('mapView'), `<svg><use href="#i-${G.view === '3d' ? 'overhead' : 'persp'}"/></svg>`);
     $('mapView').setAttribute('aria-label', G.view === '3d' ? 'Overhead view' : 'Perspective view'); };
-  $('mapView').onclick = () => { G.view = G.view === '3d' ? '2d' : '3d'; save(); paintView(); };
-  paintView();
+  $('mapView').onclick = () => {
+    G.view = G.view === '3d' ? '2d' : '3d';
+    if (G.view === '3d') { if (V.free) recenter(); G.northUp = false; paintNorth(); }
+    G.zoom = clampZoom(G.zoom); save(); paintView();
+  };
+  paintView(); paintNorth(); paintFree();
 
   function size() {
     const w = canvas.clientWidth, h = canvas.clientHeight;
@@ -324,7 +431,10 @@
   function camera(W, H) {
     if (G.view === '2d') {
       const ppm = H / (90 * G.zoom);                       // pixels per metre
-      return (r, f) => ({ x: W / 2 + r * ppm, y: H * 0.62 - f * ppm, s: 1 });
+      const cy = V.free ? H * 0.5 : H * 0.62;              // panned: the view centre mid-screen; else the machine low
+      const fn = (r, f) => ({ x: W / 2 + r * ppm, y: cy - f * ppm, s: 1 });
+      fn.ppm = ppm;
+      return fn;
     }
     // Scale matches the G5: ~27 px per metre at the vehicle on a 1280 px wide display.
     const back = 34 * G.zoom, height = 17 * G.zoom, horizon = H * -0.06;
@@ -363,9 +473,16 @@
       $('mapNote').hidden = false; $('mapNote').textContent = 'Waiting for vehicle position';
       return;
     }
-    const f = fwdOf(p.h), rt = rightOf(p.h);
-    const local = (x, z) => { const dx = x - p.x, dz = z - p.z; return { r: dx * rt.x + dz * rt.z, f: dx * f.x + dz * f.z }; };
+    // the view: centred on the machine (heading up or north up), or panned (V.free) to any point
+    const hf = frameHeading(p), C = V.free ? { x: V.cx, z: V.cz } : p;
+    const f = fwdOf(hf), rt = rightOf(hf);
+    const local = (x, z) => { const dx = x - C.x, dz = z - C.z; return { r: dx * rt.x + dz * rt.z, f: dx * f.x + dz * f.z }; };
     const P = (x, z) => { const l = local(x, z); return proj(l.r, l.f); };
+    // machine-local (r right, f forward of the machine) to the screen, wherever the view is
+    const vf = fwdOf(p.h), vr = rightOf(p.h);
+    const projV = (r, fo) => P(p.x + vr.x * r + vf.x * fo, p.z + vr.z * r + vf.z * fo);
+    // how far to draw: the part of the world on screen (at least the G5's 0.64 km)
+    const viewR = proj.ppm ? Math.max(VIEW_R, Math.hypot(W, H) / proj.ppm * 0.6) : VIEW_R;
 
     function polyline(pts, style, width, dash) {
       ctx.strokeStyle = style; ctx.lineWidth = width; ctx.setLineDash(dash || []);
@@ -379,24 +496,39 @@
 
     // ground grid for a sense of motion (every 20 m, world aligned)
     ctx.globalAlpha = 0.18;
-    const gx0 = Math.floor((p.x - 300) / 20) * 20, gz0 = Math.floor((p.z - 300) / 20) * 20;
-    for (let i = 0; i <= 30; i++) {
+    const gs = viewR > 1500 ? 200 : viewR > 700 ? 100 : 20, gn = Math.min(40, Math.ceil(viewR * 2 / gs));
+    const gx0 = Math.floor((C.x - gs * gn / 2) / gs) * gs, gz0 = Math.floor((C.z - gs * gn / 2) / gs) * gs;
+    for (let i = 0; i <= gn; i++) {
       const xs = [], zs = [];
-      for (let j = 0; j <= 30; j++) { xs.push(P(gx0 + i * 20, gz0 + j * 20)); zs.push(P(gx0 + j * 20, gz0 + i * 20)); }
+      for (let j = 0; j <= gn; j++) { xs.push(P(gx0 + i * gs, gz0 + j * gs)); zs.push(P(gx0 + j * gs, gz0 + i * gs)); }
       polyline(xs, '#d8d2b8', 2); polyline(zs, '#d8d2b8', 2);
     }
     ctx.globalAlpha = 1;
 
     // coverage and the selected layer, recorded by the bridge (layers.js), batched by color
     const frames = window.G5Layers ? G5Layers.frames() : [];
-    const near = (x, z) => Math.abs(x - p.x) < VIEW_R && Math.abs(z - p.z) < VIEW_R;
-    const byColor = window.G5Layers ? G5Layers.coverageRuns() : new Map();
+    const near = (x, z) => Math.abs(x - C.x) < viewR && Math.abs(z - C.z) < viewR;
+    // overhead: coverage as tile images under one affine transform; perspective: runs near the machine
+    const flat = G.view === '2d' && window.G5Layers && G5Layers.tileImages;
+    const byColor = window.G5Layers && !flat ? G5Layers.coverageRuns() : new Map();
     const quadPath = (q) => {
       const a = P(q[0], q[1]), b = P(q[2], q[3]), c = P(q[4], q[5]), e = P(q[6], q[7]);
       if (!a || !b || !c || !e) return;
       ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(c.x, c.y); ctx.lineTo(e.x, e.y); ctx.closePath();
     };
     ctx.globalAlpha = 0.88;
+    if (flat) {
+      const o = P(0, 0), ex = P(1, 0), ez = P(0, 1), T = G5Layers.TILE * G5Layers.CELL;
+      ctx.save();
+      ctx.setTransform(ex.x - o.x, ex.y - o.y, ez.x - o.x, ez.y - o.y, o.x, o.y);   // world metres -> canvas pixels
+      ctx.imageSmoothingEnabled = false;
+      for (const t of G5Layers.tileImages()) {
+        const x = t.tx * T, z = t.tz * T;
+        if (!near(x + T / 2, z + T / 2)) continue;
+        ctx.drawImage(t.img, x, z, T, T);
+      }
+      ctx.restore();
+    }
     const cellM = (window.G5Layers && G5Layers.CELL) || 1;
     for (const [color, list] of byColor) {
       ctx.fillStyle = color; ctx.strokeStyle = color; ctx.lineWidth = 1.5;
@@ -421,7 +553,7 @@
 
     // pass-direction chevrons on the coverage (as on the G5): one every CHEV_STEP metres of each pass
     ctx.fillStyle = 'rgba(0, 0, 0, 0.22)'; ctx.strokeStyle = 'rgba(0, 0, 0, 0.38)'; ctx.lineJoin = 'miter';
-    for (const c of chevrons(frames)) {
+    for (const c of (proj.ppm && proj.ppm < 0.6 ? [] : chevrons(frames))) {
       if (!near(c.x, c.z)) continue;
       const cf = fwdOf(c.h), cr = rightOf(c.h), s5 = Math.min(c.w * 0.3, 6);
       const W2 = (fo, ro) => P(c.x + cf.x * fo + cr.x * ro, c.z + cf.z * fo + cr.z * ro);
@@ -467,7 +599,7 @@
 
     // Courseplay field boundary and course (only points near the machine)
     if (course) {
-      const near = (x, z) => Math.abs(x - p.x) < 450 && Math.abs(z - p.z) < 450;
+      const lim = Math.max(450, viewR), near = (x, z) => Math.abs(x - C.x) < lim && Math.abs(z - C.z) < lim;
       const fieldPts = (course.field || []).map(q => near(q[0], q[1]) ? P(q[0], q[1]) : null);
       if (fieldPts.length > 1) { fieldPts.push(fieldPts[0]); polyline(fieldPts, 'rgba(255, 238, 63, .9)', 3); }
       const wps = course.waypoints || [];
@@ -486,11 +618,16 @@
     const t = currentTrack();
     if (t && s) {
       const td = fwdOf(t.h), tn = rightOf(t.h);
-      const along = (p.x - t.ax) * td.x + (p.z - t.az) * td.z;
-      for (let k = s.k - 8; k <= s.k + 8; k++) {
+      const along = (C.x - t.ax) * td.x + (C.z - t.az) * td.z;
+      const kc = V.free ? Math.round(((C.x - t.ax) * tn.x + (C.z - t.az) * tn.z - G.shift) / spacing()) : s.k;
+      // zoomed far out the passes would blur into stripes: then only the current track
+      const dense = proj.ppm && spacing() * proj.ppm < 8;
+      const kn = dense ? 0 : Math.min(150, Math.max(8, Math.ceil(viewR / spacing())));
+      const reach = Math.max(900, viewR * 1.5), step = Math.max(20, reach / 60);
+      for (let k = dense ? s.k : kc - kn; k <= (dense ? s.k : kc + kn); k++) {
         const o = k * spacing() + G.shift;
         const pts = [];
-        for (let a = -60; a <= 900; a += (a < 60 ? 4 : 20)) {
+        for (let a = V.free ? -reach : -60; a <= reach; a += (a > -60 && a < 60 ? 4 : step)) {
           const L = along + a, x = t.ax + td.x * L + tn.x * o, z = t.az + td.z * L + tn.z * o;
           pts.push(P(x, z));
         }
@@ -513,18 +650,27 @@
     const bars = pose.bars && pose.bars.length ? pose.bars : (w > 0 ? [{ r0: -w / 2, r1: w / 2, f: -7.5 }] : []);
     ctx.strokeStyle = '#2ee82e'; ctx.lineCap = 'butt';
     for (const b of bars) {
-      const mid = (b.r0 + b.r1) / 2, hitch = proj(mid * 0.2, b.f < 0 ? -2.2 : 2.6), bar = proj(mid, b.f);
-      const l = proj(b.r0, b.f), r = proj(b.r1, b.f);
+      const mid = (b.r0 + b.r1) / 2, hitch = projV(mid * 0.2, b.f < 0 ? -2.2 : 2.6), bar = projV(mid, b.f);
+      const l = projV(b.r0, b.f), r = projV(b.r1, b.f);
       if (!hitch || !bar || !l || !r) continue;
       ctx.lineWidth = Math.max(6, 0.45 * bar.s); ctx.beginPath(); ctx.moveTo(hitch.x, hitch.y); ctx.lineTo(bar.x, bar.y); ctx.stroke();
       ctx.lineWidth = Math.max(6, 0.35 * bar.s); ctx.beginPath(); ctx.moveTo(l.x, l.y); ctx.lineTo(r.x, r.y); ctx.stroke();
     }
-    drawTractor(proj);
+    drawTractor(projV);
+    // zoomed far out the machine is a few pixels: mark it with an arrow
+    const m0 = projV(0, 0), m1 = projV(0, 6);
+    if (m0 && m1 && Math.hypot(m1.x - m0.x, m1.y - m0.y) < 18) {
+      const ux = (m1.x - m0.x), uy = (m1.y - m0.y), L = Math.hypot(ux, uy) || 1, ax = ux / L, ay = uy / L;
+      ctx.fillStyle = '#ffd200'; ctx.strokeStyle = '#111'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(m0.x + ax * 26, m0.y + ay * 26);
+      ctx.lineTo(m0.x - ax * 14 - ay * 16, m0.y - ay * 14 + ax * 16); ctx.lineTo(m0.x - ax * 6, m0.y - ay * 6);
+      ctx.lineTo(m0.x - ax * 14 + ay * 16, m0.y - ay * 14 - ax * 16); ctx.closePath(); ctx.fill(); ctx.stroke();
+    }
 
     $('mapHdg').textContent = `${cardinal(p.h)} ${Math.round(p.h)}°`;
     // track number and direction from Track 0, as the G5 writes it ("5S", "0" on Track 0)
     $('mapTrk').textContent = s ? `${Math.abs(s.k)}${s.k === 0 ? '' : cardinal((s.k > 0 ? t.h + 90 : t.h - 90))}` : '---';
-    $('mapArrow').style.transform = `rotate(${-p.h}deg)`;
+    $('mapArrow').style.transform = `rotate(${-hf}deg)`;
   }
 
   // Chevron positions along each recorded pass, recomputed only when new frames arrive.

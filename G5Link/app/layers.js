@@ -103,6 +103,7 @@
         let t = G.tiles.get(key);
         if (!t) { t = { tx, tz, f: new Int32Array(TILE * TILE) }; G.tiles.set(key, t); }
         t.f[(cz - tz * TILE) * TILE + (cx - tx * TILE)] = id;   // frame index + 1, newest wins
+        t.ver = (t.ver || 0) + 1;
       }
     }
   }
@@ -145,6 +146,39 @@
     }
     G.runs = runs; G.key = styleKey; G.builtAt = now; G.builtFor = G.painted;
     return runs;
+  }
+  // Tile images for the overhead map: each 64 m tile drawn once into a 64x64 canvas (1 px per cell) and redrawn
+  // only when the tile gets new coverage or the layer, legend or units change. Zoomed out over a whole field the map
+  // draws ~1,500 images instead of hundreds of thousands of runs per frame.
+  const rgbaCache = new Map(), probe = document.createElement('canvas').getContext('2d');
+  function rgba(css) {
+    if (!rgbaCache.has(css)) { probe.clearRect(0, 0, 1, 1); probe.fillStyle = css; probe.fillRect(0, 0, 1, 1); rgbaCache.set(css, probe.getImageData(0, 0, 1, 1).data.slice()); }
+    return rgbaCache.get(css);
+  }
+  function tileImages() {
+    paintNew();
+    const L = layer(), styleKey = L.id + '|' + JSON.stringify(range().r || null) + '|' + JSON.stringify(settings.units);
+    const colorCache = new Map();
+    const colorFor = id => {
+      if (!colorCache.has(id)) { const c = colorOf(S.frames[id - 1]); colorCache.set(id, c ? rgba(c) : null); }
+      return colorCache.get(id);
+    };
+    const out = [];
+    for (const t of G.tiles.values()) {
+      if (!t.img || t.imgVer !== t.ver || t.imgKey !== styleKey) {
+        if (!t.img) { t.img = document.createElement('canvas'); t.img.width = TILE; t.img.height = TILE; }
+        const c2 = t.img.getContext('2d'), im = c2.createImageData(TILE, TILE);
+        for (let i = 0; i < TILE * TILE; i++) {
+          const id = t.f[i]; if (!id) continue;
+          const c = colorFor(id); if (!c) continue;
+          im.data[i * 4] = c[0]; im.data[i * 4 + 1] = c[1]; im.data[i * 4 + 2] = c[2]; im.data[i * 4 + 3] = 255;
+        }
+        c2.putImageData(im, 0, 0);
+        t.imgVer = t.ver; t.imgKey = styleKey;
+      }
+      out.push(t);
+    }
+    return out;
   }
   async function refreshOps() {
     try {
@@ -336,7 +370,7 @@
 
   window.G5Layers = {
     onTelemetry, colorOf, layer, renderLegend,
-    frames: () => S.frames, overlap: () => S.overlap, version: () => S.version, coverageRuns, CELL,
+    frames: () => S.frames, overlap: () => S.overlap, version: () => S.version, coverageRuns, tileImages, TILE, CELL,
     COVER, OVER,
   };
   renderLegend();

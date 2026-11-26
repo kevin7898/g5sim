@@ -291,6 +291,19 @@ from `FieldPathPrivateIntegration.lua`:
   multiplayer (live state is per machine on the server; clients get it through telemetry only), and real
   configuration names in vehicle mods with GPS options (Xerion US, MF 6480 realGPS, Buyable GPS).
 
+## UI polish pass (2026-11-26)
+
+- Display: 26 font sizes -> 8 tokens (13/15/17/20/24/30/38/46), 17 control heights -> 3 (44/50/58). Ops Center:
+  11 sizes -> 6 tokens, min 13 px; buttons 36 px, chips 30 px.
+- Fixes: track spacing "40.0 ft" (was "39.993ft"), implement fill "70% · 423 gal", Turn On/Off right-aligned,
+  headland window shows "Loading" instead of opening empty, headland choices no longer clipped, oversized
+  "Edit Presets" and other buttons that inherited the 58 px key height.
+- Performance: the Guidance map drew every recorded frame each animation frame (a long session = 100k+ frames,
+  ~1.7 M quads) and froze. Coverage is now painted once into a 1 m grid (latest frame per cell, layers.js
+  coverageRuns) and drawn as runs per row and color: 60 fps with 107k frames.
+- Open decision: let the display height stretch to the screen (e.g. 1280x960 on a 4:3 iPad) instead of the fixed
+  1280x720 canvas.
+
 ## Design reference (how the look was matched)
 
 The look was matched to the real G5 Universal in the Deere Display and CommandARM Simulator

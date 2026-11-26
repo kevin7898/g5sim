@@ -71,6 +71,80 @@
   }
   function resetOp(op) {
     S.op = op; S.seq = 0; S.frames = []; S.ovVer = -1; S.overlap = { runs: [], cell: 1 }; S.range = null; S.meta = {}; S.version++;
+    G.tiles.clear(); G.painted = 0; G.runs = null; G.key = '';
+  }
+
+  // ---------------------------------------------------------------- coverage grid
+  // Drawing every recorded frame gets slower the longer you drive (a day of planting is >100k frames of
+  // 16 quads). Instead each frame is painted once into a 1 m grid that keeps the latest frame per cell
+  // (like the bridge's overlap grid), and the map draws that grid as runs per row and color.
+  const CELL = 1, TILE = 64;
+  const G = { tiles: new Map(), painted: 0, runs: null, key: '', builtAt: 0 };
+  const side = (ax, az, bx, bz, px, pz) => (bx - ax) * (pz - az) - (bz - az) * (px - ax);
+  function inQuad(q, x, z) {
+    let pos = false, neg = false;
+    for (let i = 0; i < 4; i++) {
+      const j = (i + 1) % 4, d = side(q[i * 2], q[i * 2 + 1], q[j * 2], q[j * 2 + 1], x, z);
+      if (d > 1e-9) pos = true; else if (d < -1e-9) neg = true;
+      if (pos && neg) return false;
+    }
+    return true;
+  }
+  function paint(q, id) {
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (let i = 0; i < 4; i++) {
+      x0 = Math.min(x0, q[i * 2]); x1 = Math.max(x1, q[i * 2]); z0 = Math.min(z0, q[i * 2 + 1]); z1 = Math.max(z1, q[i * 2 + 1]);
+    }
+    if (!(x1 - x0 < 200 && z1 - z0 < 200)) return;           // a broken quad: never paint the world
+    for (let cz = Math.floor(z0 / CELL); cz <= Math.floor(z1 / CELL); cz++) {
+      for (let cx = Math.floor(x0 / CELL); cx <= Math.floor(x1 / CELL); cx++) {
+        if (!inQuad(q, (cx + 0.5) * CELL, (cz + 0.5) * CELL)) continue;
+        const tx = Math.floor(cx / TILE), tz = Math.floor(cz / TILE), key = tx + ',' + tz;
+        let t = G.tiles.get(key);
+        if (!t) { t = { tx, tz, f: new Int32Array(TILE * TILE) }; G.tiles.set(key, t); }
+        t.f[(cz - tz * TILE) * TILE + (cx - tx * TILE)] = id;   // frame index + 1, newest wins
+      }
+    }
+  }
+  function paintNew() {
+    // a long session arrives as one big batch: paint it a slice per animation frame so the page stays live
+    const stop = Math.min(S.frames.length, G.painted + 8000);
+    for (; G.painted < stop; G.painted++) {
+      const f = S.frames[G.painted];
+      for (const q of f.q || []) paint(q, G.painted + 1);
+    }
+  }
+  // Runs for the map: Map(color -> [[x0, x1, z0]]) in metres. Rebuilt when the layer, legend or units change,
+  // and at most once a second while new coverage arrives.
+  function coverageRuns() {
+    paintNew();
+    const L = layer(), styleKey = L.id + '|' + JSON.stringify(range().r || null) + '|' + JSON.stringify(settings.units);
+    const now = Date.now();
+    const catching = G.painted < S.frames.length;
+    if (G.runs && G.key === styleKey && (G.builtFor === G.painted || now - G.builtAt < (catching ? 250 : 1000))) return G.runs;
+    const colorCache = new Map(), runs = new Map();
+    const colorFor = id => {
+      if (!colorCache.has(id)) colorCache.set(id, colorOf(S.frames[id - 1]) || null);
+      return colorCache.get(id);
+    };
+    for (const t of G.tiles.values()) {
+      for (let r = 0; r < TILE; r++) {
+        let start = -1, color = null;
+        for (let c = 0; c <= TILE; c++) {
+          const id = c < TILE ? t.f[r * TILE + c] : 0;
+          const col = id ? colorFor(id) : null;
+          if (col !== color) {
+            if (color && start >= 0) {
+              if (!runs.has(color)) runs.set(color, []);
+              runs.get(color).push([(t.tx * TILE + start) * CELL, (t.tx * TILE + c) * CELL, (t.tz * TILE + r) * CELL]);
+            }
+            color = col; start = col ? c : -1;
+          }
+        }
+      }
+    }
+    G.runs = runs; G.key = styleKey; G.builtAt = now; G.builtFor = G.painted;
+    return runs;
   }
   async function refreshOps() {
     try {
@@ -262,7 +336,7 @@
 
   window.G5Layers = {
     onTelemetry, colorOf, layer, renderLegend,
-    frames: () => S.frames, overlap: () => S.overlap, version: () => S.version,
+    frames: () => S.frames, overlap: () => S.overlap, version: () => S.version, coverageRuns, CELL,
     COVER, OVER,
   };
   renderLegend();

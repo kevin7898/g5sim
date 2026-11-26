@@ -165,7 +165,7 @@
   }
 
   // ---------------------------------------------------------------- side modules
-  const lenText = m => metric('distance') ? `${m.toFixed(3)}m` : `${(m * 3.28084).toFixed(3)}ft`;
+  const lenText = m => metric('distance') ? `${m.toFixed(2)} m` : `${(m * 3.28084).toFixed(1)} ft`;
   function renderSide() {
     const t = currentTrack();
     $('trkName').textContent = t ? t.name : 'No track';
@@ -322,25 +322,22 @@
     // coverage and the selected layer, recorded by the bridge (layers.js), batched by color
     const frames = window.G5Layers ? G5Layers.frames() : [];
     const near = (x, z) => Math.abs(x - p.x) < VIEW_R && Math.abs(z - p.z) < VIEW_R;
-    const byColor = new Map();
-    const cover = G5Layers.COVER;
-    for (const fr of frames) {
-      const q0 = fr.q[0];
-      if (!q0 || !near(q0[0], q0[1])) continue;
-      const color = G5Layers.colorOf(fr) || cover;
-      let list = byColor.get(color);
-      if (!list) { list = []; byColor.set(color, list); }
-      for (const q of fr.q) list.push(q);
-    }
+    const byColor = window.G5Layers ? G5Layers.coverageRuns() : new Map();
     const quadPath = (q) => {
       const a = P(q[0], q[1]), b = P(q[2], q[3]), c = P(q[4], q[5]), e = P(q[6], q[7]);
       if (!a || !b || !c || !e) return;
       ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(c.x, c.y); ctx.lineTo(e.x, e.y); ctx.closePath();
     };
     ctx.globalAlpha = 0.88;
+    const cellM = (window.G5Layers && G5Layers.CELL) || 1;
     for (const [color, list] of byColor) {
       ctx.fillStyle = color; ctx.strokeStyle = color; ctx.lineWidth = 1.5;
-      ctx.beginPath(); list.forEach(quadPath); ctx.fill(); ctx.stroke();   // stroke closes hairline seams
+      ctx.beginPath();
+      for (const [x0, x1, z0] of list) {
+        if (!near(x0, z0) && !near(x1, z0)) continue;
+        quadPath([x0, z0, x1, z0, x1, z0 + cellM, x0, z0 + cellM]);
+      }
+      ctx.fill(); ctx.stroke();   // stroke closes hairline seams
     }
     ctx.globalAlpha = 1;
     // overlap (more than one pass) in dark blue on the coverage layer

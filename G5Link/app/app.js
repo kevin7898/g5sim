@@ -449,7 +449,7 @@ function renderImplements(imps) {
           const pct = f.cap ? f.level / f.cap * 100 : 0;
           return `<div class="fill-row"><span>${esc(f.title || 'Fill')}</span>
             <div class="meter"><i class="${pct < 10 ? 'low' : ''}" style="width:${pct.toFixed(0)}%"></i></div>
-            <b>${pct.toFixed(0)}%  ${fmt(U.vol(f.level), 0)}</b></div>`;
+            <b>${pct.toFixed(0)}% · ${fmt(U.vol(f.level), 0)} ${U.volUnit()}</b></div>`;
         }).join('')}
         <div class="impl-actions">${i.canTurnOn ? `<button class="g5btn" data-cmd="implTurnOn" data-index="${n}">${i.turnedOn ? 'Turn Off' : 'Turn On'}</button>` : ''}</div>
       </div>

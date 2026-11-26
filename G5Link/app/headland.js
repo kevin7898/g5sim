@@ -29,7 +29,8 @@
 
   function render() {
     const c = H.cfg, st = H.status || {}, hl = live() || {};
-    if (!c || $('headlandWin').hidden) return;
+    if ($('headlandWin').hidden) return;
+    if (!c) { setHtml($('hlBody'), '<p class="hint win-loading">Loading headland settings…</p>'); return; }
     const fieldName = st.fieldName || (st.field ? `Field ${st.field}` : null);
     const fieldW = st.field && c.perField ? c.perField[st.field] : undefined;
     const seg = (key, opts, cur) => `<div class="seg hl-seg" data-hl="${key}">${opts.map(([v, t]) =>

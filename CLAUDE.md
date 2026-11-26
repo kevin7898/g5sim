@@ -17,6 +17,10 @@ mod writes telemetry to a file, a Node bridge streams it to a browser or iPad, a
 - **The look must match the real G5.** When adding or changing a screen, check it against the real G5 in
   the Deere Display Simulator (see "Design reference" in NOTES.md), not against text descriptions.
   Use the palette in `G5Link/app/style.css` `:root`.
+- **Sizes come from tokens.** Font sizes and control heights use the `:root` tokens in `G5Link/app/style.css`
+  (`--fs-xs` 13 … `--fs-val` 46, `--h-sm` 44 / `--h-md` 50 / `--h-lg` 58) and `app/ops/ops.css`; no raw px font
+  sizes. Nothing tappable on the display below `--h-sm`. Window actions sit bottom-right; windows show a loading
+  line instead of opening empty.
 - **Don't commit Deere screenshots, logos or artwork.** Icons in the app are original line drawings.
 - **Tests:** run `G5Link/tests/run.sh` after any mod change. When the mod calls a new game or mod API, add it to the
   mocks in `tests/mod_smoke.lua` with a check, so a typo or a nil/NaN shows up before FS25 does.

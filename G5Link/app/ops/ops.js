@@ -813,7 +813,7 @@ function renderProfit() {
         ${fin ? `<div class="sep"></div><span>Farm balance</span><b>${money(fin.balance)}</b><span>Loan</span><b>${money(fin.loan)}</b><span>Equity</span><b>${money(fin.equity)}</b>` : ''}
         ${fin && fin.farmFinance ? farmFinanceLines(fin.farmFinance) : ''}</div></div>
     ${sel ? budgetCard(sel) : ''}
-    <h3 style="margin:12px 0 4px;font-size:15px">Fields by profit per ${areaU()}</h3>
+    <h3 style="margin:12px 0 4px;font-size:var(--fs-md)">Fields by profit per ${areaU()}</h3>
     ${P.fields.length ? P.fields.map(row).join('') : '<p class="empty">No work recorded on any field yet. Harvest, seeding and application work fills this in.</p>'}`);
 }
 function farmFinanceLines(ff) {
@@ -846,12 +846,12 @@ function renderCosts() {
   const crops = [...new Set(P.fields.map(r => r.crop).filter(Boolean).concat(Object.keys(ps.prices)))];
   const inp = (key, v, extra = '') => `<input data-cost="${key}" type="number" min="0" step="any" value="${v}" ${extra}>`;
   setHtml($('profitBody'), `
-    <h3 style="margin:8px 0 4px;font-size:15px">Machinery cost per ${per}</h3>
+    <h3 style="margin:8px 0 4px;font-size:var(--fs-md)">Machinery cost per ${per}</h3>
     <p class="note">Fuel, repairs, depreciation and labor per ${per} worked, by work type (custom-rate style).</p>
     ${['tillage', 'seeding', 'application', 'harvest'].map(k => `<div class="cost-row"><span><i class="wk ${k}"></i>${KIND[k]}</span>${inp('machinery.' + k, +(perArea(ps.machinery[k])).toFixed(2))}</div>`).join('')}
-    <h3 style="margin:14px 0 4px;font-size:15px">Land</h3>
+    <h3 style="margin:14px 0 4px;font-size:var(--fs-md)">Land</h3>
     <div class="cost-row"><span>Rent per ${per}<small>Charged on the whole field area</small></span>${inp('rent', +(perArea(ps.rent)).toFixed(2))}</div>
-    <h3 style="margin:14px 0 4px;font-size:15px">Crop prices per ${priceU()}</h3>
+    <h3 style="margin:14px 0 4px;font-size:var(--fs-md)">Crop prices per ${priceU()}</h3>
     <p class="note">Leave empty to use the game's price. Set one to plan with a contract price.</p>
     ${crops.length ? crops.map(c => { const g = P.fields.find(r => r.crop === c); const set = ps.prices[c];
       return `<div class="cost-row"><span>${esc(cropName(c))}<small>${g && g.priceSource === 'game' ? 'Game: ' + money(pricePer(g.pricePerT, c), 2) : 'No game price yet'}</small></span>

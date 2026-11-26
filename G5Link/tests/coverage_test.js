@@ -110,6 +110,12 @@ try {
     check(v.rate === 33600 && v.skips === 1.5 && v.doubles === 0.5 && v.singulation === 98, 'seeder rate, skips, doubles, singulation');
     check(v.soilMoisture === 25 && v.compaction === 20 && v.depth === 50, 'seeder soil moisture, compaction, depth');
 
+    const vs = new CoverageStore({});
+    const withVariety = o => ({ ...frame(o), workSetup: { variety: 'P1197AM', crop: 'MAIZE' } });
+    for (let x = 0; x <= 10; x += 0.7) vs.onFrame(withVariety({ x, z: 0, heading: 90, seeder: { ...seeder } }));
+    const vop = vs.list().ops[0];
+    check(vop.id === 'seeding:maize:p1197am' && vop.title === 'Seeding · Corn · P1197AM', 'work setup variety splits seeding maps');
+
     const h = new CoverageStore({});
     drive(h, { z: 0, from: 0, to: 10, heading: 90, fills: [], combine: { crop: 'WHEAT', cropTitle: 'Wheat' }, rh: { crop: 'WHEAT', yield: 6.5, moisture: 15.2, loss: 0.8 } });
     const hop = h.list().ops[0];

@@ -247,6 +247,15 @@ function draw() {
   if (onField) {
     const b = activeBoundary();
     if (b) { pathPoly(b.polygon, s); ctx.strokeStyle = '#d63cc7'; ctx.lineWidth = 3 * s.dpr; ctx.stroke(); }
+    // guidance tracks of the field (A point and heading; north = -z), drawn long and clipped by the view
+    const trs = S.page === 'field' && S.detail && S.detail.tracks || [];
+    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2 * s.dpr; ctx.setLineDash([10 * s.dpr, 6 * s.dpr]);
+    for (const t of trs) {
+      const hr = t.h * Math.PI / 180, fx = Math.sin(hr), fz = -Math.cos(hr);
+      const [ax, ay] = toScreen(t.ax - fx * 3000, t.az - fz * 3000, s), [bx, by] = toScreen(t.ax + fx * 3000, t.az + fz * 3000, s);
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+    }
+    ctx.setLineDash([]);
   }
 
   // labels
@@ -521,7 +530,9 @@ async function openField(id) {
 async function loadField(id, fit) {
   try {
     const d = await api(`/api/ops/field?id=${encodeURIComponent(id)}`);
+    const tr = await api(`/api/ops/tracks?field=${encodeURIComponent(id)}`);
     if (S.field !== String(id)) return;
+    d.tracks = tr.tracks || [];
     S.detail = d;
     const ops = [...new Set(d.records.map(r => r.op))];
     if (!ops.includes(S.layerOp)) S.layerOp = ops[0] || null;
@@ -553,7 +564,7 @@ function renderField() {
   setHtml($('fieldDetail'), `
     <div class="card"><h2>${esc(f.name)}<button class="edit" id="fieldRename" title="Rename">✎</button></h2>
       <div class="who">${esc(clientName())} | ${esc(owned(f) ? farmName() : 'Not owned')}${f.farmland ? ' · Farmland ' + f.farmland : ''}</div>
-      <div class="checks"><span class="${b ? '' : 'no'}">Active Boundary</span><span class="${recs.length ? '' : 'no'}">Work Records</span><span class="no" title="Guidance tracks are kept on the G5 display">Guidance</span></div></div>
+      <div class="checks"><span class="${b ? '' : 'no'}">Active Boundary</span><span class="${recs.length ? '' : 'no'}">Work Records</span><span class="${(d.tracks || []).length ? '' : 'no'}">Guidance</span></div></div>
     <h3>Boundaries</h3>
     ${versions.map(x => `<div class="bnd ${x.v === f.active ? 'active' : ''}">${shapeSvg(x.polygon, x.v === f.active ? '#d63cc7' : '#9a988d')}
         <b>${esc(f.name)}-Boundary${f.boundaries.length > 1 ? ' ' + x.v : ''}</b>
@@ -569,6 +580,11 @@ function renderField() {
     ${S.proposal && !S.proposal.newField ? `<div class="proposal">From a previous operation: ${area(S.proposal.areaHa)} (${S.proposal.addedHa >= 0 ? '+' : ''}${area(S.proposal.addedHa)})
       <div class="acts"><button class="btn primary" id="propSave">Save as New Boundary</button><button class="btn" id="propDrop">Discard</button></div></div>` : ''}
     <p class="note">The newest driven, drawn or traced boundary is active unless you make another one active. Work records follow the active boundary.</p>
+    <h3>Guidance</h3>
+    ${(d.tracks || []).length ? d.tracks.map(t => `<div class="bnd"><svg class="shape" viewBox="0 0 26 16"><path d="M3 14L23 2" stroke="#1f1f1d" stroke-width="2"/></svg>
+        <b>${esc(t.name)}</b><button class="mini" data-trk-rename="${esc(t.id)}">Rename</button>
+        <span class="sub">Straight | ${esc(t.how)} | ${fmt(t.h, 1)}°${dateTxt(t.at) ? ' | ' + dateTxt(t.at) : ''} · <button class="mini" data-trk-del="${esc(t.id)}">Delete</button></span></div>`).join('')
+      : '<p class="note">No guidance tracks in this field. Create them on the G5 display (Guidance > Set Track) while in the field; they appear here and on every display.</p>'}
     <h3>Work Records</h3>
     ${recs.length ? `<table class="rec"><tr><th>Operation</th><th>Days</th><th class="n">Covered</th><th class="n">Overlap</th></tr>
       ${recs.map(r => `<tr><td><b><i class="wk ${r.kind}"></i>${esc(r.title)}</b><br><span class="note">${esc(recordValues(r))}</span></td><td>${dayTxt(r.firstDay)}${r.lastDay !== r.firstDay && dayTxt(r.lastDay) ? ' – ' + dayTxt(r.lastDay) : ''}</td>
@@ -596,6 +612,14 @@ function renderField() {
     catch (e) { toast(e.message); }
   };
   if ($('propDrop')) $('propDrop').onclick = () => { S.proposal = null; renderField(); };
+  $('fieldDetail').querySelectorAll('[data-trk-rename]').forEach(x => { x.onclick = async () => {
+    const t = d.tracks.find(y => y.id === x.dataset.trkRename); const name = t && prompt('Track name', t.name);
+    if (!name) return;
+    try { await api('/api/ops/tracks', { action: 'update', id: t.id, changes: { name } }); loadField(f.id, false); } catch (e) { toast(e.message); } }; });
+  $('fieldDetail').querySelectorAll('[data-trk-del]').forEach(x => { x.onclick = async () => {
+    const t = d.tracks.find(y => y.id === x.dataset.trkDel);
+    if (!t || !confirm(`Delete ${t.name}? It is removed from every display.`)) return;
+    try { await api('/api/ops/tracks', { action: 'delete', id: t.id }); loadField(f.id, false); } catch (e) { toast(e.message); } }; });
   $('fieldDetail').querySelectorAll('[data-use]').forEach(x => { x.onclick = async () => {
     try { await api('/api/ops/active', { fieldId: f.id, v: +x.dataset.use }); refresh(); } catch (e) { toast(e.message); } }; });
   $('fieldDetail').querySelectorAll('[data-remove]').forEach(x => { x.onclick = async () => {

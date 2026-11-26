@@ -493,3 +493,11 @@ svg { display: block; }
 a.app { text-decoration: none; color: inherit; }
 #boundaryWin { z-index: 50; }
 .g5btn:disabled { opacity: .45; }
+.trk-group { font-size: 14px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin: 8px 2px 4px; }
+.trk-row em { font-style: normal; font-size: 13px; color: var(--muted); margin-left: 8px; }
+.ws-win { width: 760px; } .ws-win .win-body { padding: 8px 22px 16px; }
+.ws-in { width: 360px; height: 46px; font-size: 18px; font-weight: 600; padding: 0 12px; border: 2px solid var(--btn-line); border-radius: 6px; background: #fff; color: #1e1e1b; }
+.ws-right { display: flex; align-items: center; gap: 12px; } .ws-seg { width: 260px; height: 46px; } .ws-seg button { font-size: 16px; min-width: 0; }
+.ws-right select.ws-in { width: 220px; } .ws-right > select.ws-in:only-child { width: 360px; }
+.ws-note { font-style: normal; font-weight: 700; font-size: 17px; color: var(--ink-2); min-width: 90px; }
+#workSetupWin { z-index: 50; }

@@ -312,7 +312,8 @@
       <button class="sk" data-cmd="lowerAll" id="skLower"><svg><use href="#i-hitch"/></svg><b>LOWER/RAISE</b><span id="skLowerState">--</span></button>
       <button class="sk" data-cmd="turnOnAll" id="skTurnOn"><svg><use href="#i-pto"/></svg><b>TURN ON</b><span id="skTurnOnState">--</span></button>
       <button class="sk" id="skWork"><svg><use href="#i-work"/></svg><b>WORK</b><span id="skWorkState">--</span></button>
-      <div class="sk empty"></div><div class="sk empty"></div><div class="sk empty"></div><div class="sk empty"></div><div class="sk empty"></div>
+      <button class="sk" id="skSetup"><svg><use href="#i-seed"/></svg><b>SETUP</b><span id="skSetupState">--</span></button>
+      <div class="sk empty"></div><div class="sk empty"></div><div class="sk empty"></div><div class="sk empty"></div>
       <button class="sk" id="skPageSet"><svg><use href="#i-gear"/></svg><b>DISPLAY</b><span class="nostrip"></span></button>
       <button class="sk menu" id="menuBtn"><svg><use href="#i-menu"/></svg><b>MENU</b><span class="nostrip"></span></button>
     </footer>
@@ -336,6 +337,7 @@
             <button class="app" data-goto="Work Monitor"><span class="app-ico"><svg><use href="#i-work"/></svg></span><b>Work Monitor</b></button>
             <button class="app" data-goto="Implement Details"><span class="app-ico"><svg><use href="#i-hitch"/></svg></span><b>Implement Details</b></button>
             <button class="app" data-goto="Machine Monitor"><span class="app-ico"><svg><use href="#i-engine"/></svg></span><b>Machine Monitor</b></button>
+            <button class="app" id="appWorkSetup"><span class="app-ico"><svg><use href="#i-seed"/></svg></span><b>Work Setup</b></button>
             <button class="app" id="appBoundary"><span class="app-ico"><svg><use href="#i-layers"/></svg></span><b>Boundary</b></button>
             <a class="app" href="/ops/"><span class="app-ico"><svg><use href="#i-sat"/></svg></span><b>Ops Center</b></a>
             <button class="app" data-goto="Planter"><span class="app-ico"><svg><use href="#i-seed"/></svg></span><b>Planter</b></button>
@@ -365,6 +367,14 @@
           <button class="g5btn smv-cancel" id="smvCancel"><svg><use href="#i-x"/></svg>Cancel</button>
           <button class="g5btn smv-ok" id="smvOk"><svg><use href="#i-check"/></svg>OK</button>
         </div>
+      </div>
+    </div>
+
+    <!-- App window: Work Setup (client, farm, field, crop, variety, product), saved in the bridge -->
+    <div class="window-wrap" id="workSetupWin" hidden>
+      <div class="window ws-win">
+        <div class="win-head"><b>Work Setup</b><button class="win-close" data-close="workSetupWin" aria-label="Close"><svg><use href="#i-x"/></svg></button></div>
+        <div class="win-body" id="wsBody"></div>
       </div>
     </div>
 
@@ -445,6 +455,7 @@
 <script src="app.js"></script>
 <script src="layers.js"></script>
 <script src="boundary.js"></script>
+<script src="worksetup.js"></script>
 <script src="guidance.js"></script>
 </body>
 </html>

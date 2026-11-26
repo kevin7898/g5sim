@@ -339,6 +339,60 @@ class FieldStore {
     return out;
   }
 
+  // ---------------------------------------------------------------- guidance tracks (Data Sync)
+  // Straight tracks shared by every display and the Ops Center: {id, name, fieldId, how, ax, az, h, at}.
+  tracks(save, fieldId = undefined) {
+    const list = this.db(save).tracks || [];
+    return fieldId === undefined ? list : list.filter(t => String(t.fieldId ?? '') === String(fieldId ?? ''));
+  }
+  addTrack(save, t) {
+    const n = v => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+    if (n(t.ax) === null || n(t.az) === null || n(t.h) === null) throw new Error('a track needs ax, az and h');
+    const d = this.db(save);
+    d.tracks = d.tracks || [];
+    d.nextTrack = d.nextTrack || 1;
+    const fieldId = t.fieldId !== undefined && t.fieldId !== null && t.fieldId !== '' ? String(t.fieldId) : null;
+    const how = ['A+B', 'A+Heading'].includes(t.how) ? t.how : 'A+Heading';
+    const sameField = d.tracks.filter(x => x.fieldId === fieldId).length;
+    const track = { id: 'T' + (d.nextTrack++), name: String(t.name || `Track ${sameField + 1} (${how})`).slice(0, 60), fieldId, how,
+      ax: +n(t.ax).toFixed(2), az: +n(t.az).toFixed(2), h: +(((n(t.h) % 360) + 360) % 360).toFixed(2), at: Date.now() };
+    d.tracks.push(track);
+    this.write(save);
+    return track;
+  }
+  updateTrack(save, id, changes) {
+    const t = (this.db(save).tracks || []).find(x => x.id === id);
+    if (!t) throw new Error('no such track');
+    if (typeof changes.name === 'string' && changes.name.trim()) t.name = changes.name.trim().slice(0, 60);
+    if ('fieldId' in changes) t.fieldId = changes.fieldId === null || changes.fieldId === '' ? null : String(changes.fieldId);
+    this.write(save);
+    return t;
+  }
+  deleteTrack(save, id) {
+    const d = this.db(save), before = (d.tracks || []).length;
+    d.tracks = (d.tracks || []).filter(x => x.id !== id);
+    if (d.tracks.length === before) throw new Error('no such track');
+    this.write(save);
+  }
+
+  // ---------------------------------------------------------------- Work Setup (G5: client, farm, field, crop, variety, product)
+  workSetup(save) {
+    const d = this.db(save);
+    d.workSetup = Object.assign({ client: null, farm: null, fieldMode: 'auto', fieldId: null, crop: null, variety: null, product: null }, d.workSetup || {});
+    return d.workSetup;
+  }
+  setWorkSetup(save, w) {
+    const ws = this.workSetup(save);
+    const str = v => (v === null || v === '' ? null : typeof v === 'string' ? v.trim().slice(0, 60) || null : undefined);
+    for (const k of ['client', 'farm', 'variety', 'product', 'crop']) if (k in w && str(w[k]) !== undefined) ws[k] = str(w[k]);
+    if (ws.crop) ws.crop = ws.crop.toUpperCase();
+    if (w.fieldMode === 'auto' || w.fieldMode === 'fixed') ws.fieldMode = w.fieldMode;
+    if ('fieldId' in w) ws.fieldId = w.fieldId === null || w.fieldId === '' ? null : String(w.fieldId);
+    if (typeof w.client === 'string' && w.client.trim()) this.db(save).settings.client = w.client.trim().slice(0, 60);
+    this.write(save);
+    return ws;
+  }
+
   // ---------------------------------------------------------------- Harvest Profit
   // Profit settings per savegame: machinery cost per hectare by work type, land rent, crop price overrides.
   profitSettings(save) {

@@ -193,10 +193,13 @@ class CoverageStore {
       return { kind: 'harvest', product: crop || '', title: 'Harvest' + (crop ? ' · ' + title(t.combine.cropTitle || crop) : '') };
     }
     const fills = impl.fills || [];
+    const ws = t.workSetup || {};
     const seed = fills.find(f => /SEED/i.test(f.type || f.title || ''));
     if (impl.seeder || seed) {
-      const crop = impl.seeder && impl.seeder.crop;
-      return { kind: 'seeding', product: crop || '', title: 'Seeding' + (crop ? ' · ' + title(crop) : ''),
+      // crop from the seeder, else the Work Setup; the Work Setup variety splits maps per variety (like the G5)
+      const crop = (impl.seeder && impl.seeder.crop) || ws.crop;
+      return { kind: 'seeding', product: crop || '', variety: ws.variety || null,
+        title: 'Seeding' + (crop ? ' · ' + title(crop) : '') + (ws.variety ? ' · ' + ws.variety : ''),
         rateUnit: impl.seeder ? (impl.seeder.unit === 'poundsPerAcre' ? 'lb/ac' : 'seeds/ac') : 'L/ha' };
     }
     const product = fills.find(f => f.level > 0) || fills[0];
@@ -293,7 +296,7 @@ class CoverageStore {
       this.track.set(key, { runs });
       if (!runs.length) return;
       const opMeta = this.operationOf(t, impl);
-      const opId = opMeta.kind + (opMeta.product ? ':' + slug(opMeta.product) : '');
+      const opId = opMeta.kind + (opMeta.product ? ':' + slug(opMeta.product) : '') + (opMeta.variety ? ':' + slug(opMeta.variety) : '');
       currentOp = currentOp || opId;
       workedThisFrame = true;
       if (!prev || !prev.runs.length) return;

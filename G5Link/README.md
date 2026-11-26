@@ -58,6 +58,12 @@ Ops Center on the display). Laid out like the real Operations Center:
   hidden until inspected, as in that mod.
 - **Equipment:** the farm's machines with status, field, fuel, hours and service.
 
+**Data Sync and Work Setup.** Guidance tracks are kept in the bridge per savegame and field, so every display and
+the Ops Center share them; the track list shows the current field's tracks first and picks up the last track used in
+a field. Tracks made before Data Sync move over on first load. The **SETUP** key (or Menu > Applications > Work
+Setup) sets client, farm, field (automatic or chosen), crop, variety and product. The variety names seeding maps and
+records ("Seeding · Corn · P1197AM").
+
 **Units.** Menu > System > Units: one key for all Metric or all US, and **Unit Settings** for each quantity
 (speed, distance, area, liquid volume, yield and grain, seeding rate, pressure).
 

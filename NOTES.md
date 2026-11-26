@@ -179,6 +179,15 @@ from `FieldPathPrivateIntegration.lua`:
   and each machine's loan or lease (matched by `uniqueId`) shows on the Equipment list.
 - Due soon = 85 % of the interval; past due = 100 % (ADS's own service lamp threshold).
 
+## Data Sync and Work Setup
+
+- Tracks: `ops-fields.json` `tracks` ({id, name, fieldId, how, ax, az, h, at}); API `GET/POST /api/ops/tracks`
+  (add, update, delete). The display reloads them when `ops.fields` (the store version) changes, keeps the selected
+  track id and the last track per field in its settings, and migrates old local tracks once (`G.migrated`).
+- Work Setup: `workSetup` in the same file; `GET/POST /api/ops/work-setup`; sent on every frame as `workSetup`.
+  The coverage recorder uses its crop (when the machine has none) and its variety (operation id `seeding:<crop>:<variety>`).
+  A fixed field in Work Setup overrides the field under the machine for tracks and the Location module.
+
 ## Design reference (how the look was matched)
 
 The look was matched to the real G5 Universal in the Deere Display and CommandARM Simulator

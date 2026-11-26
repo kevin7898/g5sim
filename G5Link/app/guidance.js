@@ -4,7 +4,7 @@
 // World convention (matches the mod): north = -Z, heading 0 = north, 90 = east.
 
 (function () {
-  const G = Object.assign({ tracks: [], current: -1, spacing: null, shift: 0, incr: 0.0254, zoom: 1, view: '3d' },
+  const G = Object.assign({ tracks: [], current: -1, currentId: null, lastByField: {}, migrated: false, spacing: null, shift: 0, incr: 0.0254, zoom: 1, view: '3d' },
     settings.guid || {});
   settings.guid = G;
   const save = () => { settings.guid = G; saveSettings(); };
@@ -23,6 +23,8 @@
   window.onTelemetry = d => {
     if (window.G5Layers) { G5Layers.onTelemetry(d); G5Layers.renderLegend(); }
     if (window.G5Bounds) G5Bounds.onTelemetry(d);
+    if (window.G5WorkSetup) G5WorkSetup.onTelemetry(d);
+    if (d.ops && d.ops.fields !== T.version) loadTracks();
     const v = d.vehicle;
     if (d.state !== 'vehicle' || !v || v.x === undefined) { pose.ok = false; return; }
     const imps = d.implements || [];
@@ -45,6 +47,7 @@
       return { r0, r1, f };
     }).filter(Boolean);
     pose.field = d.field ?? v.field ?? null;
+    onFieldChange(workField());
     const pv = d.providers || {};
     pose.cp = pv.courseplay || null;
     pose.ad = pv.autodrive || null;
@@ -69,7 +72,59 @@
 
   // ---------------------------------------------------------------- guidance math
   const spacing = () => G.spacing || pose.width || 12;
-  const currentTrack = () => G.tracks[G.current] || null;
+  // Tracks live in the bridge (Data Sync), shared with every display and the Ops Center.
+  const T = { list: [], version: -1, loading: false, field: undefined };
+  const currentTrack = () => T.list.find(t => t.id === G.currentId) || null;
+  const workField = () => {
+    const ws = data.workSetup || {};
+    return ws.fieldMode === 'fixed' && ws.fieldId ? String(ws.fieldId) : pose.field !== null && pose.field !== undefined ? String(pose.field) : null;
+  };
+  async function trackApi(body) {
+    const r = await fetch('/api/ops/tracks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'not saved');
+    return j;
+  }
+  async function loadTracks() {
+    if (T.loading) return;
+    T.loading = true;
+    try {
+      const r = await (await fetch('/api/ops/tracks')).json();
+      T.list = r.tracks || [];
+      T.version = r.version;
+      // one-time move of tracks made before Data Sync (kept only in this browser)
+      if (!G.migrated) {
+        G.migrated = true;
+        const local = (G.tracks || []).filter(t => typeof t.ax === 'number');
+        if (local.length && !T.list.length) {
+          const oldCurrent = G.tracks[G.current];
+          for (const t of local) {
+            const res = await trackApi({ action: 'add', track: { name: t.name, ax: t.ax, az: t.az, h: t.h, how: /A\+B/.test(t.name || '') ? 'A+B' : 'A+Heading', fieldId: null } });
+            T.list.push(res.track);
+            if (t === oldCurrent) G.currentId = res.track.id;
+          }
+          shade(`${local.length} guidance track${local.length > 1 ? 's' : ''} moved to the bridge (shared with every display).`, 'info', 4000);
+        }
+        G.tracks = []; save();
+      }
+      if (!currentTrack() && T.field !== undefined) { const f = T.field; T.field = undefined; onFieldChange(f); }
+      renderTrackList(); renderSide();
+    } catch (e) { /* bridge offline: keep the last list */ } finally { T.loading = false; }
+  }
+  // When the field changes, pick up the track last used in that field (as the G5 does).
+  function onFieldChange(field) {
+    if (field === T.field) return;
+    if (T.field !== undefined && G.currentId) G.lastByField[T.field ?? ''] = G.currentId;
+    T.field = field;
+    const last = G.lastByField[field ?? ''];
+    const cur = currentTrack();
+    if (last && T.list.some(t => t.id === last) && (!cur || (cur.fieldId ?? null) !== field)) { G.currentId = last; G.shift = 0; }
+    else if (!cur || (cur.fieldId !== null && cur.fieldId !== field)) {
+      const first = T.list.find(t => t.fieldId === field);
+      if (first) { G.currentId = first.id; G.shift = 0; }
+    }
+    save(); renderSide();
+  }
   function solve(p) {
     const t = currentTrack();
     if (!t || !p) return null;
@@ -114,8 +169,11 @@
     $('trkName').textContent = t ? t.name : 'No track';
     $('trkSpacing').textContent = lenText(spacing());
     $('trkIncr').textContent = metric('distance') ? `${(G.incr * 100).toFixed(1)} cm` : `${(G.incr / 0.0254).toFixed(1)} in`;
-    $('locName').textContent = pose.field ? `Field ${pose.field}` : pose.farmland ? `Farmland ${pose.farmland}` : '---';
-    $('locSub').textContent = pose.field && pose.farmland ? `Farmland ${pose.farmland}` : 'Field';
+    const wf = workField(), ws = data.workSetup || {};
+    const fb = wf && window.G5Bounds ? G5Bounds.fields().find(x => String(x.id) === wf) : null;
+    $('locName').textContent = wf ? (fb ? fb.name : `Field ${wf}`) : pose.farmland ? `Farmland ${pose.farmland}` : '---';
+    const who = [ws.client, ws.farm].filter(Boolean).join(' · ');
+    $('locSub').textContent = who || (wf && pose.farmland ? `Farmland ${pose.farmland}` : 'Field');
     renderAi();
   }
 
@@ -138,19 +196,25 @@
 
   // ---------------------------------------------------------------- track list window
   let pointA = null;
-  function addTrack(ax, az, h, how) {
-    const n = G.tracks.length + 1;
-    G.tracks.push({ name: `Track ${n} (${how})`, ax, az, h: (h + 360) % 360 });
-    G.current = G.tracks.length - 1; G.shift = 0; save(); renderTrackList(); renderSide();
+  async function addTrack(ax, az, h, how) {
+    try {
+      const r = await trackApi({ action: 'add', track: { ax, az, h, how, fieldId: workField() } });
+      T.list.push(r.track);
+      G.currentId = r.track.id; G.shift = 0; save(); renderTrackList(); renderSide();
+    } catch (e) { shade('Track not saved: G5Link bridge unreachable', 'warn', 3000); }
   }
   function renderTrackList() {
-    setHtml($('trackList'), G.tracks.length ? G.tracks.map((t, i) =>
-      `<button class="trk-row ${i === G.current ? 'on' : ''}" data-trk="${i}"><b>${esc(t.name)}</b><span>${cardinal(t.h)} ${t.h.toFixed(1)}°</span></button>`).join('')
+    const field = workField();
+    const row = t => `<button class="trk-row ${t.id === G.currentId ? 'on' : ''}" data-trk="${esc(t.id)}"><b>${esc(t.name)}</b><span>${cardinal(t.h)} ${t.h.toFixed(1)}°</span></button>`;
+    const here = T.list.filter(t => (t.fieldId ?? null) === field), other = T.list.filter(t => (t.fieldId ?? null) !== field);
+    setHtml($('trackList'), T.list.length
+      ? (here.length ? `<div class="trk-group">${field ? 'Field ' + esc(field) : 'No field'}</div>${here.map(row).join('')}` : `<p class="hint">No tracks in ${field ? 'field ' + esc(field) : 'this area'} yet.</p>`)
+        + (other.length ? `<div class="trk-group">Other fields</div>${other.map(t => row(t).replace('</b>', `</b><em>${t.fieldId ? 'Field ' + esc(t.fieldId) : 'No field'}</em>`)).join('')}` : '')
       : '<p class="hint">No guidance tracks yet. Create one on the right.</p>');
     $('abStatus').textContent = pointA ? 'Point A set. Drive at least 3 m along the line, then tap Set B.'
       : 'Drive to point A, tap Set A, then drive at least 3 m and tap Set B.';
   }
-  $('trackList').onclick = e => { const b = e.target.closest('[data-trk]'); if (b) { G.current = +b.dataset.trk; G.shift = 0; save(); renderTrackList(); renderSide(); } };
+  $('trackList').onclick = e => { const b = e.target.closest('[data-trk]'); if (b) { G.currentId = b.dataset.trk; G.shift = 0; save(); renderTrackList(); renderSide(); } };
   $('newHeading').onclick = () => { const p = livePose(); if (!p) return shade('No vehicle position. Enter a vehicle first.', 'info', 3000); addTrack(p.x, p.z, p.h, 'A+Heading'); };
   $('setA').onclick = () => { const p = livePose(); if (!p) return shade('No vehicle position. Enter a vehicle first.', 'info', 3000); pointA = p; renderTrackList(); };
   $('setB').onclick = () => {
@@ -163,8 +227,12 @@
     addTrack(a.x, a.z, h, 'A+B');
   };
   $('trkDelete').onclick = () => {
-    if (G.current < 0) return;
-    G.tracks.splice(G.current, 1); G.current = G.tracks.length - 1; G.shift = 0; save(); renderTrackList(); renderSide();
+    const t = currentTrack();
+    if (!t) return;
+    confirmBox('Guidance Tracks', `Delete ${t.name}? It is removed from every display and the Ops Center.`, async () => {
+      try { await trackApi({ action: 'delete', id: t.id }); T.list = T.list.filter(x => x.id !== t.id); G.currentId = null; G.shift = 0; save(); renderTrackList(); renderSide(); }
+      catch (e) { shade('Track not deleted: ' + e.message, 'warn', 3000); }
+    });
   };
 
   // ---------------------------------------------------------------- map

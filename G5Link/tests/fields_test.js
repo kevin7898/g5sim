@@ -154,12 +154,32 @@ try {
   const noEcon = store.profit(SAVE, null).fields.find(x => x.field === '1');
   check(noEcon.revenue === 0 && noEcon.missing.some(m => /price/.test(m)), 'without prices the P&L says what is missing');
 
+  // --- guidance tracks and Work Setup (Data Sync)
+  const t1 = store.addTrack(SAVE, { ax: 10, az: 20, h: 450, how: 'A+B', fieldId: 1 });
+  check(t1.id === 'T1' && t1.h === 90 && t1.fieldId === '1' && t1.name === 'Track 1 (A+B)', 'track added with a normalized heading and field');
+  const t2 = store.addTrack(SAVE, { ax: 0, az: 0, h: 0, fieldId: 1 });
+  check(t2.name === 'Track 2 (A+Heading)', 'second track in the field numbered 2');
+  store.addTrack(SAVE, { ax: 0, az: 0, h: 180 });
+  check(store.tracks(SAVE, '1').length === 2 && store.tracks(SAVE, null).length === 1, 'tracks filtered by field');
+  store.updateTrack(SAVE, 'T2', { name: 'Headland' });
+  check(store.tracks(SAVE).find(t => t.id === 'T2').name === 'Headland', 'track renamed');
+  store.deleteTrack(SAVE, 'T1');
+  check(!store.tracks(SAVE).some(t => t.id === 'T1'), 'track deleted');
+  let threw = false; try { store.addTrack(SAVE, { ax: 'x', az: 0, h: 0 }); } catch (e) { threw = true; }
+  check(threw, 'a track without coordinates is refused');
+  const ws = store.setWorkSetup(SAVE, { client: ' Kev ', farm: 'North', crop: 'maize', variety: 'P1197', fieldMode: 'fixed', fieldId: 1 });
+  check(ws.client === 'Kev' && ws.crop === 'MAIZE' && ws.fieldMode === 'fixed' && ws.fieldId === '1', 'work setup saved and normalized');
+  check(store.db(SAVE).settings.client === 'Kev', 'work setup client becomes the Ops client name');
+  store.setWorkSetup(SAVE, { variety: '' });
+  check(store.workSetup(SAVE).variety === null && store.workSetup(SAVE).farm === 'North', 'clearing one field keeps the others');
+
   // --- persistence
   cov.flush(Date.now(), true);
   const cov2 = new CoverageStore({ dir: tmp, persist: true });
   const store2 = new FieldStore({ dir: tmp, persist: true, coverage: cov2 });
   check(store2.list(SAVE).length === 3, 'fields reloaded');
-  check(store2.db(SAVE).settings.client === 'Test Client', 'settings reloaded');
+  check(store2.db(SAVE).settings.client === 'Kev', 'settings reloaded');
+  check(store2.tracks(SAVE).length === 2 && store2.workSetup(SAVE).farm === 'North', 'tracks and work setup reloaded');
   check(store2.field(SAVE, '1').boundaries.length === 3, 'boundary versions reloaded');
   near(store2.records(SAVE, '1').find(r => r.kind === 'seeding').coveredHa, 1.08 + 0.324, 0.05, 'records rebuilt after reload');
   store2.removeBoundary(SAVE, 'u1', 1);

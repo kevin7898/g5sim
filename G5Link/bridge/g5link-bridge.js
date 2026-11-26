@@ -241,6 +241,7 @@ function setTelemetry(t) {
     lastSeqAt = Date.now();
   }
   latest = { ...t, ...currentExtras(), link: 'live' };
+  try { latest.workSetup = fieldStore().workSetup(currentSave()); } catch (e) { latest.workSetup = null; }
   if (fresh) {
     try { mapStore().onFrame(latest); } catch (e) { console.warn('Map recording failed:', e.message); }
     try { boundaryFrame(latest); importGameFields(); } catch (e) { console.warn('Field update failed:', e.message); }
@@ -697,6 +698,12 @@ const server = http.createServer((req, res) => {
       }
       if (u.pathname === '/api/ops/records') return json(200, { records: store.records(save) });
       if (u.pathname === '/api/ops/profit') return json(200, { ...store.profit(save, economy), economyAge: economy ? 'live' : null });
+      if (u.pathname === '/api/ops/tracks') {
+        const fid = u.searchParams.get('field');
+        return json(200, { tracks: fid === null ? store.tracks(save) : store.tracks(save, fid), version: store.version });
+      }
+      if (u.pathname === '/api/ops/work-setup') return json(200, { workSetup: store.workSetup(save), clientDefault: store.db(save).settings.client || null,
+        farmDefault: gameFields ? gameFields.farmName || null : null });
       if (u.pathname === '/api/ops/finance') return json(200, { farmFinance: economy && economy.farmFinance || null, equipment: equipment.vehicles });
       if (u.pathname === '/api/boundary') return json(200, { ...boundaryStatus(), path: rec.active ? rec.points : [] });
       return json(404, { error: 'unknown route' });
@@ -704,6 +711,13 @@ const server = http.createServer((req, res) => {
     if (req.method === 'POST') {
       if (u.pathname === '/api/boundary') return post(c => boundaryCommand(c));
       if (u.pathname === '/api/ops/settings') return post(c => ({ settings: store.setSettings(save, c) }));
+      if (u.pathname === '/api/ops/tracks') return post(c => {
+        if (c.action === 'add') return { track: store.addTrack(save, c.track || {}) };
+        if (c.action === 'update') return { track: store.updateTrack(save, String(c.id), c.changes || {}) };
+        if (c.action === 'delete') { store.deleteTrack(save, String(c.id)); return {}; }
+        throw new Error('unknown action');
+      });
+      if (u.pathname === '/api/ops/work-setup') return post(c => ({ workSetup: store.setWorkSetup(save, c) }));
       if (u.pathname === '/api/ops/profit-settings') return post(c => ({ settings: store.setProfitSettings(save, c) }));
       if (u.pathname === '/api/ops/boundary') return post(c => store.addBoundary(save, { fieldId: c.fieldId, name: c.name, source: c.source, polygon: c.polygon, note: c.note, newField: !!c.newField }));
       if (u.pathname === '/api/ops/active') return post(c => { store.setActive(save, c.fieldId, Number(c.v)); });

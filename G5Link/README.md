@@ -142,6 +142,17 @@ implement, AutoTrac turns onto the next pass (a half circle, or a bulb turn when
 turning radius), then headland automation lowers and the work speed comes back. Set passes to skip, the direction
 (alternate, left, right) and the radius (Auto uses the machine's own).
 
+## Prescriptions, rate control and field reports
+
+**Ops Center > Field > Prescriptions:** build a variable-rate prescription from any recorded layer (yield, soil N, P, K,
+pH, compaction, moisture...), split into 3 to 5 zones, with a rate multiplier per zone. Put one **in use** and sprayers
+and spreaders follow it zone by zone through whichever soil mod you play with: **Precision Farming** (its set level times
+the multiplier) or **Realistic Soil & Fertilizer** (the nearest rate step). Without a prescription, the G5's **Rate
+Controller** (the RATE key) switches the soil mod's own Auto rate on or off and steps the manual rate.
+
+**Field Report** (on each field) opens a printable page (Print / Save as PDF) with the work records, prescriptions and
+tracks, and a CSV download of the records.
+
 ## Works with other mods
 
 Everything is optional. G5Link checks for each mod and only uses it when it is installed.

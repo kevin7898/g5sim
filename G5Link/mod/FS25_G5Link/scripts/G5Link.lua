@@ -100,6 +100,9 @@ function G5Link:loadMap(name)
     if G5LinkSteer ~= nil then
         G5LinkSteer:reset()
     end
+    if G5LinkRate ~= nil then
+        G5LinkRate:reset()
+    end
     if G5LinkRtk ~= nil then
         G5LinkRtk:reset(true)
         if g_messageCenter ~= nil and MessageType ~= nil and MessageType.PERIOD_CHANGED ~= nil then
@@ -184,6 +187,13 @@ function G5Link:update(dt)
             self.steerErrorLogged = true
             print("G5Link: AutoTrac update failed: " .. tostring(err))
             pcall(G5LinkSteer.disengage, G5LinkSteer, "error")
+        end
+    end
+    if G5LinkRate ~= nil then
+        local ok, err = pcall(G5LinkRate.update, G5LinkRate, vehicle, dt, self)
+        if not ok and not self.rateErrorLogged then
+            self.rateErrorLogged = true
+            print("G5Link: rate control failed: " .. tostring(err))
         end
     end
     if G5LinkControls ~= nil then
@@ -594,6 +604,9 @@ function G5Link:writeTelemetry(vehicle)
         end
         if G5LinkSteer ~= nil then
             pcall(G5LinkSteer.write, G5LinkSteer, xml, vehicle)
+        end
+        if G5LinkRate ~= nil then
+            pcall(G5LinkRate.write, G5LinkRate, xml)
         end
         if G5LinkRtk ~= nil then
             local ok, err = pcall(G5LinkRtk.write_telemetry, G5LinkRtk, xml, vehicle)
@@ -1403,6 +1416,12 @@ function G5Link:runCommand(vehicle, cmd)
     end
     if vehicle == nil then
         return
+    end
+    if G5LinkRate ~= nil then
+        local ok, handled = pcall(G5LinkRate.run, G5LinkRate, vehicle, cmd, self)
+        if ok and handled then
+            return
+        end
     end
     if G5LinkSteer ~= nil then
         local ok, handled = pcall(G5LinkSteer.run, G5LinkSteer, vehicle, cmd)

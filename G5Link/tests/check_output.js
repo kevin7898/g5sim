@@ -210,5 +210,16 @@ if (fs.existsSync(live)) {
   }
 }
 
+{
+  const f = path.join(OUT, 'rate_sf', 'telemetry_live.xml');
+  check(fs.existsSync(f), 'rate live telemetry copy exists');
+  if (fs.existsSync(f)) {
+    const t = telemetryFromXml(fs.readFileSync(f, 'utf8'));
+    eq(t.rate && t.rate.system, 'sf', 'live: rate system');
+    eq(t.rate && t.rate.rxActive, true, 'live: prescription active');
+    eq(t.rate && t.rate.applied, 1.25, 'live: applied step');
+  }
+}
+
 console.log(`node checks: ${checks}, failures: ${failures}`);
 process.exit(failures ? 1 : 0);

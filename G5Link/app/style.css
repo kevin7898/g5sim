@@ -684,3 +684,4 @@ a.app { text-decoration: none; color: inherit; }
 .map-at b { font-size: var(--fs-xs); color: #d9d7c6; } .map-at em { font-style: normal; font-size: var(--fs-md); font-weight: 700; }
 .map-at.ready { color: #fff; } .map-at.engaged { color: #4ee166; } .map-at.turning { color: #ffb400; }
 .hl-turn { border-top: 2px solid var(--rule); }
+.rate-win { width: 680px; } .rate-set { width: 380px; height: var(--h-lg); }

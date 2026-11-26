@@ -1568,6 +1568,73 @@ do
 end
 
 ---------------------------------------------------------------------------
+-- Scenario 13: rate control and prescriptions (Precision Farming and Realistic Soil & Fertilizer)
+---------------------------------------------------------------------------
+do
+    local dir = newScenario("rate", {})
+    local tractor = makeVehicle({name = "Sprayer Tractor", x = 100, z = 200})
+    local sprayer, ss = makeImplement(24, 2)
+    tractor.children = {tractor, sprayer}
+    g_localPlayer = {getCurrentVehicle = function(self) return tractor end}
+    -- Precision Farming ExtendedSprayer
+    ExtendedSprayer = {SPEC_TABLE_NAME = "spec_pfExtendedSprayer"}
+    sprayer.id = 41
+    sprayer.spec_pfExtendedSprayer = {sprayAmountAutoMode = true, sprayAmountManual = 10, sprayAmountManualMin = 1, sprayAmountManualMax = 20}
+    sprayer.setSprayAmountAutoMode = function(self, on) self.spec_pfExtendedSprayer.sprayAmountAutoMode = on end
+    sprayer.setSprayAmountManualValue = function(self, v) local s = self.spec_pfExtendedSprayer s.sprayAmountManual = math.max(s.sprayAmountManualMin, math.min(s.sprayAmountManualMax, v)) end
+    mod:loadMap("test")
+    os.execute('mkdir -p "' .. dir .. '"')
+    tick(4)
+    local t = telemetry(dir)
+    eq(t["g5.rate#system"], "pf", "Precision Farming sprayer found")
+    eq(t["g5.rate#auto"], "true", "PF auto mode reported")
+    -- a prescription: 10 m cells from x 0, z 150; the sprayer (work areas at x 92.5, z 188..212) sits in column 9, rows 3-6
+    local rows = {}
+    for r = 0, 9 do rows[#rows + 1] = string.format('<r i="%d" m="%s"/>', r, r <= 4 and "1,1,1,1,1,1,1,1,1,1.5" or "1,1,1,1,1,1,1,1,1,0.5") end
+    writeFile(dir .. "rx.xml", '<?xml version="1.0"?>\n<rx v="1" id="rx1" name="N zones" field="23" cell="10" ox="0" oz="150" cols="10" active="true">\n'
+        .. table.concat(rows, "\n") .. '\n</rx>\n')
+    tick(10)
+    t = telemetry(dir)
+    eq(sprayer.spec_pfExtendedSprayer.sprayAmountAutoMode, false, "prescription takes over from PF auto")
+    eq(t["g5.rate#rxActive"], "true", "prescription active")
+    -- the sprayer centre (x 92.5, z 200) is row 5 -> 0.5
+    near(tonumber(t["g5.rate#rxRate"]), 0.5, 0.001, "rate from the cell under the sprayer")
+    eq(sprayer.spec_pfExtendedSprayer.sprayAmountManual, 5, "PF level = starting level x 0.5")
+    -- commands: step and auto
+    writeFile(dir .. "commands.xml", '<?xml version="1.0"?>\n<commands>\n    <cmd id="1" name="rateStep" value="1" index="0"/>\n</commands>\n')
+    tick(2)
+    check(sprayer.spec_pfExtendedSprayer.sprayAmountManual >= 5, "rate step accepted")
+    mod:deleteMap()
+
+    -- Realistic Soil & Fertilizer rate manager on a spreader
+    dir = newScenario("rate_sf", {})
+    ExtendedSprayer = nil
+    local spreader = makeImplement(18, 1)
+    spreader.spec_sprayer = {}
+    spreader.id = 77
+    tractor.children = {tractor, spreader}
+    local rm = {idx = {}, auto = {[77] = true}}
+    function rm:getIndex(id) return self.idx[id] or 3 end
+    function rm:setIndex(id, i) self.idx[id] = i end
+    function rm:getAutoMode(id) return self.auto[id] == true end
+    function rm:setAutoMode(id, on) self.auto[id] = on end
+    g_SoilFertilityManager = {sprayerRateManager = rm}
+    SoilConstants = {SPRAYER_RATE = {STEPS = {0.5, 0.75, 1.0, 1.25, 1.5, 2.0}, DEFAULT_INDEX = 3}}
+    mod:loadMap("test")
+    os.execute('mkdir -p "' .. dir .. '"')
+    writeFile(dir .. "rx.xml", '<?xml version="1.0"?>\n<rx v="1" id="rx2" name="P" field="23" cell="10" ox="0" oz="150" cols="10" active="true">\n'
+        .. table.concat(rows, "\n"):gsub("0%.5\"", "1.3\"") .. '\n</rx>\n')
+    tick(10)
+    t = telemetry(dir)
+    eq(t["g5.rate#system"], "sf", "S&F rate manager found")
+    eq(rm.auto[77], false, "prescription takes over from S&F auto")
+    eq(rm.idx[77], 4, "1.3 -> nearest step 1.25")
+    keepLive(dir)
+    mod:deleteMap()
+    g_SoilFertilityManager, SoilConstants = nil, nil
+end
+
+---------------------------------------------------------------------------
 -- JSON encoder samples for check_output.js
 ---------------------------------------------------------------------------
 do

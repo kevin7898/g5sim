@@ -45,6 +45,7 @@ Requires the G5Link bridge running on the same PC. See README for setup.]]></en>
         <sourceFile filename="scripts/GrainCart.lua"/>
         <sourceFile filename="scripts/Rtk.lua"/>
         <sourceFile filename="scripts/Steering.lua"/>
+        <sourceFile filename="scripts/RateControl.lua"/>
         <sourceFile filename="scripts/Api.lua"/>
         <sourceFile filename="scripts/G5Link.lua"/>
     </extraSourceFiles>

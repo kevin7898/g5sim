@@ -291,6 +291,20 @@ from `FieldPathPrivateIntegration.lua`:
   multiplayer (live state is per machine on the server; clients get it through telemetry only), and real
   configuration names in vehicle mods with GPS options (Xerion US, MF 6480 realGPS, Buyable GPS).
 
+## Prescriptions and rate control (scripts/RateControl.lua, fields.js, Ops Center Field page, app/rate.js)
+
+- Precision Farming (LUADOC ExtendedSprayer): spec = impl[ExtendedSprayer.SPEC_TABLE_NAME]; sprayAmountAutoMode,
+  sprayAmountManual in [sprayAmountManualMin, Max]; setSprayAmountAutoMode / setSprayAmountManualValue.
+- Realistic Soil & Fertilizer (src/SprayerRateManager.lua): g_SoilFertilityManager.sprayerRateManager get/setAutoMode,
+  get/setIndex(vehicleId) into SoilConstants.SPRAYER_RATE.STEPS; vehicleId = root vehicle id (TargetApplication).
+  It also has its own target AUTO (SF-73, gated) - "Auto" here just sets its auto mode.
+- Prescription = grid of zone indexes from layer cell means (frames' quad centres inside the field), quantile breaks,
+  rate per zone. Active one -> rx.xml (cell, origin, rows of multipliers). The mod finds the cell under the sprayer's main
+  work areas (GNSS frame), turns the soil mod's auto off, and applies: S&F nearest step, PF starting level x multiplier.
+- Telemetry g5.rate (system, auto, value, min/max or steps, rx, rxName, rxActive, rxRate, applied); commands rateAuto,
+  rateStep. API /api/ops/rx (create, update, delete, activate).
+- **Not yet checked in game:** both soil mods' tables at runtime, PF's level meaning per product (N vs lime).
+
 ## Coverage for every machine (fleet.xml)
 
 - G5Link.lua writeFleet every 0.5 s: root motorized vehicles of the player's farm, not the driven one, that are AI

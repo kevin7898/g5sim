@@ -382,6 +382,7 @@ function render() {
   sk('skWork', w.recording, w.recording ? 'ON' : 'OFF');
   renderContextKeys(d);
   if (window.G5GrainCart) G5GrainCart.render();
+  if (window.G5Rate) G5Rate.render();
 
   const r = rates(w);
   renderWorkMonitor(v, w, imps, r);
@@ -403,6 +404,8 @@ function contextKeys(d) {
   const at = d.autotrac;
   if (at && !(at.state === 'notReady' && at.reason === 'noTrack')) keys.push({ id: 'autotrac', cmd: 'autotrac', value: -1, icon: 'wheel', label: 'AUTOTRAC',
     on: at.state === 'engaged', amber: at.state === 'turning', txt: { engaged: 'ENGAGED', turning: 'TURNING', ready: 'READY' }[at.state] || 'NOT READY' });
+  if (d.rate) keys.push({ id: 'rate', act: 'rate', icon: 'rate', label: 'RATE', on: !!d.rate.rxActive, amber: false,
+    txt: window.G5Rate ? G5Rate.shortTxt(d.rate) : '--' });
   const hl = d.headland;
   if ((d.implements || []).some(i => i.canLower)) keys.push({ id: 'headland', act: 'headland', icon: 'headland', label: 'HEADLAND',
     on: !!(hl && hl.armed && hl.state === 'work'), amber: !!(hl && hl.armed && hl.state !== 'work'),
@@ -428,6 +431,7 @@ $('skCtx').addEventListener('click', e => {
   const b = e.target.closest('[data-act]');
   if (b && b.dataset.act === 'headland' && window.G5Headland) G5Headland.toggle();
   if (b && b.dataset.act === 'graincart' && window.G5GrainCart) G5GrainCart.open();
+  if (b && b.dataset.act === 'rate' && window.G5Rate) G5Rate.open();
 });
 function renderContextKeys(d) {
   const keys = d.state === 'vehicle' ? contextKeys(d) : [];

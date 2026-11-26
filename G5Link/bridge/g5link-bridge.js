@@ -131,6 +131,7 @@ function telemetryFromXml(text) {
     grainCart: (child(g5, 'grainCart') || {}).attrs || null,
     gnss: gnssFromNode(child(g5, 'gnss')),
     autotrac: (child(g5, 'autotrac') || {}).attrs || null,
+    rate: (child(g5, 'rate') || {}).attrs || null,
     harvestAuto: (child(g5, 'harvestAuto') || {}).attrs || null,
   };
 }
@@ -318,6 +319,7 @@ function setTelemetry(t) {
     try { headland().update(latest, fieldStore(), currentSave(), mapStore()); } catch (e) { console.warn('Headland update failed:', e.message); }
   }
   latest.headlandLink = headland().status;
+  try { syncRx(); } catch (e) { /* store not ready */ }
   latest.fleet = fleet;
   latest.rtkInfo = DEMO ? demoRtkSummary() : rtkState ? { day: rtkState.day, payer: rtkState.payer || null, gates: rtkState.gates, bases: (rtkState.bases || []).length } : null;
   if (DEMO) latest.headland = demoHeadland(latest);
@@ -384,6 +386,25 @@ const pollEconomy = jsonPoller(ECONOMY, e => { economy = e && typeof e === 'obje
 const pollEquipment = jsonPoller(EQUIPMENT, e => { equipment = e && Array.isArray(e.vehicles) ? e : { vehicles: [] }; equipmentAt = Date.now(); });
 const pollCourse = jsonPoller(COURSE, c => { course = { key: c.key ?? null, name: c.name, workWidth: c.workWidth, waypoints: c.waypoints || [], field: c.field || [] }; });
 
+// ---------------------------------------------------------------- prescriptions -> rx.xml (RateControl.lua)
+let rxV = 0, rxKey = null;
+function syncRx() {
+  let rx = null;
+  try { rx = fieldStore().activeRx(currentSave()); } catch (e) { return; }
+  const key = rx ? rx.id + '|' + rx.rates.join(',') + '|' + currentSave() : 'none|' + currentSave();
+  if (key === rxKey) return;
+  rxKey = key; rxV++;
+  if (DEMO) return;
+  const file = path.join(DIR, 'rx.xml');
+  try {
+    if (!rx) { fs.writeFileSync(file, `<?xml version="1.0" encoding="utf-8" standalone="no"?>\n<rx v="${rxV}" active="false"/>\n`); return; }
+    const a = v => String(v).replace(/[&"<>]/g, c => ({ '&': '&amp;', '"': '&quot;', '<': '&lt;', '>': '&gt;' }[c]));
+    const rows = fieldStore().rxRows(rx).map((row, i) => `  <r i="${i}" m="${row.join(',')}"/>`).join('\n');
+    fs.writeFileSync(file + '.tmp', `<?xml version="1.0" encoding="utf-8" standalone="no"?>\n<rx v="${rxV}" id="${a(rx.id)}" name="${a(rx.name)}" field="${a(rx.fieldId)}" cell="${rx.cell}" ox="${rx.ox}" oz="${rx.oz}" cols="${rx.cols}" active="true">\n${rows}\n</rx>\n`);
+    fs.renameSync(file + '.tmp', file);
+  } catch (e) { console.warn('Could not write rx.xml:', e.message); }
+}
+
 // ---------------------------------------------------------------- AutoTrac guidance (to the mod's Steering.lua)
 // The display posts its selected track, spacing, shift and Turn Automation settings; the mod reads guidance.xml.
 let guidanceState = null, guidanceV = 0, guidanceKey = '';
@@ -413,7 +434,7 @@ function setGuidance(g) {
 const ALLOWED = new Set(['motorToggle', 'cruiseToggle', 'cruiseSet', 'cruiseAdjust',
   'lowerAll', 'turnOnAll', 'implTurnOn', 'resetWork',
   'pipeToggle', 'foldToggle', 'lightsToggle', 'workLightsToggle', 'beaconToggle', 'hazardToggle',
-  'harvestAuto', 'harvestAutoMax', 'tillageDepth', 'tillageDepthAdjust', 'tillageLevel', 'grainCart', 'grainCartNext', 'rtk', 'autotrac']);
+  'harvestAuto', 'harvestAutoMax', 'tillageDepth', 'tillageDepthAdjust', 'tillageLevel', 'grainCart', 'grainCartNext', 'rtk', 'autotrac', 'rateAuto', 'rateStep']);
 let cmdQueue = [];
 let nextCmdId = 1;
 
@@ -491,6 +512,8 @@ function demoCommand(c) {
     case 'tillageDepthAdjust': demo.till.target = Math.max(2, Math.min(38, demo.till.target + c.value)); break;
     case 'tillageLevel': demo.till.level = Math.max(2, Math.min(4, Math.round(c.value))); break;
     case 'grainCart': demoGrainCartCommand(c.index); break;
+    case 'rateAuto': demo.rate = { ...(demo.rate || { idx: 3 }), auto: c.value === 1 }; break;
+    case 'rateStep': demo.rate = { ...(demo.rate || { auto: false, idx: 3 }), idx: Math.max(1, Math.min(6, (demo.rate ? demo.rate.idx : 3) + (c.value > 0 ? 1 : -1))) }; break;
     case 'autotrac': demo.at = c.value === 1 ? true : c.value === 0 ? false : !demo.at; if (demo.at && !(guidanceState && guidanceState.track)) demo.at = false; break;
     case 'rtk': demoRtkCommand(c); break;
     case 'grainCartNext': break;
@@ -765,6 +788,13 @@ function demoTick(dt) {
   if (!gameFields) takeGameFields(demoFields());
   if (!economy) economy = demoEconomy();
   equipment = demoEquipment(); equipmentAt = Date.now();
+  let arx = null;
+  try { arx = fieldStore().activeRx(currentSave()); } catch (e) { /* none */ }
+  demo.rate = demo.rate || { auto: true, idx: 3 };
+  const steps = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+  frame.rate = { system: 'sf', auto: arx ? false : demo.rate.auto, value: steps[demo.rate.idx - 1], steps: steps.join(','),
+    rx: arx ? arx.id : undefined, rxName: arx ? arx.name : undefined, rxActive: !!arx && working,
+    rxRate: arx && working ? arx.rates[Math.floor(demo.t / 20000) % arx.zones] : undefined };
   const gs = guidanceState;
   frame.autotrac = demo.at
     ? { state: demo.turning && gs && gs.turn.on ? 'turning' : 'engaged', track: gs.track.id, pass: 3, xte: +(0.02 * Math.sin(demo.t / 4000)).toFixed(3), turnOn: gs.turn.on, turns: Math.floor(demo.t / 60000) }
@@ -1007,6 +1037,11 @@ const server = http.createServer((req, res) => {
         farmDefault: gameFields ? gameFields.farmName || null : null });
       if (u.pathname === '/api/rtk') return json(200, { rtk: DEMO ? demoRtkState() : rtkState });
       if (u.pathname === '/api/ops/headland') return json(200, { headland: store.headland(save), status: headland().status });
+      if (u.pathname === '/api/ops/rx') {
+        const fid = u.searchParams.get('field');
+        const a = store.activeRx(save);
+        return json(200, { prescriptions: fid === null ? store.prescriptions(save) : store.prescriptions(save, fid), active: a ? a.id : null });
+      }
       if (u.pathname === '/api/ops/finance') return json(200, { farmFinance: economy && economy.farmFinance || null, equipment: equipment.vehicles });
       if (u.pathname === '/api/boundary') return json(200, { ...boundaryStatus(), path: rec.active ? rec.points : [] });
       return json(404, { error: 'unknown route' });
@@ -1022,6 +1057,16 @@ const server = http.createServer((req, res) => {
       });
       if (u.pathname === '/api/ops/work-setup') return post(c => ({ workSetup: store.setWorkSetup(save, c) }));
       if (u.pathname === '/api/ops/headland') return post(c => ({ headland: store.setHeadland(save, c) }));
+      if (u.pathname === '/api/ops/rx') return post(c => {
+        let out;
+        if (c.action === 'create') out = { rx: store.createRx(save, c) };
+        else if (c.action === 'update') out = { rx: store.updateRx(save, String(c.id), c.changes || {}) };
+        else if (c.action === 'delete') { store.deleteRx(save, String(c.id)); out = {}; }
+        else if (c.action === 'activate') out = { active: store.setActiveRx(save, c.id === null ? null : String(c.id)) };
+        else throw new Error('unknown action');
+        syncRx();
+        return out;
+      });
       if (u.pathname === '/api/ops/profit-settings') return post(c => ({ settings: store.setProfitSettings(save, c) }));
       if (u.pathname === '/api/ops/boundary') return post(c => store.addBoundary(save, { fieldId: c.fieldId, name: c.name, source: c.source, polygon: c.polygon, note: c.note, newField: !!c.newField }));
       if (u.pathname === '/api/ops/active') return post(c => { store.setActive(save, c.fieldId, Number(c.v)); });

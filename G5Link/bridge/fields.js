@@ -419,6 +419,110 @@ class FieldStore {
     return cur;
   }
 
+  // ---------------------------------------------------------------- Prescriptions (variable rate, G5 "Rx")
+  // A grid of rate multipliers over a field, built from a recorded layer (yield, soil N/P/K/pH, moisture...)
+  // split into zones by quantile, one rate per zone. The active one goes to the mod (rx.xml, RateControl.lua),
+  // which applies it through Precision Farming or Realistic Soil & Fertilizer.
+  prescriptions(save, fieldId) {
+    const d = this.db(save);
+    d.rx = d.rx || { list: [], active: null, next: 1 };
+    return fieldId === undefined ? d.rx.list : d.rx.list.filter(r => String(r.fieldId) === String(fieldId));
+  }
+  activeRx(save) {
+    const d = this.db(save);
+    return d.rx && d.rx.active ? (d.rx.list.find(r => r.id === d.rx.active) || null) : null;
+  }
+  // Per-cell mean of a layer over the field, from the recorded frames of one operation.
+  layerGrid(save, fieldId, opId, layer, cell = 10) {
+    const f = this.list(save).find(x => String(x.id) === String(fieldId));
+    if (!f) throw new Error('no such field');
+    const op = this.coverage && this.coverage.ops(save).get(opId);
+    if (!op) throw new Error('no such operation');
+    const bb = bbox(f.polygon);
+    const ox = Math.floor(bb.x0 / cell) * cell, oz = Math.floor(bb.z0 / cell) * cell;
+    const cols = Math.max(1, Math.ceil((bb.x1 - ox) / cell)), rows = Math.max(1, Math.ceil((bb.z1 - oz) / cell));
+    if (cols * rows > 40000) throw new Error('field too large for this cell size');
+    const sum = new Float64Array(cols * rows), n = new Uint32Array(cols * rows);
+    for (const fr of op.frames) {
+      const v = fr.v && fr.v[layer];
+      if (typeof v !== 'number' || !fr.q || !fr.q.length) continue;
+      for (const q of fr.q) {
+        const cx = (q[0] + q[2] + q[4] + q[6]) / 4, cz = (q[1] + q[3] + q[5] + q[7]) / 4;
+        const c = Math.floor((cx - ox) / cell), r = Math.floor((cz - oz) / cell);
+        if (c < 0 || r < 0 || c >= cols || r >= rows) continue;
+        sum[r * cols + c] += v; n[r * cols + c]++;
+      }
+    }
+    const inside = new Uint8Array(cols * rows), mean = new Array(cols * rows).fill(null);
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      const i = r * cols + c;
+      inside[i] = inPolygon(f.polygon, ox + (c + 0.5) * cell, oz + (r + 0.5) * cell) ? 1 : 0;
+      if (inside[i] && n[i]) mean[i] = sum[i] / n[i];
+    }
+    return { field: f, cell, ox, oz, cols, rows, inside, mean };
+  }
+  createRx(save, o) {
+    const zones = Math.max(2, Math.min(5, Math.round(Number(o.zones) || 3)));
+    const cell = Math.max(5, Math.min(50, Number(o.cell) || 10));
+    const g = this.layerGrid(save, o.fieldId, o.opId, o.layer, cell);
+    const vals = g.mean.filter(v => v !== null).sort((a, b) => a - b);
+    if (vals.length < zones) throw new Error('not enough recorded data for that layer on this field');
+    // zone breaks at quantiles; zone 0 = lowest values
+    const breaks = [];
+    for (let z = 1; z < zones; z++) breaks.push(vals[Math.floor(vals.length * z / zones)]);
+    const zoneOf = v => { let z = 0; while (z < breaks.length && v >= breaks[z]) z++; return z; };
+    const median = vals[Math.floor(vals.length / 2)];
+    const zoneGrid = g.mean.map((v, i) => (g.inside[i] ? zoneOf(v === null ? median : v) : -1));
+    let rates = Array.isArray(o.rates) && o.rates.length === zones ? o.rates.map(Number) : null;
+    if (!rates || rates.some(r => !(r >= 0 && r <= 5))) {
+      // default: more where the layer is low (soil nutrients), more where it is high (yield)
+      const up = /yield/i.test(o.layer);
+      rates = Array.from({ length: zones }, (_, z) => +(up ? 0.8 + 0.4 * z / (zones - 1) : 1.2 - 0.4 * z / (zones - 1)).toFixed(2));
+    }
+    const d = this.db(save);
+    this.prescriptions(save);
+    const lo = vals[0], hi = vals[vals.length - 1];
+    const rx = { id: 'rx' + d.rx.next++, name: String(o.name || '').trim().slice(0, 60) || `${o.layer} zones`, fieldId: String(o.fieldId),
+      opId: o.opId, layer: o.layer, zones, breaks, range: [lo, hi], rates, cell: g.cell, ox: g.ox, oz: g.oz, cols: g.cols, rows: g.rows,
+      grid: zoneGrid, created: Date.now() };
+    d.rx.list.push(rx);
+    this.write(save);
+    return rx;
+  }
+  updateRx(save, id, ch) {
+    const rx = this.prescriptions(save).find(r => r.id === id);
+    if (!rx) throw new Error('no such prescription');
+    if (typeof ch.name === 'string' && ch.name.trim()) rx.name = ch.name.trim().slice(0, 60);
+    if (Array.isArray(ch.rates) && ch.rates.length === rx.zones && ch.rates.every(r => Number(r) >= 0 && Number(r) <= 5)) rx.rates = ch.rates.map(r => +Number(r).toFixed(2));
+    this.write(save);
+    return rx;
+  }
+  deleteRx(save, id) {
+    const d = this.db(save);
+    this.prescriptions(save);
+    d.rx.list = d.rx.list.filter(r => r.id !== id);
+    if (d.rx.active === id) d.rx.active = null;
+    this.write(save);
+  }
+  setActiveRx(save, id) {
+    const d = this.db(save);
+    this.prescriptions(save);
+    if (id !== null && !d.rx.list.some(r => r.id === id)) throw new Error('no such prescription');
+    d.rx.active = id;
+    this.write(save);
+    return d.rx.active;
+  }
+  // Multiplier per cell, row by row, for rx.xml
+  rxRows(rx) {
+    const rows = [];
+    for (let r = 0; r < rx.rows; r++) {
+      const row = [];
+      for (let c = 0; c < rx.cols; c++) { const z = rx.grid[r * rx.cols + c]; row.push(z < 0 ? 0 : rx.rates[z]); }
+      rows.push(row);
+    }
+    return rows;
+  }
+
   // ---------------------------------------------------------------- Harvest Profit
   // Profit settings per savegame: machinery cost per hectare by work type, land rent, crop price overrides.
   profitSettings(save) {

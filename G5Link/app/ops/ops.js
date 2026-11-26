@@ -285,6 +285,8 @@ function draw() {
     }
   }
 
+  drawRx(s);
+
   // RTK base stations with their radio range
   for (const b of (S.rtk && S.rtk.bases) || []) {
     const [px, py] = toScreen(b.x, b.z, s), rr = (S.rtk.baseRange || 3000) * V.ppm * s.dpr;
@@ -544,8 +546,11 @@ async function loadField(id, fit) {
   try {
     const d = await api(`/api/ops/field?id=${encodeURIComponent(id)}`);
     const tr = await api(`/api/ops/tracks?field=${encodeURIComponent(id)}`);
+    const rxr = await api(`/api/ops/rx?field=${encodeURIComponent(id)}`).catch(() => ({ prescriptions: [], active: null }));
     if (S.field !== String(id)) return;
     d.tracks = tr.tracks || [];
+    d.rx = rxr.prescriptions || []; d.rxActive = rxr.active;
+    if (!d.rx.some(r => r.id === S.rxShow)) S.rxShow = d.rxActive || (d.rx[0] && d.rx[0].id) || null;
     S.detail = d;
     const ops = [...new Set(d.records.map(r => r.op))];
     if (!ops.includes(S.layerOp)) S.layerOp = ops[0] || null;
@@ -568,6 +573,99 @@ function recordValues(r) {
   add('speed', 1);
   return out.join(' · ');
 }
+// ---------------------------------------------------------------- Prescriptions (variable rate) on the Field page
+const RX_COLORS = ['#c9e6b5', '#8cc56a', '#4f9a35', '#2c6e1f', '#174a10'];
+const layerName = k => ({ yield: 'Yield', moisture: 'Moisture', loss: 'Grain Loss', rate: 'Applied Rate', soilN: 'Soil Nitrogen', soilP: 'Soil Phosphorus',
+  soilK: 'Soil Potassium', soilPH: 'Soil pH', compaction: 'Compaction', soilMoisture: 'Soil Moisture', yieldPotential: 'Yield Potential',
+  singulation: 'Singulation', tillDepth: 'Tillage Depth' }[k] || k);
+function rxLayers(opId) {
+  const op = S.summary && (S.summary.maps || []).find(o => o.id === opId);
+  return ((op && op.values) || []).filter(k => !['speed', 'seedLph'].includes(k));
+}
+function rxSection(d, recs) {
+  const ops = [...new Set(recs.map(r => r.op))];
+  const list = (d.rx || []).map(r => `<div class="rx ${r.id === d.rxActive ? 'active' : ''} ${r.id === S.rxShow ? 'shown' : ''}" data-rx="${esc(r.id)}">
+      <div class="rx-head"><b>${esc(r.name)}</b><span class="sub">${esc(layerName(r.layer))} · ${r.zones} zones · ${r.cell} m cells</span>
+        ${r.id === d.rxActive ? '<span class="state">In use</span>' : `<button class="mini" data-rx-use="${esc(r.id)}">Use on machines</button>`}</div>
+      <div class="rx-zones">${r.rates.map((rate, z) => `<label><i style="background:${RX_COLORS[Math.round(z * 4 / Math.max(1, r.zones - 1))]}"></i>
+        <span>${z === 0 ? 'Low' : z === r.zones - 1 ? 'High' : 'Zone ' + (z + 1)}<small>${fmt(z === 0 ? r.range[0] : r.breaks[z - 1], 1)}+</small></span>
+        <input type="number" min="0" max="5" step="0.05" value="${rate}" data-rx-rate="${esc(r.id)}" data-z="${z}">×</label>`).join('')}</div>
+      <div class="rx-acts"><button class="mini" data-rx-show="${esc(r.id)}">Show on map</button>${r.id === d.rxActive ? `<button class="mini" data-rx-stop="1">Stop using</button>` : ''}<button class="mini" data-rx-del="${esc(r.id)}">Delete</button></div></div>`).join('');
+  const opOpts = ops.map(o => { const rec = recs.find(r => r.op === o); return `<option value="${esc(o)}">${esc(rec ? rec.title : o)}</option>`; }).join('');
+  const first = ops[0], layers = first ? rxLayers(first) : [];
+  return `${list || '<p class="note">No prescriptions for this field.</p>'}
+    ${ops.length ? `<div class="rx-new" id="rxNew"><b>New prescription from a recorded layer</b>
+      <div class="rx-form"><select id="rxOp">${opOpts}</select><select id="rxLayer">${layers.map(k => `<option value="${k}">${esc(layerName(k))}</option>`).join('')}</select>
+      <select id="rxZones"><option value="3">3 zones</option><option value="4">4 zones</option><option value="5">5 zones</option></select>
+      <select id="rxCell"><option value="10">10 m cells</option><option value="20">20 m cells</option></select>
+      <button class="btn primary" id="rxCreate">Create</button></div>
+      <p class="note">Rates are multipliers of the machine's set rate. The one in use is applied by sprayers and spreaders through Precision Farming or Realistic Soil &amp; Fertilizer, whichever you play with. Soil layers start with more where the soil is low; yield layers with more where yield is high.</p></div>` : ''}`;
+}
+function bindRx(d) {
+  const body = $('fieldDetail');
+  const rxApi = async (b) => { try { const r = await api('/api/ops/rx', b); await loadField(S.field); return r; } catch (e) { toast(e.message); } };
+  const op = $('rxOp');
+  if (op) op.onchange = () => { $('rxLayer').innerHTML = rxLayers(op.value).map(k => `<option value="${k}">${esc(layerName(k))}</option>`).join(''); };
+  if ($('rxCreate')) $('rxCreate').onclick = async () => {
+    if (!$('rxLayer').value) return toast('That operation has no layer to build zones from.');
+    const r = await rxApi({ action: 'create', fieldId: d.field.id, opId: $('rxOp').value, layer: $('rxLayer').value, zones: +$('rxZones').value, cell: +$('rxCell').value,
+      name: `${layerName($('rxLayer').value)} zones` });
+    if (r && r.rx) { S.rxShow = r.rx.id; toast('Prescription created.'); }
+  };
+  body.onclick = async e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.rxUse) { await rxApi({ action: 'activate', id: b.dataset.rxUse }); toast('In use: machines apply it while spraying or spreading.'); }
+    else if (b.dataset.rxStop) await rxApi({ action: 'activate', id: null });
+    else if (b.dataset.rxDel) { if (window.confirm('Delete this prescription?')) await rxApi({ action: 'delete', id: b.dataset.rxDel }); }
+    else if (b.dataset.rxShow) { S.rxShow = b.dataset.rxShow; renderField(); }
+  };
+  body.onchange = async e => {
+    const inp = e.target.closest('[data-rx-rate]'); if (!inp) return;
+    const rx = d.rx.find(r => r.id === inp.dataset.rxRate); if (!rx) return;
+    const rates = [...body.querySelectorAll(`[data-rx-rate="${CSS.escape(rx.id)}"]`)].map(i => Number(i.value));
+    if (rates.some(v => !(v >= 0 && v <= 5))) return toast('Rates are multipliers from 0 to 5.');
+    await rxApi({ action: 'update', id: rx.id, changes: { rates } });
+  };
+}
+// zones of the shown prescription on the map
+function drawRx(s) {
+  const d = S.detail;
+  if (S.page !== 'field' || !d || !d.rx) return;
+  const rx = d.rx.find(r => r.id === S.rxShow);
+  if (!rx) return;
+  ctx.globalAlpha = 0.55;
+  for (let r = 0; r < rx.rows; r++) for (let c = 0; c < rx.cols; c++) {
+    const z = rx.grid[r * rx.cols + c];
+    if (z < 0) continue;
+    const [x0, y0] = toScreen(rx.ox + c * rx.cell, rx.oz + r * rx.cell, s), [x1, y1] = toScreen(rx.ox + (c + 1) * rx.cell, rx.oz + (r + 1) * rx.cell, s);
+    ctx.fillStyle = RX_COLORS[Math.round(z * 4 / Math.max(1, rx.zones - 1))];
+    ctx.fillRect(x0, y0, x1 - x0 + 0.5, y1 - y0 + 0.5);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ---------------------------------------------------------------- Field report (print / PDF, CSV)
+function openReport(d) {
+  const f = d.field, b = f.boundaries.find(x => x.v === f.active), recs = d.records;
+  const rows = recs.map(r => [r.title, dayTxt(r.firstDay) + (r.lastDay !== r.firstDay && dayTxt(r.lastDay) ? ' – ' + dayTxt(r.lastDay) : ''),
+    area(r.coveredHa), area(r.overlapHa), recordValues(r)]);
+  const csv = [['Operation', 'Days', 'Covered', 'Overlap', 'Values'], ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(f.name)} - Field Report</title>
+    <style>body{font:14px 'Noto Sans',system-ui,sans-serif;color:#1f1f1d;margin:28px}h1{font-size:24px;margin:0}h2{font-size:17px;margin:22px 0 6px;color:#367c2b}
+    .sub{color:#64635a}table{border-collapse:collapse;width:100%}th,td{border-bottom:1px solid #dcdad2;padding:6px 8px;text-align:left;vertical-align:top}
+    th{font-size:13px;color:#64635a}.bar{display:flex;gap:10px;margin:14px 0}.bar a,.bar button{font:inherit;font-weight:700;color:#367c2b;border:1px solid #367c2b;background:#fff;border-radius:4px;padding:6px 12px;text-decoration:none;cursor:pointer}
+    @media print{.bar{display:none}body{margin:0}}</style></head><body>
+    <h1>${esc(f.name)}</h1><div class="sub">${esc(clientName())} · ${esc(owned(f) ? farmName() : 'Not owned')} · ${b ? area(b.areaHa) : '---'}${f.farmland ? ' · Farmland ' + f.farmland : ''}</div>
+    <div class="bar"><button onclick="print()">Print / Save as PDF</button><a download="${esc(f.name)}-records.csv" href="data:text/csv;charset=utf-8,${encodeURIComponent(csv)}">Download CSV</a></div>
+    <h2>Work Records</h2>${rows.length ? `<table><tr><th>Operation</th><th>Days</th><th>Covered</th><th>Overlap</th><th>Values</th></tr>${rows.map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</table>` : '<p class="sub">No work recorded.</p>'}
+    <h2>Prescriptions</h2>${(d.rx || []).length ? `<table><tr><th>Name</th><th>Layer</th><th>Zone rates</th><th>In use</th></tr>${d.rx.map(r => `<tr><td>${esc(r.name)}</td><td>${esc(layerName(r.layer))}</td><td>${r.rates.map(x => x + '×').join(', ')}</td><td>${r.id === d.rxActive ? 'Yes' : ''}</td></tr>`).join('')}</table>` : '<p class="sub">None.</p>'}
+    <h2>Guidance Tracks</h2>${(d.tracks || []).length ? `<table><tr><th>Name</th><th>Type</th><th>Heading</th></tr>${d.tracks.map(t => `<tr><td>${esc(t.name)}</td><td>${esc(t.how)}</td><td>${fmt(t.h, 1)}°</td></tr>`).join('')}</table>` : '<p class="sub">None.</p>'}
+    <p class="sub" style="margin-top:24px">G5Link Operations Center · ${new Date().toLocaleDateString()}</p></body></html>`;
+  const w = window.open('', '_blank');
+  if (!w) return toast('Allow pop-ups to open the report.');
+  w.document.write(html); w.document.close();
+}
+
 function renderField() {
   const d = S.detail;
   if (!d) return;
@@ -575,7 +673,7 @@ function renderField() {
   $('fieldCrumb').textContent = f.name;
   const versions = [...f.boundaries].sort((x, y) => (y.v === f.active) - (x.v === f.active) || y.v - x.v);
   setHtml($('fieldDetail'), `
-    <div class="card"><h2>${esc(f.name)}<button class="edit" id="fieldRename" title="Rename">✎</button></h2>
+    <div class="card"><h2>${esc(f.name)}<button class="edit" id="fieldRename" title="Rename">✎</button><button class="btn rep-btn" id="fieldReport">Field Report</button></h2>
       <div class="who">${esc(clientName())} | ${esc(owned(f) ? farmName() : 'Not owned')}${f.farmland ? ' · Farmland ' + f.farmland : ''}</div>
       <div class="checks"><span class="${b ? '' : 'no'}">Active Boundary</span><span class="${recs.length ? '' : 'no'}">Work Records</span><span class="${(d.tracks || []).length ? '' : 'no'}">Guidance</span></div></div>
     <h3>Boundaries</h3>
@@ -602,7 +700,11 @@ function renderField() {
     ${recs.length ? `<table class="rec"><tr><th>Operation</th><th>Days</th><th class="n">Covered</th><th class="n">Overlap</th></tr>
       ${recs.map(r => `<tr><td><b><i class="wk ${r.kind}"></i>${esc(r.title)}</b><br><span class="note">${esc(recordValues(r))}</span></td><td>${dayTxt(r.firstDay)}${r.lastDay !== r.firstDay && dayTxt(r.lastDay) ? ' – ' + dayTxt(r.lastDay) : ''}</td>
         <td class="n">${area(r.coveredHa)}</td><td class="n">${area(r.overlapHa)}</td></tr>`).join('')}</table>`
-      : '<p class="empty">No work recorded in this field yet.</p>'}`);
+      : '<p class="empty">No work recorded in this field yet.</p>'}
+    <h3>Prescriptions</h3>
+    ${rxSection(d, recs)}`);
+  bindRx(d);
+  $('fieldReport').onclick = () => openReport(d);
   $('fieldRename').onclick = async () => {
     const name = prompt('Field name', f.name);
     if (!name) return;

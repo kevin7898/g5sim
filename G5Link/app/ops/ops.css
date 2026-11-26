@@ -184,3 +184,21 @@ table.rec td.n { text-align: right; white-space: nowrap; }
 .rtk-line { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; align-items: center; }
 .rtk-line .rtk-subs { justify-content: flex-start; }
 .rtk-line .btn { min-height: var(--h-sm); padding: 0 10px; font-size: var(--fs-xs); }
+
+/* Prescriptions and the field report */
+.rep-btn { margin-left: auto; min-height: var(--h-sm); font-size: var(--fs-xs); }
+.card h2 { display: flex; align-items: center; gap: 8px; }
+.rx { border: 1px solid var(--rule); border-radius: 6px; padding: 8px 10px; margin: 6px 0; }
+.rx.active { border-color: var(--green); box-shadow: 0 0 0 1px var(--green) inset; } .rx.shown { background: #f7faf4; }
+.rx-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; } .rx-head b { font-size: var(--fs-md); }
+.rx-head .state { margin-left: auto; font-size: var(--fs-xs); font-weight: 800; color: var(--green); }
+.rx-head .mini { margin-left: auto; }
+.rx-zones { display: flex; flex-wrap: wrap; gap: 6px 12px; margin: 8px 0 4px; }
+.rx-zones label { display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs); font-weight: 700; }
+.rx-zones i { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(0,0,0,.2); }
+.rx-zones span { display: flex; flex-direction: column; line-height: 1.1; } .rx-zones small { color: var(--muted); font-weight: 600; }
+.rx-zones input { width: 64px; padding: 4px 6px; border: 1px solid #b9b7ad; border-radius: 4px; text-align: right; }
+.rx-acts { display: flex; gap: 8px; }
+.rx-new { border: 1px dashed #b9b7ad; border-radius: 6px; padding: 8px 10px; margin: 8px 0; }
+.rx-form { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.rx-form select { min-height: var(--h-md); border: 1px solid #b9b7ad; border-radius: 4px; padding: 0 6px; background: #fff; }

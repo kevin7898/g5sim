@@ -382,6 +382,19 @@
         pts.push(pts[0]);
         polyline(pts, 'rgba(255, 160, 30, .95)', 3, [12, 8]);
       }
+      // Courseplay Grain Cart position (Machine Sync style marker)
+      const gcart = data.grainCart;
+      if (gcart && typeof gcart.x === 'number' && near(gcart.x, gcart.z)) {
+        const q = P(gcart.x, gcart.z);
+        if (q) {
+          const r = Math.max(10, Math.min(18, q.s * 2.2));
+          ctx.setLineDash([]);
+          ctx.fillStyle = '#f2a900'; ctx.strokeStyle = '#1e1e1b'; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.arc(q.x, q.y, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+          ctx.fillStyle = '#1e1e1b'; ctx.font = `700 ${Math.round(r * 1.1)}px "Noto Sans", sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillText('GC', q.x, q.y + 0.5);
+        }
+      }
       const rp = G5Bounds.path();
       if (rp.length > 1) { polyline(rp.map(q => P(q[0], q[1])), '#ff3b30', 4); }
     }

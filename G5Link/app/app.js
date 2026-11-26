@@ -330,6 +330,7 @@ function render() {
   sk('skTurnOn', anyOn, imps.length ? (anyOn ? 'ON' : 'OFF') : '---');
   sk('skWork', w.recording, w.recording ? 'ON' : 'OFF');
   renderContextKeys(d);
+  if (window.G5GrainCart) G5GrainCart.render();
 
   const r = rates(w);
   renderWorkMonitor(v, w, imps, r);
@@ -354,6 +355,10 @@ function contextKeys(d) {
     txt: !hl || !hl.armed ? 'OFF' : hl.state === 'headland' ? 'RAISED' : hl.state === 'manual' ? 'MANUAL' : 'ARMED' });
   if (d.combine && auto) keys.push({ id: 'auto', cmd: 'harvestAuto', value: -1, icon: 'autospeed', label: 'AUTO SPEED',
     on: auto.on && auto.state === 'active', amber: auto.on && auto.state !== 'active', txt: auto.on ? (AUTO_STATE[auto.state] || 'STBY') : 'OFF' });
+  const g = d.grainCart;
+  if (g && (g.carts > 0 || g.inCart)) keys.push({ id: 'graincart', act: 'graincart', icon: 'graincart', label: 'GRAIN CART',
+    on: !!(g.name && !g.paused && !g.released && (g.kind === 'unloading' || g.kind === 'driving')), amber: !!(g.paused || g.released),
+    txt: window.G5GrainCart ? G5GrainCart.shortText(g) : '--' });
   if (c.pipe) keys.push({ id: 'pipe', cmd: 'pipeToggle', icon: 'auger', label: 'AUGER', on: c.pipe.open, txt: c.pipe.open ? 'OUT' : 'IN' });
   if (c.fold) keys.push({ id: 'fold', cmd: 'foldToggle', icon: 'fold', label: 'FOLD', on: c.fold.unfolded,
     amber: c.fold.moving, txt: c.fold.moving ? 'MOVING' : c.fold.unfolded ? 'UNFOLDED' : 'FOLDED' });
@@ -368,6 +373,7 @@ let ctxLayout = '';
 $('skCtx').addEventListener('click', e => {
   const b = e.target.closest('[data-act]');
   if (b && b.dataset.act === 'headland' && window.G5Headland) G5Headland.toggle();
+  if (b && b.dataset.act === 'graincart' && window.G5GrainCart) G5GrainCart.open();
 });
 function renderContextKeys(d) {
   const keys = d.state === 'vehicle' ? contextKeys(d) : [];
@@ -645,10 +651,15 @@ function renderHarvestAuto(d, v) {
   $('haAuger').hidden = !pipe;
   $('haAuger').classList.toggle('on', !!(pipe && pipe.open));
   $('haAuger').lastChild.textContent = pipe && pipe.open ? 'Auger Out' : 'Auger In';
+  const gcart = d.grainCart;
+  $('haCart').hidden = !(gcart && gcart.name);
+  $('haCartTxt').hidden = !(gcart && gcart.name);
+  if (gcart && gcart.name && window.G5GrainCart) $('haCartTxt').textContent = `${gcart.name}: ${G5GrainCart.stateText(gcart)}`;
   $('haAvgTph').textContent = HA.n ? `${fmt(HU.flow(HA.tphSum / HA.n, crop), 0)} ${HU.flowUnit()}` : '---';
   $('haAvgLoss').textContent = HA.n ? fmt(HA.lossSum / HA.n, 1) + ' %' : '---';
   $('haAutoPct').textContent = HA.harvestMs > 0 ? fmt(HA.autoMs / HA.harvestMs * 100, 0) + ' %' : '---';
 }
+$('haCart').onclick = () => window.G5GrainCart && G5GrainCart.call($('haCart'));
 $('haMax').onclick = () => openNumpad(`Max Automation Speed (${U.speedUnit()})`, v => send('harvestAutoMax', metric('speed') ? v : v / 0.621371));
 $('haSpan').onclick = e => {
   const b = e.target.closest('button'); if (!b) return;

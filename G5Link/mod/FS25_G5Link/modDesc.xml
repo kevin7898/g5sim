@@ -6,7 +6,12 @@
         <en>G5Link - Display Bridge</en>
     </title>
     <description>
-        <en><![CDATA[Streams live data from the vehicle you are driving (speed, rpm, gear, fuel, cruise, implements, work totals, combine grain tank, plus yield, moisture, grain loss and harvest settings from Realistic Harvesting, seeding rate, skips, doubles and soil moisture from Realistic Seeder, soil from Realistic Soil & Fertilizer, work-area positions for coverage maps, and Courseplay, AutoDrive and Mud System Physics state when those mods are installed) to a companion G5-style display that runs in a browser on a tablet. Commands tapped on the tablet (cruise control, engine, lower/raise, turn on) are sent back to the game.
+        <en><![CDATA[Streams live data from the vehicle you are driving (speed, rpm, gear, fuel, cruise, implements, work totals, combine grain tank, plus yield, moisture, grain loss and harvest settings from Realistic Harvesting, seeding rate, skips, doubles and soil moisture from Realistic Seeder, soil from Realistic Soil & Fertilizer, work-area positions for coverage maps, and Courseplay, AutoDrive and Mud System Physics state when those mods are installed) to a companion G5-style display that runs in a browser on a tablet. Commands tapped on the tablet (cruise control, engine, lower/raise, turn on, headland automation, auger, fold, lights) are sent back to the game.
+
+Works with these mods when they are installed (all optional):
+- Realistic Harvesting, Realistic Seeder, Realistic Soil & Fertilizer, Advanced Damage System, Farm Finance
+- Courseplay, AutoDrive, Enhanced Vehicle, Cultivator Settings
+- Recommended: Courseplay Grain Cart by MMP Farms (mmp-farms.itch.io/grain-cart-remote-cp), for the Grain Cart remote on the display: call, pause, release, unload, move away and nudge the cart from the combine.
 
 Requires the G5Link bridge running on the same PC. See README for setup.]]></en>
     </description>
@@ -24,6 +29,7 @@ Requires the G5Link bridge running on the same PC. See README for setup.]]></en>
         <sourceFile filename="scripts/Json.lua"/>
         <sourceFile filename="scripts/Controls.lua"/>
         <sourceFile filename="scripts/Headland.lua"/>
+        <sourceFile filename="scripts/GrainCart.lua"/>
         <sourceFile filename="scripts/G5Link.lua"/>
     </extraSourceFiles>
 </modDesc>

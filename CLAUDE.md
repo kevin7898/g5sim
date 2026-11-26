@@ -44,11 +44,11 @@ python3 G5Link/tools/make_icon.py                   # regenerate mod icon.dds
 
 ## Layout
 
-- `G5Link/mod/FS25_G5Link/`: modDesc.xml, scripts/G5Link.lua, scripts/Controls.lua (shortcut controls, harvest automation, tillage), scripts/Headland.lua (headland automation), scripts/Json.lua, scripts/providers/ (FieldPath adapters), icon.dds
+- `G5Link/mod/FS25_G5Link/`: modDesc.xml, scripts/G5Link.lua, scripts/Controls.lua (shortcut controls, harvest automation, tillage), scripts/Headland.lua (headland automation), scripts/GrainCart.lua (Courseplay Grain Cart add-on), scripts/Json.lua, scripts/providers/ (FieldPath adapters), icon.dds
 - `G5Link/bridge/`: g5link-bridge.js, coverage.js (map recording), fields.js (Ops Center fields and records), headland.js (headland files for the mod),
   start-bridge.bat, start-demo.bat
 - `G5Link/app/`: index.html, style.css, app.js (pages, windows, commands, units), layers.js (map layers, legend,
-  Select Map View), boundary.js (Boundary app), guidance.js (Guidance page and map drawing), headland.js (Headland Management), shared.js (settings,
+  Select Map View), boundary.js (Boundary app), guidance.js (Guidance page and map drawing), headland.js (Headland Management), graincart.js (Grain Cart remote), shared.js (settings,
   units; also used by the Ops Center), ops/ (Ops Center web app at /ops/)
 - `G5Link/tools/`: package.py, make_icon.py
 - `research/`: Deere help-center study notes, page index, simulator exploration log

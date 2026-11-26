@@ -239,6 +239,22 @@ from `FieldPathPrivateIntegration.lua`:
   attacher (front, rear, trailed); whether the base game line end is the tool's or the tractor's (assumed tool, from
   AI work lines); EV's fields on the current release; lead times on real hitches.
 
+## Courseplay Grain Cart (scripts/GrainCart.lua, app/graincart.js)
+
+- MMP Farms add-on FS25_CourseplayGrainCart 1.0.1.0 (itch.io, GPL-3.0; read from the zip). Its classes are in the
+  Courseplay environment: `getfenv(0)[g_modManager.CP_MOD_NAME]`. Commands: `GrainCartCommandEvent.sendEvent(cart,
+  combine, n)` with `AIDriveStrategyUnloadCombine.GC_COMMANDS` (CALL 1, NUDGE_FORWARD 2, NUDGE_BACK 3, PAUSE 4,
+  RELEASE 5, UNLOAD 6, NUDGE_LEFT 7, NUDGE_RIGHT 8, MOVE_AWAY 9). Status: `cart:getCpDriveStrategy():gcGetStatus()`
+  on the server, `GrainCartAddon.clientStatus[cart]` on MP clients; state kind from `CpGrainCartHud.stateTexts`.
+- Cart choice: the cart selected in its panel (`GrainCartAddon.hud.selectedCart`) if in range, else ours, else the
+  closest active CP unloader of the farm within 1500 m (`getIsCpCombineUnloaderActive`). `grainCartNext` also moves
+  its panel's selection. In the cart tractor, commands go to the closest harvester, as its panel does.
+- Bridge commands `grainCart` (index = GC command) and `grainCartNext`; telemetry `g5.grainCart` (carts, inCart, name,
+  state, kind, paused, released, outOfPosition, nudge, nudgeX, fill, cap, x, z, dist).
+- Listed as optional/recommended (modDesc description, README); no modDesc dependency, so G5Link loads without it.
+- **Not yet checked in game:** all of it, in particular that `getfenv(0)` from G5Link's environment sees the
+  Courseplay environment by name (the add-on does the same from its own).
+
 ## Design reference (how the look was matched)
 
 The look was matched to the real G5 Universal in the Deere Display and CommandARM Simulator

@@ -154,5 +154,15 @@ if (fs.existsSync(live)) {
   }
 }
 
+{
+  const f = path.join(OUT, 'grain_cart', 'telemetry_live.xml');
+  check(fs.existsSync(f), 'grain cart live telemetry copy exists');
+  if (fs.existsSync(f)) {
+    const t = telemetryFromXml(fs.readFileSync(f, 'utf8'));
+    eq(t.grainCart && t.grainCart.name, 'Far Cart', 'live: grain cart name');
+    eq(t.grainCart && t.grainCart.nudgeX, -0.5, 'live: grain cart side nudge');
+  }
+}
+
 console.log(`node checks: ${checks}, failures: ${failures}`);
 process.exit(failures ? 1 : 0);

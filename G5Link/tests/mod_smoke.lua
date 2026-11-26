@@ -1073,6 +1073,73 @@ do
 end
 
 ---------------------------------------------------------------------------
+-- Scenario 8: Courseplay Grain Cart (MMP Farms) remote from the combine
+---------------------------------------------------------------------------
+do
+    local dir = newScenario("grain_cart", {})
+    local combine = makeVehicle({name = "Test S7 Combine", combine = true, speed = 5})
+    local function makeCart(name, x, level)
+        local cart = makeVehicle({name = name, x = x, z = 200})
+        local wagon = {getFillUnits = function() return {{}} end, getFillUnitCapacity = function() return 36000 end,
+            getFillUnitFillLevel = function() return level end, getFillUnitFillType = function() return FillType.WHEAT end}
+        cart.children = {cart, wagon}
+        cart.getIsCpCombineUnloaderActive = function() return true end
+        cart.getOwnerFarmId = function() return 1 end
+        cart.getRootVehicle = function(self) return self end
+        cart.strategy = {gcGetStatus = function() return {stateName = "DRIVING_TO_COMBINE", paused = false, nudge = 1, nudgeX = -0.5,
+            autoCallsBlocked = false, outOfPosition = false} end}
+        cart.getCpDriveStrategy = function(self) return self.strategy end
+        return cart
+    end
+    local near, far = makeCart("Near Cart", 160, 12000), makeCart("Far Cart", 400, 0)
+    combine.getOwnerFarmId = function() return 1 end
+    combine.getRootVehicle = function(self) return self end
+    g_localPlayer = {getCurrentVehicle = function(self) return combine end}
+    g_server = {}
+    local sent = {}
+    local hud = {selectedCart = nil}
+    FS25_Courseplay = {
+        GrainCartCommandEvent = {sendEvent = function(cart, target, c) sent[#sent + 1] = {cart = cart, target = target, c = c} end},
+        AIDriveStrategyUnloadCombine = {GC_COMMANDS = {CALL = 1, NUDGE_FORWARD = 2, NUDGE_BACK = 3, PAUSE = 4, RELEASE = 5,
+            UNLOAD = 6, NUDGE_LEFT = 7, NUDGE_RIGHT = 8, MOVE_AWAY = 9}},
+        GrainCartAddon = {hud = hud, clientStatus = {}},
+        CpGrainCartHud = {stateTexts = {DRIVING_TO_COMBINE = "CP_grainCart_status_driving"}},
+    }
+    g_modManager.CP_MOD_NAME = "FS25_Courseplay"
+    mod:loadMap("test")
+    g_currentMission.vehicleSystem = {vehicles = {combine, near, far}}
+    tick(4)
+    local t = telemetry(dir)
+    eq(t["g5.grainCart#carts"], "2", "two carts in range")
+    eq(t["g5.grainCart#name"], "Near Cart", "closest cart picked")
+    eq(t["g5.grainCart#kind"], "driving", "status kind from the add-on's state texts")
+    eq(t["g5.grainCart#fill"], "12000.000000", "cart fill level")
+    eq(t["g5.grainCart#dist"], "60.000000", "distance to the cart")
+    writeFile(dir .. "commands.xml", table.concat({
+        '<?xml version="1.0" encoding="utf-8" standalone="no"?>', "<commands>",
+        '    <cmd id="1" name="grainCart" value="0" index="1"/>',
+        '    <cmd id="2" name="grainCart" value="0" index="7"/>',
+        '    <cmd id="3" name="grainCart" value="0" index="42"/>',
+        '    <cmd id="4" name="grainCartNext" value="0" index="0"/>',
+        '    <cmd id="5" name="grainCart" value="0" index="4"/>',
+        "</commands>", ""}, "\n"))
+    tick(4)
+    keepLive(dir)
+    eq(#sent, 3, "three valid commands sent (unknown index ignored)")
+    check(sent[1] and sent[1].cart == near and sent[1].target == combine and sent[1].c == 1, "call: near cart to this combine")
+    eq(sent[2] and sent[2].c, 7, "nudge left")
+    check(sent[3] and sent[3].cart == far and sent[3].c == 4, "after Next, pause goes to the far cart")
+    check(hud.selectedCart == far, "the add-on's panel follows the selected cart")
+    eq(telemetry(dir)["g5.grainCart#name"], "Far Cart", "selected cart reported")
+    -- without the add-on nothing is written
+    FS25_Courseplay = nil
+    tick(4)
+    eq(telemetry(dir)["g5.grainCart#carts"], nil, "no grain cart block without the add-on")
+    g_server = nil
+    mod:deleteMap()
+end
+
+---------------------------------------------------------------------------
 -- JSON encoder samples for check_output.js
 ---------------------------------------------------------------------------
 do

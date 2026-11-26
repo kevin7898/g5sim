@@ -89,6 +89,9 @@ function G5Link:loadMap(name)
     if G5LinkHeadland ~= nil then
         G5LinkHeadland:reset()
     end
+    if G5LinkGrainCart ~= nil then
+        G5LinkGrainCart:reset()
+    end
 
     if G5LinkProviders ~= nil then
         local ok, err = pcall(G5LinkProviders.loadMap, G5LinkProviders)
@@ -575,6 +578,13 @@ function G5Link:writeTelemetry(vehicle)
         self:writeCombine(xml, vehicle)
         if G5LinkHeadland ~= nil then
             pcall(G5LinkHeadland.write, G5LinkHeadland, xml)
+        end
+        if G5LinkGrainCart ~= nil then
+            local ok, err = pcall(G5LinkGrainCart.write, G5LinkGrainCart, xml, vehicle, self, G5Link.WRITE_INTERVAL)
+            if not ok and not self.grainCartErrorLogged then
+                self.grainCartErrorLogged = true
+                print("G5Link: Courseplay Grain Cart read failed: " .. tostring(err))
+            end
         end
         if G5LinkControls ~= nil then
             local ok, err = pcall(G5LinkControls.write, G5LinkControls, xml, vehicle, self)
@@ -1262,6 +1272,12 @@ function G5Link:runCommand(vehicle, cmd)
     end
     if vehicle == nil then
         return
+    end
+    if G5LinkGrainCart ~= nil then
+        local ok, handled = pcall(G5LinkGrainCart.run, G5LinkGrainCart, vehicle, cmd)
+        if ok and handled then
+            return
+        end
     end
     if G5LinkControls ~= nil then
         local ok, handled = pcall(G5LinkControls.run, G5LinkControls, vehicle, cmd)

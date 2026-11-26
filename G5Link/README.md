@@ -100,6 +100,21 @@ a paused game, or when you're on foot.
 built. Work totals are counted by G5Link itself while any work area is active, and reset
 when you tap Reset Counter.
 
+## Works with other mods
+
+Everything is optional. G5Link checks for each mod and only uses it when it is installed.
+
+| Mod | Adds |
+|---|---|
+| [Realistic Harvesting](https://github.com/exekx/FS25_RealisticHarvesting) | Yield, moisture, grain loss, harvest settings, Harvest Automation targets |
+| FieldPath Realistic Seeder | Seeding rate, skips, doubles, singulation, soil moisture (Planter page, map layers) |
+| [Realistic Soil & Fertilizer](https://github.com/Realistic-Farming/FS25_SoilFertilizer) | Soil N, P, K, pH (Field page, map layers) |
+| Advanced Damage System, Farm Finance | Service and finances in the Ops Center |
+| Courseplay, AutoDrive | AI driver state, Courseplay course on the map |
+| Enhanced Vehicle | Track steering as a headland source and "lower on steering engage" |
+| [Cultivator Settings](https://github.com/jason0611/FS25_CultivatorSettings) | Shallow / Normal / Deep from the Tillage page |
+| **Recommended:** [Courseplay Grain Cart](https://mmp-farms.itch.io/grain-cart-remote-cp) (MMP Farms, needs Courseplay) | **Grain Cart** remote on the display: call the cart, pause, release, send it to unload, move it out of the way, and nudge it forward, back, left and right under the pipe. The cart shows on the Guidance map, with its fill level and status on the GRAIN CART key and the Harvest Automation page |
+
 ## Setup on the Windows PC
 
 1. **Install Node.js** (LTS) from https://nodejs.org. It's needed for the bridge.

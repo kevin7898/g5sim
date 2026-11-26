@@ -589,3 +589,26 @@ a.app { text-decoration: none; color: inherit; }
 .hl-top { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; }
 .hl-cols h4 { margin: 8px 0 0; font-size: 16px; color: var(--muted); }
 .hl-win .hint { margin: 8px 0 0; font-size: 13.5px; }
+
+/* Grain Cart remote */
+.gc-win { width: 900px; } .gc-win .win-body { padding: 8px 22px 14px; }
+.gc-head { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-left: 6px solid var(--tile-off); background: var(--cream); }
+.gc-head.ok { border-left-color: var(--tile-on); } .gc-head.warn { border-left-color: var(--warn); }
+.gc-head div { display: flex; flex-direction: column; } .gc-head b { font-size: 20px; color: var(--ink); } .gc-head span { font-size: 16px; font-weight: 600; color: var(--ink-2); }
+.gc-next { height: 44px; padding: 0 14px; font-size: 16px; font-weight: 700; }
+.gc-main { display: grid; grid-template-columns: 110px 1fr 250px; gap: 18px; padding: 12px 0 4px; align-items: center; }
+.gc-fill { display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 16px; font-weight: 700; color: var(--ink-2); }
+.gc-fill .hv-tank { height: 170px; }
+.gc-cmds { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.gc-big { height: 62px; font-size: 20px; font-weight: 700; }
+.gc-big.on { outline: 3px solid var(--warn); outline-offset: -3px; }
+.gc-cmds .gc-big:last-child { grid-column: 1 / -1; }
+.gc-nudge { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.gc-nudge .g5btn { width: 64px; height: 52px; font-size: 22px; }
+.gc-nudge div { display: flex; align-items: center; gap: 8px; } .gc-nudge b { min-width: 104px; text-align: center; font-size: 15px; color: var(--ink); }
+.gc-nudge small { font-size: 13px; font-weight: 600; color: var(--muted); text-align: center; }
+.gc-win .hint { margin: 8px 0 0; font-size: 13.5px; }
+.ha-cart { margin-top: 6px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 15px; font-weight: 700; padding: 4px 0; }
+.ha-cart[hidden], .ha-cart-txt[hidden] { display: none; }
+.ha-cart svg { width: 26px; height: 26px; }
+.ha-cart-txt { margin-top: 3px; font-size: 13px; font-weight: 700; color: var(--ink-2); text-align: center; }

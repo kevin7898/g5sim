@@ -126,6 +126,7 @@ function telemetryFromXml(text) {
     rh: rhFromNode(child(g5, 'rh')),
     controls: controlsFromNode(child(g5, 'controls')),
     headland: (child(g5, 'headland') || {}).attrs || null,
+    grainCart: (child(g5, 'grainCart') || {}).attrs || null,
     harvestAuto: (child(g5, 'harvestAuto') || {}).attrs || null,
   };
 }
@@ -329,7 +330,7 @@ const pollCourse = jsonPoller(COURSE, c => { course = { key: c.key ?? null, name
 const ALLOWED = new Set(['motorToggle', 'cruiseToggle', 'cruiseSet', 'cruiseAdjust',
   'lowerAll', 'turnOnAll', 'implTurnOn', 'resetWork',
   'pipeToggle', 'foldToggle', 'lightsToggle', 'workLightsToggle', 'beaconToggle', 'hazardToggle',
-  'harvestAuto', 'harvestAutoMax', 'tillageDepth', 'tillageDepthAdjust', 'tillageLevel']);
+  'harvestAuto', 'harvestAutoMax', 'tillageDepth', 'tillageDepthAdjust', 'tillageLevel', 'grainCart', 'grainCartNext']);
 let cmdQueue = [];
 let nextCmdId = 1;
 
@@ -377,6 +378,7 @@ const demo = {
   lights: false, workLights: true, beacon: false, hazard: false, unfolded: true,
   auto: { on: false, max: 10, state: 'off', target: null, timer: 0 }, recSpeed: null,
   till: { level: 3, depth: 15, target: 15 },
+  gc: { kind: 'waiting', paused: false, released: false, nudge: 0, nudgeX: 0, x: -60, z: 300, fill: 4000 },
   work: { area: 0, time: 0, distance: 0, totalDistance: 0, fuelUsed: 0, totalFuel: 0 },
 };
 function demoCommand(c) {
@@ -403,11 +405,48 @@ function demoCommand(c) {
       demo.till.level = c.value <= 10 ? 2 : c.value <= 22 ? 3 : 4; break;
     case 'tillageDepthAdjust': demo.till.target = Math.max(2, Math.min(38, demo.till.target + c.value)); break;
     case 'tillageLevel': demo.till.level = Math.max(2, Math.min(4, Math.round(c.value))); break;
+    case 'grainCart': demoGrainCartCommand(c.index); break;
+    case 'grainCartNext': break;
     case 'harvestAutoMax': demo.auto.max = Math.max(1, Math.min(40, c.value)); break;
   }
   demo.lastCmd = c.id;
 }
 if (DEMO_COMBINE) { demo.ccSpeed = 6.2; demo.target = 6.2; }
+
+// Courseplay Grain Cart add-on, simulated: the cart drives to the left of the combine, follows it under the
+// pipe, fills while the auger is out, and drives off to a truck when told to unload.
+function demoGrainCartCommand(i) {
+  const g = demo.gc;
+  if (i === 1) Object.assign(g, { kind: 'driving', paused: false, released: false });
+  else if (i === 4) g.paused = !g.paused;
+  else if (i === 5) Object.assign(g, { kind: 'waiting', released: true, paused: false, nudge: 0, nudgeX: 0 });
+  else if (i === 6) Object.assign(g, { kind: 'goingToUnload', paused: false, nudge: 0, nudgeX: 0 });
+  else if (i === 9) Object.assign(g, { kind: 'movingAway', released: true, paused: false, nudge: 0, nudgeX: 0 });
+  else if (i === 2) g.nudge = Math.min(10, g.nudge + 1);
+  else if (i === 3) g.nudge = Math.max(-10, g.nudge - 1);
+  else if (i === 7) g.nudgeX = Math.min(5, g.nudgeX + 0.5);
+  else if (i === 8) g.nudgeX = Math.max(-5, g.nudgeX - 0.5);
+}
+function demoGrainCart(dt) {
+  const g = demo.gc, cap = 36000, h = demo.heading * Math.PI / 180;
+  const fx = Math.sin(h), fz = -Math.cos(h);                       // forward (heading 0 = north = -z)
+  const lx = fz, lz = -fx;                                         // left
+  let tx = g.x, tz = g.z;
+  if (g.kind === 'driving' || g.kind === 'unloading') {
+    tx = demo.x + lx * (7 + g.nudgeX) + fx * (-2 + g.nudge); tz = demo.z + lz * (7 + g.nudgeX) + fz * (-2 + g.nudge);
+  } else if (g.kind === 'goingToUnload') { tx = -200; tz = 420; }
+  else if (g.kind === 'movingAway') { tx = demo.x + lx * 25; tz = demo.z + lz * 25; }
+  const d = Math.hypot(tx - g.x, tz - g.z), step = (g.paused ? 0 : (g.kind === 'unloading' ? 30 : 6)) * dt / 1000;
+  if (d > 0.01) { const k = Math.min(1, step / d); g.x += (tx - g.x) * k; g.z += (tz - g.z) * k; }
+  if (g.kind === 'driving' && d < 3) g.kind = 'unloading';
+  if (g.kind === 'unloading' && demo.unloading && !g.paused) g.fill = Math.min(cap, g.fill + 450 * dt / 1000);
+  if (g.kind === 'goingToUnload' && d < 2) { g.fill = Math.max(0, g.fill - 2000 * dt / 1000); if (g.fill === 0) g.kind = 'waiting'; }
+  if (g.kind === 'movingAway' && d < 2) g.kind = 'waiting';
+  const kind = g.kind === 'goingToUnload' && d >= 2 ? 'driving' : g.kind;
+  return { carts: 1, inCart: false, name: 'Demo 8R + 1300 Cart', state: g.kind.toUpperCase(), kind: g.kind === 'goingToUnload' ? 'goingToUnload' : kind,
+    paused: g.paused, outOfPosition: false, released: g.released, nudge: g.nudge, nudgeX: g.nudgeX,
+    fill: Math.round(g.fill), cap, x: +g.x.toFixed(1), z: +g.z.toFixed(1), dist: Math.round(Math.hypot(g.x - demo.x, g.z - demo.z)) };
+}
 
 // Turns the tractor demo frame into a combine with a header and Realistic Harvesting data.
 const DEMO_SETTINGS = [
@@ -439,6 +478,7 @@ function demoCombine(t, dt, working, meters) {
     width, areas: [working], fills: [], geometry: demoAreas(1, width, 4.5),
   }];
   t.combine = { name: 'Demo S7 Combine', tank: Math.round(demo.tank), tankCap: cap, crop: 'WHEAT', cropTitle: 'Wheat', turnedOn: demo.turnedOn };
+  t.grainCart = demoGrainCart(dt);
   t.controls = { ...t.controls, pipe: { state: demo.unloading ? 2 : 1, target: demo.unloading ? 2 : 1, states: 2, open: demo.unloading } };
   t.controls.fold.name = 'Demo HD40F Header';
   t.rh = {

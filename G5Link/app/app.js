@@ -4,11 +4,24 @@
 const $ = id => document.getElementById(id);
 const display = $('display');
 const W = 1280, H = 720;
+// Fill Screen: keep the 1280-wide G5 layout and let the height (taller screens, e.g. a 4:3 iPad) or the width
+// (wider screens) grow, so there are no black bars. The pages are grids, so the extra room goes to the map,
+// tiles and windows.
+const FILL = { minW: 1280, maxW: 1706, minH: 720, maxH: 1024 };
 
 
 // ------------------------------------------------------------ fit the 16:9 canvas to the screen
 function fit() {
-  const s = Math.min(window.innerWidth / W, window.innerHeight / H);
+  const vw = window.innerWidth, vh = window.innerHeight;
+  let w = W, h = H;
+  if (typeof settings !== 'undefined' && settings.fit === 'fill' && vw > 0 && vh > 0) {
+    const aspect = vw / vh;
+    if (aspect < W / H) h = Math.round(Math.min(FILL.maxH, Math.max(FILL.minH, W / aspect)));
+    else w = Math.round(Math.min(FILL.maxW, Math.max(FILL.minW, H * aspect)));
+  }
+  display.style.width = w + 'px';
+  display.style.height = h + 'px';
+  const s = Math.min(vw / w, vh / h);
   display.style.transform = `translate(-50%, -50%) scale(${s})`;
 }
 window.addEventListener('resize', fit);
@@ -129,6 +142,37 @@ $('unitsBtn').onclick = () => { paintUnits(); openWin('unitsWin'); };
 paintUnits();
 bindSeg('modeSeg', 'mode', applyMode);
 bindSeg('soundSeg', 'sound');
+if (!settings.fit) settings.fit = 'fixed';
+bindSeg('fitSeg', 'fit', fit);
+fit();
+
+// Full screen: the Fullscreen API where the browser has it (desktop, iPadOS Safari); otherwise, and on
+// iPhone, the Home Screen app (manifest display: fullscreen) is the way to lose the browser bars.
+const standalone = () => window.navigator.standalone === true || matchMedia('(display-mode: fullscreen)').matches
+  || matchMedia('(display-mode: standalone)').matches;
+const fsElement = () => document.fullscreenElement || document.webkitFullscreenElement || null;
+function paintFs() {
+  $('fsBtn').textContent = standalone() ? 'Home Screen App' : fsElement() ? 'Exit Full Screen' : 'Enter Full Screen';
+}
+$('fsBtn').onclick = async () => {
+  if (standalone()) { shade('Already full screen: G5Link is running from the Home Screen.', 'info', 4000); return; }
+  try {
+    if (fsElement()) {
+      await (document.exitFullscreen ? document.exitFullscreen() : document.webkitExitFullscreen());
+    } else {
+      const el = document.documentElement;
+      const req = el.requestFullscreen || el.webkitRequestFullscreen;
+      if (!req) throw new Error('unsupported');
+      await req.call(el);
+    }
+  } catch (e) {
+    shade('This browser cannot go full screen from a page. On an iPad: tap Share, then Add to Home Screen, and open G5Link from the Home Screen.', 'info', 8000);
+  }
+  setTimeout(paintFs, 300);
+};
+document.addEventListener('fullscreenchange', () => { paintFs(); fit(); });
+document.addEventListener('webkitfullscreenchange', () => { paintFs(); fit(); });
+paintFs();
 function applyMode() { display.classList.toggle('night', settings.mode === 'night'); }
 applyMode();
 

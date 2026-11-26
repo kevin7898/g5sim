@@ -25,7 +25,9 @@ mod writes telemetry to a file, a Node bridge streams it to a browser or iPad, a
 - **Tests:** run `G5Link/tests/run.sh` after any mod change. When the mod calls a new game or mod API, add it to the
   mocks in `tests/mod_smoke.lua` with a check, so a typo or a nil/NaN shows up before FS25 does.
 - **Bridge:** keep it dependency-free (Node 18+ only).
-- **Display:** keep it a fixed 1280×720 canvas (16:9, the G5 frame ×4/3), scaled to fit.
+- **Display:** designed on a 1280×720 canvas (16:9, the G5 frame ×4/3), scaled to fit. Menu > System > Screen Fit
+  "Fill Screen" stretches the height (up to 1280×1024) or the width (up to 1706×720) to the screen, so pages must
+  grow from grid/flex rows rather than fixed pixel heights. Check new pages at 1280×720 and 1024×768.
 
 ## Run and test
 

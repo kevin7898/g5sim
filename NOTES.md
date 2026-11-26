@@ -301,8 +301,10 @@ from `FieldPathPrivateIntegration.lua`:
 - Performance: the Guidance map drew every recorded frame each animation frame (a long session = 100k+ frames,
   ~1.7 M quads) and froze. Coverage is now painted once into a 1 m grid (latest frame per cell, layers.js
   coverageRuns) and drawn as runs per row and color: 60 fps with 107k frames.
-- Open decision: let the display height stretch to the screen (e.g. 1280x960 on a 4:3 iPad) instead of the fixed
-  1280x720 canvas.
+- Screen Fit (Menu > System): Fixed 16:9 or Fill Screen (app.js fit(): width 1280 and height up to 1024 on taller
+  screens, or height 720 and width up to 1706 on wider ones). Tile units centre beside the value so stretched tiles
+  read right. Full Screen button: Fullscreen API (webkit prefix for iPadOS Safari), else a tip to Add to Home Screen
+  (manifest display: fullscreen).
 
 ## Design reference (how the look was matched)
 

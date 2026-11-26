@@ -131,7 +131,7 @@ svg { display: block; }
 .t-title { font-size: var(--fs-lg); font-weight: 700; color: var(--ink-2); margin-top: 8px; white-space: nowrap; }
 .t-big { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; }
 .t-big span { font-size: var(--fs-val); font-weight: 700; color: var(--ink); line-height: 1; }
-.t-big small { font-size: var(--fs-lg); font-weight: 600; color: var(--muted); align-self: flex-end; margin-bottom: 26px; }
+.t-big small { font-size: var(--fs-lg); font-weight: 600; color: var(--muted); align-self: center; margin-top: 18px; }   /* sits on the value's baseline at any tile height */
 .t-sub { font-size: var(--fs-md); font-weight: 600; color: var(--muted); }
 .meter { width: 86%; height: 12px; border: 2px solid #95ce87; background: var(--cream-2); }
 .meter i { display: block; height: 100%; width: 0; background: var(--tile-on); transition: width .3s linear; }
@@ -374,7 +374,7 @@ svg { display: block; }
 .tiles.compact .tile { min-height: 108px; padding-bottom: 6px; }
 .tiles.compact .t-title { font-size: var(--fs-md); margin-top: 6px; }
 .tiles.compact .t-big span { font-size: var(--fs-3xl); }
-.tiles.compact .t-big small { font-size: var(--fs-md); margin-bottom: 18px; }
+.tiles.compact .t-big small { font-size: var(--fs-md); margin-top: 14px; }
 .tiles.compact .t-sub { font-size: var(--fs-sm); }
 .hv-lower { grid-template-columns: 1.25fr 1fr; }
 .hv-lower .lower-col { padding: 8px 14px; gap: 5px; min-height: 0; }

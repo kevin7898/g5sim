@@ -154,6 +154,10 @@ Everything is optional. G5Link checks for each mod and only uses it when it is i
 
 ## Setup on the iPad
 
+For the best fit, open Menu > System: **Screen Fit > Fill Screen** uses the whole iPad screen (no black bars),
+and **Full Screen** hides Safari's bars. For a true full-screen app, tap Share > **Add to Home Screen** and open
+G5Link from the Home Screen.
+
 1. Join the same Wi-Fi as the PC.
 2. In Safari, open the address the bridge printed.
 3. Tap Share, then **Add to Home Screen**. Launching from the home-screen icon runs it full

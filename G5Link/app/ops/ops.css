@@ -160,3 +160,4 @@ table.rec td.n { text-align: right; white-space: nowrap; }
 .svc-bar i { display: block; height: 100%; background: var(--green); } .svc-bar i.soon { background: #e0a100; } .svc-bar i.due { background: var(--red); }
 .svc-sum { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; padding: 10px 12px; }
 .svc-sum div { background: #f4f3ee; border-radius: 6px; padding: 8px 10px; } .svc-sum small { display: block; font-size: 12px; color: var(--muted); font-weight: 700; } .svc-sum b { font-size: 20px; }
+.row .nm > span { display: block; }

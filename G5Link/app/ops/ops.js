@@ -731,7 +731,7 @@ function renderFinance() {
       mk ? ['Base rate', `${pct(mk.baseRate, 2)} ${mk.trend > 0 ? '↑' : mk.trend < 0 ? '↓' : '→'}`] : null,
     ])),
     card(`Loans (${loans.length})`, loans.length ? loans.map(l => `<div class="svc-row"><b>${esc(l.label || l.productId || 'Loan')}</b><span>${money(l.balance)}</span>
-      <span>${esc(l.productId || '')} · ${pct(l.rate, 2)} · ${money(l.payment)}/mo · ${l.monthsLeft} of ${l.monthsTotal} mo${machineName(l.collateralUid) ? ' · on ' + esc(machineName(l.collateralUid)) : ''}${l.status && l.status !== 'active' ? ' · ' + esc(l.status) : ''}</span><span></span>
+      <span>${esc({ realEstate: 'Real estate', equipment: 'Equipment', operating: 'Operating' }[l.productId] || l.productId || '')} · ${pct(l.rate, 2)} · ${money(l.payment)}/mo · ${l.monthsLeft} of ${l.monthsTotal} mo${machineName(l.collateralUid) ? ' · on ' + esc(machineName(l.collateralUid)) : ''}${l.status && l.status !== 'active' ? ' · ' + esc(l.status) : ''}</span><span></span>
       <div class="svc-bar"><i style="width:${l.principal ? Math.round((1 - l.balance / l.principal) * 100) : 0}%"></i></div></div>`).join('') : '<p class="empty">No loans.</p>'),
     card(`Machine Leases (${leases.length})`, leases.length ? leases.map(l => `<div class="svc-row"><b>${esc(l.name || machineName(l.vehicleUid) || 'Lease')}</b><span>${money(l.payment)}/mo</span>
       <span>${l.monthsLeft} of ${l.months} mo left · residual ${money(l.residual)}${l.hoursPerYear ? ` · ${fmt(l.hoursPerYear, 0)} h/yr allowed` : ''}${l.status && l.status !== 'active' ? ' · ' + esc(l.status) : ''}</span><span></span></div>`).join('') : '<p class="empty">No machine leases.</p>'),

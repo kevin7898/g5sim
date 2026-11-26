@@ -46,7 +46,16 @@ Ops Center on the display). Laid out like the real Operations Center:
   after working new ground), or drive the edge with the display's Boundary app (Menu > Applications > Boundary: left
   edge, center or right edge with an offset, any vehicle). Game-map import can be switched off per savegame.
 - **Analyze:** work records across fields; coverage outside every field can become a new field.
-- **Equipment:** the farm's machines with status, field, fuel, hours and condition.
+- **Harvest Profit** (after harvestprofit.com): P&L per field and for the operation. Revenue is harvested tonnes
+  (Realistic Harvesting yield x covered area) x the game's crop price, or your own price per crop. Expenses are seed
+  (Realistic Seeder litres per hectare x the game's seed cost), fertilizer and chemical (applied litres x the game's
+  product cost), machinery per acre by work type and land rent (both editable under Prices & Costs). Each field has a
+  budget card (net, revenue, expenses, cost per bushel, market price, break-even yield) and a **Profit Map**: every
+  harvested swath colored by its own profit per acre. Farm balance, loan and equity come from the game.
+- **Service** (Maintenance, after the Operations Center): Past Due, Due Soon, In the Workshop and Without a
+  Maintenance Plan, from Advanced Damage System's service interval and workshop state. Machine condition stays
+  hidden until inspected, as in that mod.
+- **Equipment:** the farm's machines with status, field, fuel, hours and service.
 
 **Units.** Menu > System > Units: one key for all Metric or all US, and **Unit Settings** for each quantity
 (speed, distance, area, liquid volume, yield and grain, seeding rate, pressure).

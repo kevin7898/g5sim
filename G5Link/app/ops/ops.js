@@ -7,7 +7,7 @@ const $ = id => document.getElementById(id);
 function setHtml(el, html) { if (el.__html !== html) { el.innerHTML = html; el.__html = html; } }
 const S = { summary: null, version: -1, page: 'map', mapSub: 'fields', search: '', workKind: null, field: null, detail: null,
   proposal: null, pick: false, draw: null, layerOp: null, layerKey: 'coverage', frames: [], framesOp: null, framesSeq: 0,
-  overlap: null, work: [], mapsKey: '' };
+  overlap: null, work: [], mapsKey: '', profit: null, profitField: null, profitSub: 'pl', serviceSub: 'summary' };
 
 function toast(text, ms = 3200) {
   const t = $('toast'); t.textContent = text; t.hidden = false;
@@ -63,6 +63,10 @@ function fitAll() {
   fitTo(polys);
 }
 function activeBoundary() {
+  if (S.page === 'profit') {
+    const f = S.profitField && S.summary && S.summary.fields.find(x => x.id === S.profitField);
+    return f ? { polygon: f.polygon } : null;
+  }
   const f = S.detail && S.detail.field;
   return f ? f.boundaries.find(x => x.v === f.active) || null : null;
 }
@@ -143,7 +147,39 @@ function layerRange() {
   return r;
 }
 const colorIdx = (i, n, good) => { const t = n <= 1 ? 1 : i / (n - 1); return RAMP[Math.max(0, Math.min(9, Math.round((good === 'low' ? 1 - t : t) * 9)))]; };
+// Profit Map: harvested swaths colored by their own profit per area (yield x price - field costs per area).
+const money = (v, d = 0) => typeof v === 'number' ? `${v < 0 ? '−' : ''}${(S.profit && S.profit.currency) || '$'}${fmt(Math.abs(v), d).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}` : '---';
+const perArea = v => typeof v === 'number' ? (metric('area') ? v : v / 2.47105) : null;          // per ha -> per ac
+const areaU = () => metric('area') ? 'ha' : 'ac';
+const profitRow = () => S.profit && S.profitField ? S.profit.fields.find(x => x.field === S.profitField) : null;
+function profitOf(f) {
+  const r = profitRow(), y = f.v && f.v.yield;
+  if (!r || typeof y !== 'number' || r.pricePerT === null) return null;
+  return perArea(y * r.pricePerT - r.expensesPerHa);
+}
+let profitRangeCache = null;
+function profitRange() {
+  const key = S.frames.length + '|' + S.profitField + '|' + JSON.stringify(settings.units) + '|' + JSON.stringify(profitRow());
+  if (profitRangeCache && profitRangeCache.key === key) return profitRangeCache.r;
+  let lo = Infinity, hi = -Infinity;
+  const bb = fieldBox(0);
+  for (const f of S.frames) { if (bb && !inBox(f, bb)) continue; const v = profitOf(f); if (v === null) continue; if (v < lo) lo = v; if (v > hi) hi = v; }
+  let r = null;
+  if (lo <= hi) {
+    if (hi - lo < 1e-9) { lo -= 1; hi += 1; }
+    const raw = (hi - lo) / 10, p = Math.pow(10, Math.floor(Math.log10(raw || 1))), n = raw / p;
+    const step = (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * p, start = Math.floor(lo / step) * step;
+    r = { lo: start, step, n: Math.min(10, Math.max(1, Math.ceil((hi - start) / step))) };
+  }
+  profitRangeCache = { key, r };
+  return r;
+}
 function frameColor(f) {
+  if (S.page === 'profit') {
+    const v = profitOf(f), r = profitRange();
+    if (v === null || !r) return null;
+    return colorIdx(Math.max(0, Math.min(r.n - 1, Math.floor((v - r.lo) / r.step))), r.n, 'high');
+  }
   if (S.layerKey === 'coverage') return '#4a7fd6';
   const L = LAYERS[S.layerKey], v = f.v && f.v[S.layerKey], r = layerRange();
   if (typeof v !== 'number' || !r) return null;
@@ -166,7 +202,7 @@ function draw() {
   for (let z = Math.floor(wz0 / step) * step; z <= wz1; z += step) { const [, py] = toScreen(0, z, s); ctx.moveTo(0, py); ctx.lineTo(s.w, py); }
   ctx.stroke();
 
-  const onField = S.page === 'field' && S.detail;
+  const onField = (S.page === 'field' && S.detail) || (S.page === 'profit' && S.profitField);
   // fields: colored by last work type (Map and Land), plain on a field page
   for (const f of sm.fields) {
     const sel = f.id === S.field;
@@ -199,7 +235,7 @@ function draw() {
       ctx.fill(); ctx.stroke();
     }
     ctx.globalAlpha = 1;
-    if (S.layerKey === 'coverage' && S.overlap) {
+    if (S.page !== 'profit' && S.layerKey === 'coverage' && S.overlap) {
       ctx.fillStyle = '#16307f'; ctx.beginPath();
       for (const [x0, x1, z] of S.overlap.runs) {
         const [ax, ay] = toScreen(x0, z, s), [bx, by] = toScreen(x1, z + (S.overlap.cell || 1), s);
@@ -364,6 +400,7 @@ async function refresh() {
     if (first || (!V.fitted && sm.fields.length)) { fitAll(); V.fitted = sm.fields.length > 0; }
     if (sm.version !== S.version) { S.version = sm.version; if (S.field) loadField(S.field, false); }
     const key = maps().map(m => m.id + ':' + m.seq).join('|');
+    if (S.page === 'profit') await loadProfit(false);
     renderAll(key !== S.mapsKey);
     S.mapsKey = key;
     syncFrames();
@@ -372,7 +409,7 @@ async function refresh() {
   }
 }
 async function syncFrames() {
-  const op = S.page === 'field' ? S.layerOp : null;
+  const op = S.page === 'field' ? S.layerOp : S.page === 'profit' ? S.profitOp : null;
   if (!op) return;
   if (op !== S.framesOp) { S.frames = []; S.framesSeq = 0; S.framesOp = op; S.overlap = null; rangeCache = null; }
   const meta = opMeta(op);
@@ -395,7 +432,9 @@ async function syncFrames() {
 function showPage(page) {
   S.page = page;
   document.querySelectorAll('#nav [data-page]').forEach(b => b.classList.toggle('on', b.dataset.page === (page === 'field' ? 'land' : page)));
-  ['map', 'land', 'field', 'analyze', 'equipment', 'settings'].forEach(v => { $('view-' + v).hidden = v !== page; });
+  ['map', 'land', 'field', 'analyze', 'profit', 'service', 'equipment', 'settings'].forEach(v => { $('view-' + v).hidden = v !== page; });
+  if (page !== 'profit') S.profitField = null;
+  if (page === 'profit') loadProfit();
   if (page !== 'field') { S.field = null; S.detail = null; S.framesOp = null; if (!(S.proposal && S.proposal.newField)) S.proposal = null; }
   if (page === 'analyze') loadWork();
   renderAll(true);
@@ -412,6 +451,8 @@ function renderAll(withLayers) {
   renderMapList(); renderLand(); renderEquipment(); renderSettings();
   if (S.page === 'field') renderField();
   if (S.page === 'analyze') renderWork();
+  if (S.page === 'profit') renderProfit();
+  if (S.page === 'service') renderService();
   if (withLayers) renderLayerControls(); else renderLegend();
 }
 
@@ -567,7 +608,7 @@ $('fieldBack').onclick = () => showPage('land');
 function renderLayerControls() {
   const onField = S.page === 'field' && S.detail;
   const ops = onField ? [...new Set(S.detail.records.map(r => r.op))] : [];
-  $('mapLayer').hidden = !ops.length;
+  $('mapLayer').hidden = !ops.length || S.page === 'profit';
   if (ops.length) {
     if (!ops.includes(S.layerOp)) S.layerOp = ops[0];
     setHtml($('layerOp'), ops.map(id => `<option value="${esc(id)}" ${id === S.layerOp ? 'selected' : ''}>${esc(opMeta(id).title || id)}</option>`).join(''));
@@ -580,6 +621,16 @@ function renderLayerControls() {
 $('layerOp').onchange = e => { S.layerOp = e.target.value; rangeCache = null; renderLayerControls(); syncFrames(); };
 $('layerKey').onchange = e => { S.layerKey = e.target.value; rangeCache = null; renderLegend(); };
 function renderLegend() {
+  if (S.page === 'profit') {
+    const r = S.profitField && profitRange();
+    $('mapLegend').hidden = !r;
+    if (r) {
+      let rows = '';
+      for (let i = r.n - 1; i >= 0; i--) { const a = r.lo + i * r.step; rows += `<span class="lg"><i class="sq" style="background:${colorIdx(i, r.n, 'high')}"></i>${money(a)}–${money(a + r.step)}</span>`; }
+      setHtml($('mapLegend'), `<b>Profit Map</b><em>per ${areaU()}</em>${rows}`);
+    }
+    return;
+  }
   const onField = S.page === 'field' && S.detail;
   if (!onField) {
     $('mapLegend').hidden = !(S.summary && S.summary.fields.length);
@@ -634,6 +685,124 @@ $('workList').onclick = e => {
   if (r) openField(r.dataset.field);
 };
 
+// ---------------------------------------------------------------- Harvest Profit
+async function loadProfit(render = true) {
+  try { S.profit = await api('/api/ops/profit'); } catch (e) { return; }
+  if (render) renderProfit();
+}
+const CROP_NAMES = { MAIZE: 'Corn', SOYBEAN: 'Soybeans', WV_SPRINGWHEAT: 'Spring Wheat', WV_WINTERWHEAT: 'Winter Wheat' };
+const cropName = c => !c ? '---' : CROP_NAMES[String(c).toUpperCase()] || String(c).toLowerCase().replace(/(^|_)([a-z])/g, (m, a, b) => (a ? ' ' : '') + b.toUpperCase());
+const pricePer = (pt, crop) => typeof pt !== 'number' ? null : metric('grain') ? pt : pt * HU.lbPerBu(crop) * 0.000453592;   // per t -> per bu
+const priceU = () => metric('grain') ? 't' : 'bu';
+const qty = (t, crop) => metric('grain') ? `${fmt(t, 1)} t` : `${fmt(t * 1000 / 0.453592 / HU.lbPerBu(crop), 0)} bu`;
+function renderProfit() {
+  document.querySelectorAll('#profitTabs button').forEach(b => b.classList.toggle('on', b.dataset.sub === S.profitSub));
+  const P = S.profit;
+  if (!P) { setHtml($('profitBody'), '<p class="empty">Loading…</p>'); return; }
+  if (S.profitSub === 'costs') return renderCosts();
+  const t = P.totals, fin = P.finances;
+  const row = r => `<div class="row pl-row ${r.field === S.profitField ? 'on' : ''}" data-pf="${esc(r.field)}">${shapeSvg((S.summary.fields.find(f => f.id === r.field) || {}).polygon, r.net >= 0 ? '#5fa83a' : '#c40b0b', 'ico')}
+    <div class="nm"><b>${esc(r.name)}</b><span>${esc(cropName(r.crop))} · ${area(r.areaHa)}</span></div>
+    <span class="num ${r.net >= 0 ? 'pos' : 'neg'}">${money(perArea(r.netPerHa))}/${areaU()}</span><span class="chev">›</span></div>`;
+  const sel = profitRow();
+  setHtml($('profitBody'), `
+    <div class="pl-card"><h3><span>Operation</span><span class="note">${P.economyAge ? 'Game prices' : 'No price data from the game yet'}</span></h3>
+      <div class="pl-net ${t.net >= 0 ? 'pos' : 'neg'}">${money(t.net)}</div>
+      <div class="pl-grid"><span>Revenue</span><b>${money(t.revenue)}</b><span>Expenses</span><b>${money(t.expenses)}</b>
+        <span>Net per ${areaU()}</span><b>${t.areaHa ? money(perArea(t.net / t.areaHa)) : '---'}</b>
+        ${fin ? `<div class="sep"></div><span>Farm balance</span><b>${money(fin.balance)}</b><span>Loan</span><b>${money(fin.loan)}</b><span>Equity</span><b>${money(fin.equity)}</b>` : ''}</div></div>
+    ${sel ? budgetCard(sel) : ''}
+    <h3 style="margin:12px 0 4px;font-size:15px">Fields by profit per ${areaU()}</h3>
+    ${P.fields.length ? P.fields.map(row).join('') : '<p class="empty">No work recorded on any field yet. Harvest, seeding and application work fills this in.</p>'}`);
+}
+function budgetCard(r) {
+  const ha = r.areaHa || 1, e = r.expenses;
+  const line = (label, v) => `<span class="sub">${label}</span><b>${money(perArea(v / ha), 2)}</b>`;
+  return `<div class="pl-card"><h3><span>${esc(r.name)} · ${esc(cropName(r.crop))}</span><span class="note">per ${areaU()}</span></h3>
+    <div class="pl-net ${r.net >= 0 ? 'pos' : 'neg'}">${money(perArea(r.netPerHa), 2)} <small class="note">net</small></div>
+    <div class="pl-grid">
+      <span>Revenue</span><b>${money(perArea(r.revenue / ha), 2)}</b>
+      <span>Expenses</span><b>${money(perArea(r.expensesPerHa), 2)}</b>
+      ${line('Seed', e.seed)}${line('Fertilizer', e.fertilizer)}${line('Chemical', e.chemical)}${line('Machinery', e.machinery)}${line('Rent', e.rent)}
+      <div class="sep"></div>
+      <span>Harvested</span><b>${r.tonnes ? qty(r.tonnes, r.crop) : '---'}</b>
+      <span>Market price</span><b>${r.pricePerT !== null ? money(pricePer(r.pricePerT, r.crop), 2) + '/' + priceU() : '---'}${r.priceSource === 'set' ? ' (set)' : r.priceSource === 'game' ? ' (game)' : ''}</b>
+      <span>Cost per ${priceU()}</span><b>${r.breakEvenPrice !== null ? money(pricePer(r.breakEvenPrice, r.crop), 2) : '---'}</b>
+      <span>Break-even yield</span><b>${r.breakEvenYield !== null ? fmt(HU.yield(r.breakEvenYield, r.crop), metric('grain') ? 2 : 1) + ' ' + HU.yieldUnit() : '---'}</b>
+    </div>${r.missing.length ? `<div class="pl-warn">Not counted: ${esc(r.missing.join(', '))}.</div>` : ''}</div>`;
+}
+function renderCosts() {
+  const P = S.profit, ps = P.settings, per = areaU();
+  const crops = [...new Set(P.fields.map(r => r.crop).filter(Boolean).concat(Object.keys(ps.prices)))];
+  const inp = (key, v, extra = '') => `<input data-cost="${key}" type="number" min="0" step="any" value="${v}" ${extra}>`;
+  setHtml($('profitBody'), `
+    <h3 style="margin:8px 0 4px;font-size:15px">Machinery cost per ${per}</h3>
+    <p class="note">Fuel, repairs, depreciation and labor per ${per} worked, by work type (custom-rate style).</p>
+    ${['tillage', 'seeding', 'application', 'harvest'].map(k => `<div class="cost-row"><span><i class="wk ${k}"></i>${KIND[k]}</span>${inp('machinery.' + k, +(perArea(ps.machinery[k])).toFixed(2))}</div>`).join('')}
+    <h3 style="margin:14px 0 4px;font-size:15px">Land</h3>
+    <div class="cost-row"><span>Rent per ${per}<small>Charged on the whole field area</small></span>${inp('rent', +(perArea(ps.rent)).toFixed(2))}</div>
+    <h3 style="margin:14px 0 4px;font-size:15px">Crop prices per ${priceU()}</h3>
+    <p class="note">Leave empty to use the game's price. Set one to plan with a contract price.</p>
+    ${crops.length ? crops.map(c => { const g = P.fields.find(r => r.crop === c); const set = ps.prices[c];
+      return `<div class="cost-row"><span>${esc(cropName(c))}<small>${g && g.priceSource === 'game' ? 'Game: ' + money(pricePer(g.pricePerT, c), 2) : 'No game price yet'}</small></span>
+        ${inp('price.' + c, typeof set === 'number' ? +pricePer(set, c).toFixed(2) : '', 'placeholder="game"')}</div>`; }).join('') : '<p class="empty">Crops appear here once fields have work recorded.</p>'}
+    <div class="cost-row"><span>Currency symbol</span><input data-cost="currency" value="${esc(ps.currency)}" maxlength="4" style="text-align:left"></div>`);
+}
+$('profitTabs').onclick = e => { const b = e.target.closest('[data-sub]'); if (b) { S.profitSub = b.dataset.sub; renderProfit(); } };
+$('profitBody').onclick = e => {
+  const r = e.target.closest('[data-pf]');
+  if (!r) return;
+  S.profitField = r.dataset.pf;
+  const f = S.summary.fields.find(x => x.id === S.profitField);
+  const harvest = (S.profit.fields.find(x => x.field === S.profitField) || {}).operations || [];
+  const op = maps().find(m => m.kind === 'harvest' && harvest.includes(m.title));
+  S.profitOp = op ? op.id : null; S.framesOp = null; profitRangeCache = null;
+  if (f) fitTo([f.polygon]);
+  renderProfit(); syncFrames(); renderLegend();
+};
+$('profitBody').addEventListener('change', async e => {
+  const k = e.target.dataset.cost; if (!k) return;
+  const v = e.target.value.trim(), body = {};
+  const toHa = x => metric('area') ? x : x * 2.47105;                     // per ac -> per ha
+  if (k === 'currency') body.currency = v;
+  else if (k === 'rent') body.rent = toHa(Number(v) || 0);
+  else if (k.startsWith('machinery.')) body.machinery = { [k.slice(10)]: toHa(Number(v) || 0) };
+  else if (k.startsWith('price.')) {
+    const crop = k.slice(6);
+    body.prices = { [crop]: v === '' ? null : (metric('grain') ? Number(v) : Number(v) / (HU.lbPerBu(crop) * 0.000453592)) };
+  }
+  try { await api('/api/ops/profit-settings', body); await loadProfit(); toast('Saved.'); } catch (err) { toast(err.message); }
+});
+
+// ---------------------------------------------------------------- Service (maintenance from Advanced Damage System)
+const DUE_SOON = 0.85;                                     // share of the interval
+const prettyState = s => String(s || '').toLowerCase().replace(/_/g, ' ').replace(/(^| )([a-z])/g, (m, a, b) => a + b.toUpperCase());
+function renderService() {
+  document.querySelectorAll('#serviceTabs button').forEach(b => b.classList.toggle('on', b.dataset.sub === S.serviceSub));
+  const list = (S.summary && S.summary.equipment) || [];
+  const withPlan = list.filter(e => e.ads && typeof e.ads.interval === 'number');
+  const ratio = e => e.ads.hours / e.ads.interval;
+  const pastDue = withPlan.filter(e => ratio(e) >= 1), soon = withPlan.filter(e => ratio(e) >= DUE_SOON && ratio(e) < 1);
+  const shop = list.filter(e => e.ads && e.ads.state && !['READY', 'UNKNOWN'].includes(e.ads.state));
+  const noPlan = list.filter(e => !e.ads || typeof e.ads.interval !== 'number');
+  const row = e => {
+    const has = e.ads && typeof e.ads.interval === 'number', r = has ? ratio(e) : 0;
+    return `<div class="svc-row" data-eq="${esc(e.id)}"><b>${esc(e.name)}</b><span>${has ? `${fmt(e.ads.hours, 1)} of ${fmt(e.ads.interval, 0)} h` : typeof e.damage === 'number' ? `Condition ${fmt(100 - e.damage, 0)} %` : ''}</span>
+      <span>${e.ads && e.ads.state && e.ads.state !== 'READY' ? 'In workshop: ' + esc(prettyState(e.ads.state)) : has ? (r >= 1 ? 'Service overdue' : r >= DUE_SOON ? 'Service due soon' : 'Ready') : 'No maintenance plan'}${typeof e.hours === 'number' ? ` · ${fmt(e.hours, 1)} engine h` : ''}</span><span></span>
+      ${has ? `<div class="svc-bar"><i class="${r >= 1 ? 'due' : r >= DUE_SOON ? 'soon' : ''}" style="width:${Math.min(100, r * 100).toFixed(0)}%"></i></div>` : ''}</div>`;
+  };
+  const card = (title, items, empty) => `<div class="svc-card"><h3>${title} (${items.length})</h3>${items.length ? items.map(row).join('') : `<p class="empty">${empty}</p>`}</div>`;
+  const note = `<p class="note">Service intervals and workshop state come from Advanced Damage System, as the game shows them. Machine condition stays hidden until a workshop inspection, as in that mod.${withPlan.length ? '' : ' No machine reports a service interval: Advanced Damage System is not installed or not active.'}</p>`;
+  setHtml($('serviceBody'), S.serviceSub === 'all'
+    ? `<div class="svc-card"><h3>All Equipment (${list.length})</h3>${list.map(row).join('') || '<p class="empty">No machines reported yet.</p>'}</div>${note}`
+    : card('Maintenance Past Due', pastDue, 'No equipment with maintenance past due.') + card('Maintenance Due Soon', soon, 'No equipment with maintenance due soon.')
+      + card('In the Workshop', shop, 'No equipment in the workshop.') + card('Equipment Without a Maintenance Plan', noPlan, 'Every machine has a maintenance plan.')
+      + `<div class="svc-card"><h3>Summary</h3><div class="svc-sum"><div><small>Machines</small><b>${list.length}</b></div><div><small>With a plan</small><b>${withPlan.length}</b></div>
+        <div><small>Past due</small><b>${pastDue.length}</b></div><div><small>In workshop</small><b>${shop.length}</b></div></div></div>${note}`);
+}
+$('serviceTabs').onclick = e => { const b = e.target.closest('[data-sub]'); if (b) { S.serviceSub = b.dataset.sub; renderService(); } };
+$('serviceBody').onclick = e => { const q = e.target.closest('[data-eq]'); if (q) focusMachine(q.dataset.eq); };
+
 // Equipment
 function equipmentRows(list) {
   const sm = S.summary;
@@ -641,7 +810,7 @@ function equipmentRows(list) {
   return list.length ? `<div class="group"><span>Machines (${list.length})</span><span>Fuel</span></div>` + list.map(e => `
     <div class="row" data-eq="${esc(e.id)}"><span>${e.kind === 'combine' ? '🌾' : e.kind === 'truck' ? '🚚' : e.kind === 'sprayer' ? '💧' : '🚜'}</span>
       <div class="nm"><b>${esc(e.name)}<span class="badge ${e.inUse ? 'inuse' : e.ai ? 'ai' : 'parked'}">${e.inUse ? 'In use' : e.ai ? 'AI worker' : e.motorOn ? 'Running' : 'Parked'}</span></b>
-        <span>${fieldName(e.field) ? esc(fieldName(e.field)) + ' · ' : ''}${typeof e.hours === 'number' ? fmt(e.hours, 1) + ' h' : ''}${typeof e.damage === 'number' ? ` · condition ${fmt(100 - e.damage, 0)} %` : ''}${e.speed > 0.5 ? ` · ${fmt(U.speed(e.speed), 1)} ${U.speedUnit()}` : ''}${e.implements && e.implements.length ? ' · ' + esc(e.implements.join(', ')) : ''}</span></div>
+        <span>${fieldName(e.field) ? esc(fieldName(e.field)) + ' · ' : ''}${typeof e.hours === 'number' ? fmt(e.hours, 1) + ' h' : ''}${e.ads && typeof e.ads.interval === 'number' ? ` · service ${fmt(e.ads.hours, 0)}/${fmt(e.ads.interval, 0)} h` : typeof e.damage === 'number' && !e.ads ? ` · condition ${fmt(100 - e.damage, 0)} %` : ''}${e.speed > 0.5 ? ` · ${fmt(U.speed(e.speed), 1)} ${U.speedUnit()}` : ''}${e.implements && e.implements.length ? ' · ' + esc(e.implements.join(', ')) : ''}</span></div>
       <span class="num">${typeof e.fuelPct === 'number' ? fmt(e.fuelPct, 0) + ' %' : ''}</span><span class="chev">›</span></div>`).join('')
     : '<p class="empty">No machines reported yet.</p>';
 }

@@ -38,6 +38,18 @@ Seen 2026-11-26 in a signed-in account with little data. Captures are kept local
   select a field, then the work-layer icon.
 - Equipment needs a modem (JDLink) to appear on the map; otherwise listed as Inactive with an Equipment Status link.
 
+## Service and Analyze, second look
+- **Service:** Maintenance (plan maintenance intervals and repairs), PRO Service (diagnose and repair), Service Overview
+  (service and maintenance needs across the fleet).
+- **Maintenance:** tabs Summary and All Equipment; cards Maintenance Past Due, Maintenance Due Soon, Equipment Without a
+  Maintenance Plan, Summary.
+- **Work Analyzer:** operation selector (e.g. Seeding) and season; tabs Fields, Work, Varieties, Equipment, Operators,
+  Technology; views Work Totals, Performance, Planter Performance.
+- **Analyze > Harvest Profit** opens harvestprofit.com (separate sign-in). Its public pages describe: real-time P&L by
+  field, crop or operation; Profit Maps (per-acre profit heat map from Operations Center spatial data and costs); grain
+  inventory (loads, bins, deliveries); equipment cost analysis (engine hours, repairs, fuel); contracts and marketing
+  plans; a budget card per field: Net, Revenue, Expenses (Seed, Chemical, Fertilizer), Cost per Bushel, Market Price.
+
 ## What G5Link takes from this
 - Same mental model as built: boundaries are per-field records with an active one, and "from a previous operation"
   matches expand-from-coverage. Driven boundaries arrive from displays (Data Sync).

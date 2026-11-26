@@ -156,6 +156,22 @@ from `FieldPathPrivateIntegration.lua`:
 - **Not yet checked in game:** `fields.json` content on real maps (polygon node order, owner values), the farm name,
   and equipment.
 
+## Harvest Profit and Service
+
+- The mod writes `economy.json` every 30 s: `Farm:getBalance/getLoan/getEquity` (LUADOC) and per fill type
+  `economyManager:getPricePerLiter` and `getCostPerLiter` (both used in Giants code: FillTrigger, SowingMachine,
+  Motorized) plus `massPerLiter` (t/L). Price per tonne = price per litre / tonnes per litre. There is no documented
+  per-station selling price, so the operator can set a price per crop.
+- P&L in `bridge/fields.js` `profit()`: revenue from harvest records, seed from `seedLph` (Realistic Seeder
+  `nominalLitersPerHa`), fertilizer/chemical from application records' L/ha and the product cost, machinery and rent from
+  per-savegame settings (`settings.profit`). Anything that can't be priced is listed as "Not counted".
+- Advanced Damage System: `equipment.json` carries `ads: {state, hours, interval}` read through the surface VDTelemetry
+  uses (checked there against ADS 0.10.0.3): `spec_AdvancedDamageSystem`, `getIsADSExcluded()`,
+  `getServiceIntervalElapsedHours()`, `getServiceInterval()`, `spec.currentState` via `ADS.STATUS`. Condition is
+  deliberately not read. **Not checked against the installed 0.12.1.3**: its source is only in the 185 MB release zip
+  (the repository branches are 0.9.x). If the Service page shows no plans with ADS installed, those names changed.
+- Due soon = 85 % of the interval; past due = 100 % (ADS's own service lamp threshold).
+
 ## Design reference (how the look was matched)
 
 The look was matched to the real G5 Universal in the Deere Display and CommandARM Simulator

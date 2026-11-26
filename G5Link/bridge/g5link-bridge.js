@@ -42,6 +42,7 @@ const PROVIDERS = path.join(DIR, 'providers.json'); // other mods: soil, Coursep
 const COURSE = path.join(DIR, 'course.json');       // Courseplay course + field boundary (on change)
 const FIELDS = path.join(DIR, 'fields.json');       // map fields with polygons and owners (on change)
 const EQUIPMENT = path.join(DIR, 'equipment.json'); // the farm's machines (every 5 s)
+const ECONOMY = path.join(DIR, 'economy.json');     // prices, input costs, farm finances (every 30 s)
 const PROVIDER_STALE_MS = 6000;
 const APP_DIR = path.resolve(__dirname, '..', 'app');
 const STALE_MS = 3000; // no new seq for this long => game considered paused/closed
@@ -182,6 +183,7 @@ function fieldStore() {
 const currentSave = () => (latest.game && latest.game.save) || 'unsaved';
 let gameFields = null, gameFieldsSave = null;          // fields.json waits until the savegame is known
 let equipment = { vehicles: [] }, equipmentAt = 0;
+let economy = null;
 function takeGameFields(json) {
   gameFields = json; gameFieldsSave = null;
   if (latest.state === 'vehicle' || latest.state === 'onfoot') importGameFields();
@@ -300,6 +302,7 @@ const pollProviders = jsonPoller(PROVIDERS, frame => {
   broadcast();
 });
 const pollFields = jsonPoller(FIELDS, takeGameFields);
+const pollEconomy = jsonPoller(ECONOMY, e => { economy = e && typeof e === 'object' ? e : null; });
 const pollEquipment = jsonPoller(EQUIPMENT, e => { equipment = e && Array.isArray(e.vehicles) ? e : { vehicles: [] }; equipmentAt = Date.now(); });
 const pollCourse = jsonPoller(COURSE, c => { course = { key: c.key ?? null, name: c.name, workWidth: c.workWidth, waypoints: c.waypoints || [], field: c.field || [] }; });
 
@@ -462,6 +465,7 @@ function demoTick(dt) {
   });
   setExtras(demoProviders(working));
   if (!gameFields) takeGameFields(demoFields());
+  if (!economy) economy = demoEconomy();
   equipment = demoEquipment(); equipmentAt = Date.now();
   setTelemetry(DEMO_COMBINE ? demoCombine(frame, dt, working, meters) : frame);
 }
@@ -478,6 +482,7 @@ function demoSeeder(working) {
     rate, actual, skips, doubles, depthSet: 50, pressure: 55, closing: 50,
     moisture: +(0.24 + 0.07 * Math.sin(demo.x / 53) * Math.cos(demo.z / 41)).toFixed(3), compaction: 0.22, soilSource: 'SeasonalCropStress',
     popTarget: rate, popEstablished: Math.round(actual * 0.97), yieldPotential: +(97.5 - skips * 0.8).toFixed(1),
+    lph: 39.2,                                       // ~34,000 seeds/ac of corn at ~3,000 seeds/kg, 0.72 kg/L
     rows: Array.from({ length: 16 }, (_, i) => ({ r: i + 1, on: working && i + 1 !== rowOff, target: rate,
       actual: working && i + 1 !== rowOff ? Math.round(actual * (1 + 0.012 * Math.sin(i * 1.7 + s / 7))) : 0, skips, doubles })),
   };
@@ -564,13 +569,21 @@ function demoFields() {
     { id: 25, name: 'Field 25', farmland: 25, owner: 0, polygon: [pt(DEMO_LEN + 60, 0), pt(DEMO_LEN + 260, 0), pt(DEMO_LEN + 260, 150), pt(DEMO_LEN + 60, 150)] },
   ] };
 }
+// Demo prices per litre and tonnes per litre, in the shape the mod writes economy.json.
+function demoEconomy() {
+  return { farmId: 1, balance: 412350, loan: 150000, equity: 1890000, fillTypes: {
+    WHEAT: { title: 'Wheat', price: 0.218, cost: 0.24, mass: 0.00078 }, MAIZE: { title: 'Corn', price: 0.162, cost: 0.18, mass: 0.00072 },
+    SOYBEAN: { title: 'Soybeans', price: 0.35, cost: 0.38, mass: 0.00072 }, SEEDS: { title: 'Seeds', price: 0.9, cost: 0.9, mass: 0.00045 },
+    FERTILIZER: { title: 'Fertilizer', price: 1.6, cost: 1.6, mass: 0.001 }, LIQUIDFERTILIZER: { title: 'Liquid Fertilizer', price: 1.3, cost: 1.3, mass: 0.001 },
+    HERBICIDE: { title: 'Herbicide', price: 1.2, cost: 1.2, mass: 0.001 }, DIESEL: { title: 'Diesel', price: 1.4, cost: 1.4, mass: 0.00084 } } };
+}
 function demoEquipment() {
   return { farmId: 1, vehicles: [
     { id: 'demo1', name: DEMO_COMBINE ? 'Demo S7 Combine' : 'Demo 8R Tractor', kind: DEMO_COMBINE ? 'combine' : 'tractor', x: +demo.x.toFixed(1), z: +demo.z.toFixed(1),
       heading: Math.round(demo.heading), speed: +demo.speed.toFixed(1), motorOn: demo.motorOn, ai: false, inUse: true, fuelPct: Math.round(demo.fuel / 680 * 100),
-      hours: 1287.4, damage: 12, field: 23, implements: [DEMO_COMBINE ? 'Demo HD40F Header' : 'Demo 1775NT Planter'] },
-    { id: 'demo2', name: 'Demo 9RX Tractor', kind: 'tractor', x: -160, z: 300, heading: 180, speed: 0, motorOn: false, ai: false, inUse: false, fuelPct: 64, hours: 2210.3, damage: 31, field: null, implements: ['Demo 2730 Ripper'] },
-    { id: 'demo3', name: 'Demo R4045 Sprayer', kind: 'sprayer', x: -170, z: 360, heading: 90, speed: 0, motorOn: false, ai: false, inUse: false, fuelPct: 88, hours: 640.0, damage: 5, field: null, implements: [] },
+      hours: 1287.4, damage: 12, field: 23, implements: [DEMO_COMBINE ? 'Demo HD40F Header' : 'Demo 1775NT Planter'], ads: { state: 'READY', hours: 212.4, interval: 250 } },
+    { id: 'demo2', name: 'Demo 9RX Tractor', kind: 'tractor', x: -160, z: 300, heading: 180, speed: 0, motorOn: false, ai: false, inUse: false, fuelPct: 64, hours: 2210.3, damage: 31, field: null, implements: ['Demo 2730 Ripper'], ads: { state: 'READY', hours: 268.0, interval: 250 } },
+    { id: 'demo3', name: 'Demo R4045 Sprayer', kind: 'sprayer', x: -170, z: 360, heading: 90, speed: 0, motorOn: false, ai: false, inUse: false, fuelPct: 88, hours: 640.0, damage: 5, field: null, implements: [], ads: { state: 'MAINTENANCE', hours: 0.4, interval: 200 } },
     { id: 'demo4', name: 'Demo Semi Truck', kind: 'truck', x: -190, z: 330, heading: 0, speed: 0, motorOn: false, ai: false, inUse: false, fuelPct: 41, hours: 3301.9, damage: 18, field: null, implements: ['Demo Grain Trailer'] },
   ] };
 }
@@ -665,12 +678,14 @@ const server = http.createServer((req, res) => {
         return f ? json(200, { field: f, records: store.records(save, f.id) }) : json(404, { error: 'no such field' });
       }
       if (u.pathname === '/api/ops/records') return json(200, { records: store.records(save) });
+      if (u.pathname === '/api/ops/profit') return json(200, { ...store.profit(save, economy), economyAge: economy ? 'live' : null });
       if (u.pathname === '/api/boundary') return json(200, { ...boundaryStatus(), path: rec.active ? rec.points : [] });
       return json(404, { error: 'unknown route' });
     }
     if (req.method === 'POST') {
       if (u.pathname === '/api/boundary') return post(c => boundaryCommand(c));
       if (u.pathname === '/api/ops/settings') return post(c => ({ settings: store.setSettings(save, c) }));
+      if (u.pathname === '/api/ops/profit-settings') return post(c => ({ settings: store.setProfitSettings(save, c) }));
       if (u.pathname === '/api/ops/boundary') return post(c => store.addBoundary(save, { fieldId: c.fieldId, name: c.name, source: c.source, polygon: c.polygon, note: c.note, newField: !!c.newField }));
       if (u.pathname === '/api/ops/active') return post(c => { store.setActive(save, c.fieldId, Number(c.v)); });
       if (u.pathname === '/api/ops/rename') return post(c => { store.rename(save, c.fieldId, c.name); });
@@ -743,6 +758,7 @@ if (DEMO) {
   setInterval(pollCourse, 1000);
   setInterval(pollFields, 2000);
   setInterval(pollEquipment, 1000);
+  setInterval(pollEconomy, 5000);
 }
 }
 

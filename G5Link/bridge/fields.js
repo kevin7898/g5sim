@@ -339,6 +339,85 @@ class FieldStore {
     return out;
   }
 
+  // ---------------------------------------------------------------- Harvest Profit
+  // Profit settings per savegame: machinery cost per hectare by work type, land rent, crop price overrides.
+  profitSettings(save) {
+    const d = this.db(save);
+    d.settings.profit = Object.assign({ currency: '$', rent: 0, machinery: { tillage: 30, seeding: 25, application: 10, harvest: 55 }, prices: {} }, d.settings.profit || {});
+    return d.settings.profit;
+  }
+  setProfitSettings(save, p) {
+    const cur = this.profitSettings(save);
+    const num = v => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined);
+    if (typeof p.currency === 'string' && p.currency.trim()) cur.currency = p.currency.trim().slice(0, 4);
+    if (num(p.rent) !== undefined) cur.rent = p.rent;
+    if (p.machinery && typeof p.machinery === 'object') for (const k of ['tillage', 'seeding', 'application', 'harvest']) if (num(p.machinery[k]) !== undefined) cur.machinery[k] = p.machinery[k];
+    if (p.prices && typeof p.prices === 'object') {
+      for (const [crop, v] of Object.entries(p.prices)) {
+        if (v === null || v === '') delete cur.prices[crop];
+        else if (num(v) !== undefined) cur.prices[String(crop).toUpperCase()] = v;
+      }
+    }
+    this.write(save);
+    return cur;
+  }
+  // Price of a crop per tonne: the operator's price if set, else the game's (price per litre / tonnes per litre).
+  pricePerT(save, crop, econ) {
+    const ps = this.profitSettings(save), key = String(crop || '').toUpperCase();
+    if (typeof ps.prices[key] === 'number') return { price: ps.prices[key], source: 'set' };
+    const ft = econ && econ.fillTypes && econ.fillTypes[key];
+    if (ft && ft.price > 0 && ft.mass > 0) return { price: ft.price / ft.mass, source: 'game' };
+    return { price: null, source: 'none' };
+  }
+  // P&L per field from the work records: revenue from harvested tonnes, costs from seed and product used
+  // (game input costs), machinery per hectare worked and rent per field hectare.
+  profit(save, econ) {
+    const ps = this.profitSettings(save), recs = this.records(save), fields = this.list(save);
+    const costOf = name => { const ft = econ && econ.fillTypes && econ.fillTypes[String(name || '').toUpperCase()]; return ft && ft.cost > 0 ? ft.cost : null; };
+    const chemical = name => /HERBICIDE|PESTICIDE|INSECTICIDE|FUNGICIDE|CHEMICAL|DEFOLIANT|GROWTHREGULATOR/i.test(String(name || ''));
+    const out = [];
+    for (const f of fields) {
+      const fr = recs.filter(r => r.field === f.id);
+      if (!fr.length) continue;
+      const e = { seed: 0, fertilizer: 0, chemical: 0, machinery: 0, rent: f.areaHa * ps.rent };
+      let tonnes = 0, revenue = 0, crop = null, harvestHa = 0, missing = [];
+      for (const r of fr) {
+        const ha = r.coveredHa || 0, a = r.avg || {};
+        e.machinery += ha * (ps.machinery[r.kind] || 0);
+        if (r.kind === 'harvest') {
+          crop = r.product || crop;
+          const t = (a.yield || 0) * ha;
+          const p = this.pricePerT(save, r.product, econ);
+          tonnes += t; harvestHa += ha;
+          if (p.price !== null) revenue += t * p.price; else missing.push('price of ' + (r.product || 'crop'));
+        } else if (r.kind === 'seeding') {
+          crop = crop || r.product;
+          const lph = typeof a.seedLph === 'number' ? a.seedLph : r.rateUnit === 'L/ha' ? a.rate : null;
+          const c = costOf('SEEDS');
+          if (lph !== null && lph !== undefined && c !== null) e.seed += lph * ha * c; else missing.push('seed use');
+        } else if (r.kind === 'application') {
+          const c = costOf(r.product);
+          if (typeof a.rate === 'number' && c !== null) e[chemical(r.product) ? 'chemical' : 'fertilizer'] += a.rate * ha * c;
+          else missing.push('cost of ' + (r.product || 'product'));
+        }
+      }
+      const total = e.seed + e.fertilizer + e.chemical + e.machinery + e.rent;
+      const price = crop ? this.pricePerT(save, crop, econ) : { price: null, source: 'none' };
+      const ha = f.areaHa || 1;
+      out.push({ field: f.id, name: f.name, areaHa: f.areaHa, crop, tonnes: +tonnes.toFixed(3), harvestHa: +harvestHa.toFixed(3),
+        revenue: +revenue.toFixed(2), expenses: Object.fromEntries(Object.entries(e).map(([k, v]) => [k, +v.toFixed(2)])), expensesTotal: +total.toFixed(2),
+        net: +(revenue - total).toFixed(2), netPerHa: +((revenue - total) / ha).toFixed(2), expensesPerHa: +(total / ha).toFixed(2),
+        pricePerT: price.price === null ? null : +price.price.toFixed(2), priceSource: price.source,
+        breakEvenYield: price.price ? +(total / ha / price.price).toFixed(3) : null,          // t/ha
+        breakEvenPrice: tonnes > 0 ? +(total / tonnes).toFixed(2) : null,                     // per tonne
+        operations: fr.map(r => r.title), missing: [...new Set(missing)] });
+    }
+    const sum = k => out.reduce((s, x) => s + (k === 'expenses' ? x.expensesTotal : x[k]), 0);
+    return { currency: ps.currency, settings: ps, fields: out.sort((a, b) => b.netPerHa - a.netPerHa),
+      totals: { revenue: +sum('revenue').toFixed(2), expenses: +sum('expenses').toFixed(2), net: +sum('net').toFixed(2), areaHa: +out.reduce((s, x) => s + x.areaHa, 0).toFixed(3) },
+      finances: econ ? { balance: econ.balance ?? null, loan: econ.loan ?? null, equity: econ.equity ?? null } : null };
+  }
+
   // ---------------------------------------------------------------- boundary from coverage
   // Region of covered ground connected to a field (or to a point), outside every other field,
   // closed by `close` cells, traced and simplified. Returns a proposal; nothing is saved.

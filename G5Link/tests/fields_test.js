@@ -25,7 +25,7 @@ function frame(x, z, day, rate) {
     state: 'vehicle', game: { save: SAVE, day }, vehicle: { x, z, heading: 90, speed: 10 },
     implements: [{ name: 'Planter', width: 12.19, areas: [true], turnedOn: true,
       geometry: [{ i: 0, sx: bx, sz: z - 6.095, wx: bx, wz: z + 6.095, hx: bx - 1, hz: z - 6.095 }],
-      seeder: { kind: 'planter', crop: 'SOYBEAN', unit: 'seedsPerAcre', rate, actual: rate, skips: 1, doubles: 0.5 },
+      seeder: { kind: 'planter', crop: 'SOYBEAN', unit: 'seedsPerAcre', rate, actual: rate, skips: 1, doubles: 0.5, lph: 80 },
       fills: [{ title: 'Seeds', type: 'SEEDS', level: 900, cap: 1000 }] }],
   };
 }
@@ -112,6 +112,36 @@ try {
   store.setSettings(SAVE, { client: '  Test Client  ' });
   check(store.db(SAVE).settings.client === 'Test Client', 'client name setting is trimmed and saved');
 
+  // --- Harvest Profit: harvest field 1, then check the P&L against hand-computed values
+  const harvestFrame = (x, z) => ({ state: 'vehicle', game: { save: SAVE, day: 90 }, vehicle: { x, z, heading: 90, speed: 6 },
+    combine: { crop: 'SOYBEAN', cropTitle: 'Soybeans' }, rh: { crop: 'SOYBEAN', yield: 3.0, moisture: 13, loss: 0.5 },
+    implements: [{ name: 'Header', width: 12.19, areas: [true], turnedOn: true, fills: [],
+      geometry: [{ i: 0, sx: x + 4, sz: z - 6.095, wx: x + 4, wz: z + 6.095, hx: x + 3, hz: z - 6.095 }] }] });
+  for (let k = 0; k < 9; k++) { for (let x = -4; x <= 96; x += 0.7) cov.onFrame(harvestFrame(x, k * 12)); cov.onFrame({ state: 'onfoot' }); }
+  const econ = { balance: 5000, loan: 100, equity: 9000, fillTypes: { SOYBEAN: { price: 0.35, mass: 0.00072 }, SEEDS: { cost: 0.9 } } };
+  let P = store.profit(SAVE, econ);
+  const f1 = P.fields.find(x => x.field === '1');
+  check(f1 && f1.crop === 'SOYBEAN', 'profit: field 1 crop from the harvest');
+  const hRec = store.records(SAVE, '1').find(r => r.kind === 'harvest'), sRec = store.records(SAVE, '1').find(r => r.kind === 'seeding');
+  const price = 0.35 / 0.00072;
+  near(f1.pricePerT, price, 0.01, 'game price per tonne = price per litre / tonnes per litre');
+  near(f1.tonnes, 3.0 * hRec.coveredHa, 0.01, 'harvested tonnes = yield x covered area');
+  near(f1.revenue, 3.0 * hRec.coveredHa * price, 1, 'revenue');
+  near(f1.expenses.seed, 80 * sRec.coveredHa * 0.9, 0.5, 'seed cost = L/ha x area x cost per litre');
+  near(f1.expenses.machinery, sRec.coveredHa * 25 + hRec.coveredHa * 55, 0.5, 'machinery = area x default rate per work type');
+  near(f1.net, f1.revenue - f1.expensesTotal, 0.01, 'net = revenue - expenses');
+  check(P.finances.balance === 5000, 'profit: farm finances passed through');
+  store.setProfitSettings(SAVE, { rent: 100, prices: { soybean: 600 }, machinery: { harvest: 0 } });
+  P = store.profit(SAVE, econ);
+  const f1b = P.fields.find(x => x.field === '1');
+  check(f1b.priceSource === 'set' && f1b.pricePerT === 600, 'price override used');
+  near(f1b.expenses.rent, f1b.areaHa * 100, 0.01, 'rent on the whole field area');
+  near(f1b.expenses.machinery, sRec.coveredHa * 25, 0.5, 'changed machinery rate applied');
+  store.setProfitSettings(SAVE, { prices: { SOYBEAN: null } });
+  check(store.profit(SAVE, econ).fields.find(x => x.field === '1').priceSource === 'game', 'clearing the override returns to the game price');
+  const noEcon = store.profit(SAVE, null).fields.find(x => x.field === '1');
+  check(noEcon.revenue === 0 && noEcon.missing.some(m => /price/.test(m)), 'without prices the P&L says what is missing');
+
   // --- persistence
   cov.flush(Date.now(), true);
   const cov2 = new CoverageStore({ dir: tmp, persist: true });
@@ -119,7 +149,7 @@ try {
   check(store2.list(SAVE).length === 3, 'fields reloaded');
   check(store2.db(SAVE).settings.client === 'Test Client', 'settings reloaded');
   check(store2.field(SAVE, '1').boundaries.length === 3, 'boundary versions reloaded');
-  near(store2.records(SAVE, '1')[0].coveredHa, 1.08 + 0.324, 0.05, 'records rebuilt after reload');
+  near(store2.records(SAVE, '1').find(r => r.kind === 'seeding').coveredHa, 1.08 + 0.324, 0.05, 'records rebuilt after reload');
   store2.removeBoundary(SAVE, 'u1', 1);
   check(!store2.field(SAVE, 'u1'), 'removing the last boundary removes the custom field');
 } finally {

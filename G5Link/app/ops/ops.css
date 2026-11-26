@@ -137,3 +137,26 @@ table.rec td.n { text-align: right; white-space: nowrap; }
   .mapwrap { order: 1; }
   .map-legend { bottom: 8px; }
 }
+
+/* Harvest Profit */
+.pl-card { border: 1px solid var(--rule); border-radius: 6px; padding: 10px 12px; margin: 6px 0 12px; }
+.pl-card h3 { margin: 0 0 6px; font-size: 15px; display: flex; justify-content: space-between; }
+.pl-net { font-size: 26px; font-weight: 800; } .pl-net.neg { color: var(--red); } .pl-net.pos { color: var(--green); }
+.pl-grid { display: grid; grid-template-columns: 1fr auto; gap: 3px 12px; font-size: 13px; font-weight: 600; }
+.pl-grid span { color: var(--muted); } .pl-grid b { text-align: right; }
+.pl-grid .sub { padding-left: 12px; } .pl-grid .sep { grid-column: 1 / -1; border-top: 1px solid var(--rule); margin: 3px 0; }
+.pl-row .num.neg { color: var(--red); } .pl-row .num.pos { color: var(--green); }
+.pl-warn { font-size: 12px; color: #8a5a00; font-weight: 700; margin-top: 6px; }
+.cost-row { display: grid; grid-template-columns: 1fr 110px; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--rule); font-size: 14px; font-weight: 600; }
+.cost-row input { width: 100%; padding: 5px 7px; border: 1px solid #b9b7ad; border-radius: 4px; text-align: right; }
+.cost-row small { color: var(--muted); font-weight: 600; display: block; font-size: 12px; }
+/* Service */
+.svc-card { border: 1px solid var(--rule); border-radius: 6px; margin: 6px 0 12px; }
+.svc-card h3 { margin: 0; padding: 9px 12px; font-size: 15px; border-bottom: 1px solid var(--rule); }
+.svc-card .empty { padding: 14px 12px; text-align: center; }
+.svc-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 8px 12px; border-bottom: 1px solid var(--rule); font-size: 13px; cursor: pointer; }
+.svc-row:last-child { border-bottom: 0; } .svc-row b { font-size: 14px; } .svc-row span { color: var(--muted); font-weight: 600; }
+.svc-bar { grid-column: 1 / -1; height: 8px; background: #ebe9df; border-radius: 4px; overflow: hidden; }
+.svc-bar i { display: block; height: 100%; background: var(--green); } .svc-bar i.soon { background: #e0a100; } .svc-bar i.due { background: var(--red); }
+.svc-sum { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; padding: 10px 12px; }
+.svc-sum div { background: #f4f3ee; border-radius: 6px; padding: 8px 10px; } .svc-sum small { display: block; font-size: 12px; color: var(--muted); font-weight: 700; } .svc-sum b { font-size: 20px; }

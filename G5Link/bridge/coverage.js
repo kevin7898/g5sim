@@ -26,7 +26,7 @@ const CROP_NAMES = { WV_SPRINGWHEAT: 'Spring Wheat', WV_WINTERWHEAT: 'Winter Whe
 const title = s => CROP_NAMES[String(s || '').toUpperCase()] || String(s || '').toLowerCase().replace(/(^|[\s_-])([a-z])/g, (m, a, b) => (a ? ' ' : '') + b.toUpperCase()).trim();
 
 // Value keys a frame can carry. The display maps these to layers and colors.
-const VALUE_KEYS = ['speed', 'yield', 'moisture', 'loss', 'rate', 'skips', 'doubles', 'singulation', 'cv', 'depth',
+const VALUE_KEYS = ['speed', 'yield', 'moisture', 'loss', 'rate', 'seedLph', 'skips', 'doubles', 'singulation', 'cv', 'depth',
   'soilMoisture', 'compaction', 'yieldPotential', 'soilN', 'soilP', 'soilK', 'soilPH'];
 
 function quadArea(q) {
@@ -247,6 +247,7 @@ class CoverageStore {
       if (num(sd.moisture) !== undefined) set('soilMoisture', sd.moisture * 100, 1);
       if (num(sd.compaction) !== undefined) set('compaction', sd.compaction * 100, 1);
       set('yieldPotential', sd.yieldPotential, 1);
+      set('seedLph', sd.lph, 2);                 // seed litres per hectare at the set rate (for seed cost)
     } else if (op.kind === 'seeding' || op.kind === 'application') {
       // As-applied rate from the product leaving the tank over the area worked (L/ha).
       const fill = (impl.fills || []).find(f => op.kind === 'seeding' ? /SEED/i.test(f.type || f.title || '') : (f.type || f.title) === op.product);

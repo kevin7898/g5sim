@@ -535,6 +535,21 @@ do
     stranger.spec_motorized = {}
     stranger.getOwnerFarmId = function(self) return 2 end
     g_currentMission.vehicleSystem = {vehicles = {tractor, planter, stranger}}
+    -- Advanced Damage System surface (as VDTelemetry reads it) and the game economy
+    FS25_AdvancedDamageSystem = {AdvancedDamageSystem = {STATUS = {READY = "ads_spec_state_ready", MAINTENANCE = "ads_spec_state_maintenance"}}}
+    tractor.spec_AdvancedDamageSystem = {currentState = "ads_spec_state_maintenance"}
+    tractor.getIsADSExcluded = function(self) return false end
+    tractor.getServiceIntervalElapsedHours = function(self) return 120.54 end
+    tractor.getServiceInterval = function(self) return 250 end
+    g_currentMission.economyManager = {
+        getPricePerLiter = function(self, i) return ({[6] = 0.218, [5] = 0.9})[i] or 0 end,
+        getCostPerLiter = function(self, i) return ({[1] = 1.4, [5] = 0.9})[i] or 0 end}
+    g_fillTypeManager.getFillTypes = function(self)
+        return {{index = 1, name = "DIESEL", title = "Diesel", massPerLiter = 0.00084}, {index = 5, name = "SEEDS", title = "Seeds", massPerLiter = 0.00045},
+            {index = 6, name = "WHEAT", title = "Wheat", massPerLiter = 0.00078}, {index = 9, name = "STONE", title = "Stone"}}
+    end
+    g_farmManager = {getFarmById = function(self, id) return {name = "Test Farm", getBalance = function() return 1000.5 end,
+        getLoan = function() return 200 end, getEquity = function() return 5000 end} end}
 
     mod:loadMap("test")
     seederCalls = 0
@@ -571,6 +586,14 @@ do
     check(string.find(ej, "Neighbour", 1, true) == nil, "equipment.json leaves out other farms' machines")
     check(string.find(ej, '"inUse":true', 1, true) ~= nil, "equipment.json marks the machine in use")
     check(string.find(ej, '"implements":["Test Planter"]', 1, true) ~= nil, "equipment.json lists attached implements")
+    check(string.find(ej, '"state":"MAINTENANCE"', 1, true) ~= nil, "ADS workshop state resolved through ADS's STATUS table")
+    check(string.find(ej, '"hours":120.5', 1, true) ~= nil and string.find(ej, '"interval":250', 1, true) ~= nil, "ADS service interval")
+    local econ = readFile(dir .. "economy.json") or ""
+    check(string.find(econ, '"balance":1000.5', 1, true) ~= nil, "economy.json farm balance")
+    check(string.find(econ, '"WHEAT":{', 1, true) ~= nil and string.find(econ, '"price":0.218', 1, true) ~= nil, "economy.json crop price")
+    check(string.find(econ, '"cost":0.9', 1, true) ~= nil, "economy.json input cost")
+    check(string.find(econ, "STONE", 1, true) == nil, "fill types without a price or cost left out")
+    check(string.find(fj, '"farmName":"Test Farm"', 1, true) ~= nil, "fields.json farm name")
     local t = telemetry(dir)
     eq(t["g5#state"], "vehicle", "state")
     eq(t["g5.vehicle#name"], "Test Tractor", "vehicle name")

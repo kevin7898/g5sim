@@ -16,7 +16,7 @@
 -- one odd vehicle can never break the game loop.
 
 G5Link = {}
-G5Link.VERSION = "0.5.1"
+G5Link.VERSION = "0.6.0"
 G5Link.WRITE_INTERVAL = 250   -- ms between telemetry writes (4 Hz)
 G5Link.CMD_INTERVAL = 250     -- ms between command file polls
 G5Link.MAX_IMPLEMENTS = 8
@@ -26,6 +26,7 @@ G5Link.SEEDER_INTERVAL = 1000    -- ms between Realistic Seeder snapshots (getSn
 G5Link.FARM_INTERVAL = 5000      -- ms between equipment.json writes (Ops Center)
 G5Link.FIELD_CHECK_INTERVAL = 10000  -- ms between field ownership checks (fields.json rewritten on change)
 G5Link.MAX_VEHICLES = 120
+G5Link.ECONOMY_INTERVAL = 30000  -- ms between economy.json writes (prices, farm finances)
 
 local function call(obj, fname, ...)
     if obj == nil then
@@ -74,6 +75,8 @@ function G5Link:loadMap(name)
     self.equipmentPath = self.dir .. "equipment.json"
     self.fieldsPath = self.dir .. "fields.json"
     self.farmTimer = 0
+    self.economyPath = self.dir .. "economy.json"
+    self.economyTimer = G5Link.ECONOMY_INTERVAL - 3000   -- first write shortly after loading
     self.fieldTimer = G5Link.FIELD_CHECK_INTERVAL  -- first check on the first update (fields are empty during loadMap)
     self.fieldsKey = nil
 
@@ -149,6 +152,15 @@ function G5Link:update(dt)
         if not ok and not self.farmErrorLogged then
             self.farmErrorLogged = true
             print("G5Link: equipment write failed: " .. tostring(err))
+        end
+    end
+    self.economyTimer = self.economyTimer + dt
+    if self.economyTimer >= G5Link.ECONOMY_INTERVAL then
+        self.economyTimer = 0
+        local ok, err = pcall(self.writeEconomy, self)
+        if not ok and not self.economyErrorLogged then
+            self.economyErrorLogged = true
+            print("G5Link: economy write failed: " .. tostring(err))
         end
     end
     self.fieldTimer = self.fieldTimer + dt
@@ -594,6 +606,7 @@ function G5Link:writeSeeder(xml, k, snap)
     setNumber(xml, k .. "#popTarget", pop.targetSeedsPerAcre, 0)
     setNumber(xml, k .. "#popEstablished", pop.establishedSeedsPerAcre, 0)
     setNumber(xml, k .. "#yieldPotential", pop.yieldPotentialPercent, 1)
+    setNumber(xml, k .. "#lph", snap.nominalLitersPerHa, 2)               -- seed litres per hectare at the set rate
     if type(snap.rows) == "table" then
         for i, row in ipairs(snap.rows) do
             if type(row) == "table" then
@@ -870,6 +883,85 @@ local function vehicleKind(v)
     return "tractor"
 end
 
+-- Advanced Damage System (id577): only what the player can see in the game -- the workshop state and
+-- the service interval -- never ADS's hidden condition numbers (they are learned by inspection).
+-- Same surface as VDTelemetry's ADS integration (checked there against ADS 0.10.0.3): a vehicle's
+-- spec_AdvancedDamageSystem, getIsADSExcluded(), getServiceIntervalElapsedHours(), getServiceInterval(),
+-- and spec.currentState resolved through FS25_AdvancedDamageSystem.AdvancedDamageSystem.STATUS.
+function G5Link:getAdsService(v)
+    local spec = v.spec_AdvancedDamageSystem
+    if type(spec) ~= "table" or type(v.getIsADSExcluded) ~= "function" then
+        return nil
+    end
+    local ok, excluded = pcall(v.getIsADSExcluded, v)
+    if not ok or excluded ~= false then
+        return nil
+    end
+    local out = {}
+    local hours = call(v, "getServiceIntervalElapsedHours")
+    local interval = call(v, "getServiceInterval")
+    if type(hours) == "number" and type(interval) == "number" and interval > 0 then
+        out.hours = round(hours, 1)
+        out.interval = round(interval, 1)
+    end
+    local state = spec.currentState
+    if type(state) == "string" then
+        local token = nil
+        local env = FS25_AdvancedDamageSystem
+        local class = type(env) == "table" and env.AdvancedDamageSystem or nil
+        local statuses = type(class) == "table" and class.STATUS or nil
+        if type(statuses) == "table" then
+            for name, value in pairs(statuses) do
+                if value == state and type(name) == "string" then
+                    token = name
+                end
+            end
+        end
+        if token == nil then
+            local suffix = string.match(state, "^ads_spec_state_(%a+)$")
+            token = suffix ~= nil and string.upper(suffix) or "UNKNOWN"
+        end
+        out.state = token
+    end
+    if out.state == nil and out.hours == nil then
+        return nil
+    end
+    return out
+end
+
+-- economy.json for Harvest Profit: farm finances (Farm:getBalance/getLoan/getEquity) and, per fill type,
+-- the game price (economyManager:getPricePerLiter), input cost (getCostPerLiter) and mass (massPerLiter, t/L).
+function G5Link:writeEconomy()
+    local mission = g_currentMission
+    local econ = mission and mission.economyManager
+    local farmId = self:getFarmId()
+    local farm = call(g_farmManager, "getFarmById", farmId)
+    local out = {farmId = farmId, day = mission.environment and mission.environment.currentDay or nil, fillTypes = {}}
+    if type(farm) == "table" then
+        out.balance = call(farm, "getBalance")
+        out.loan = call(farm, "getLoan")
+        out.equity = call(farm, "getEquity")
+    end
+    local list = call(g_fillTypeManager, "getFillTypes") or (g_fillTypeManager and g_fillTypeManager.fillTypes) or {}
+    local n = 0
+    for _, ft in pairs(list) do
+        if type(ft) == "table" and type(ft.name) == "string" and ft.index ~= nil and n < 400 then
+            local price = call(econ, "getPricePerLiter", ft.index)
+            local cost = call(econ, "getCostPerLiter", ft.index)
+            if (type(price) == "number" and price > 0) or (type(cost) == "number" and cost > 0) then
+                n = n + 1
+                out.fillTypes[ft.name] = {
+                    title = type(ft.title) == "string" and ft.title or ft.name,
+                    price = type(price) == "number" and round(price, 5) or nil,
+                    cost = type(cost) == "number" and round(cost, 5) or nil,
+                    mass = type(ft.massPerLiter) == "number" and ft.massPerLiter or nil
+                }
+            end
+        end
+    end
+    self:writeTextFile(self.economyPath, G5Json.encode(out))
+end
+
 -- equipment.json for the Ops Center: the farm's motorized machines (VehicleSystem.vehicles).
 function G5Link:writeEquipment()
     local vs = g_currentMission and g_currentMission.vehicleSystem
@@ -905,6 +997,7 @@ function G5Link:writeEquipment()
                 local damage = call(v, "getDamageAmount")
                 if type(damage) == "number" then e.damage = round(damage * 100, 0) end
                 e.field = self:getFieldIdAt(x, z)
+                e.ads = self:getAdsService(v)
                 local implNames = {}
                 for _, impl in ipairs(self:getImplements(v)) do
                     implNames[#implNames + 1] = call(impl, "getFullName") or "Implement"

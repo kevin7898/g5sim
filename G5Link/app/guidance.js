@@ -24,6 +24,7 @@
     if (window.G5Layers) { G5Layers.onTelemetry(d); G5Layers.renderLegend(); }
     if (window.G5Bounds) G5Bounds.onTelemetry(d);
     if (window.G5WorkSetup) G5WorkSetup.onTelemetry(d);
+    if (window.G5Headland) G5Headland.onTelemetry(d);
     if (d.ops && d.ops.fields !== T.version) loadTracks();
     const v = d.vehicle;
     if (d.state !== 'vehicle' || !v || v.x === undefined) { pose.ok = false; return; }
@@ -373,6 +374,13 @@
         const pts = fb.polygon.map(q => P(q[0], q[1]));
         pts.push(pts[0]);
         polyline(pts, 'rgba(255, 238, 63, .9)', 3);
+      }
+      // headland line (dashed orange) while headland automation is armed
+      const inner = window.G5Headland && G5Headland.innerLine();
+      if (inner) {
+        const pts = inner.map(q => P(q[0], q[1]));
+        pts.push(pts[0]);
+        polyline(pts, 'rgba(255, 160, 30, .95)', 3, [12, 8]);
       }
       const rp = G5Bounds.path();
       if (rp.length > 1) { polyline(rp.map(q => P(q[0], q[1])), '#ff3b30', 4); }

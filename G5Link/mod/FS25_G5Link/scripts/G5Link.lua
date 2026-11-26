@@ -86,6 +86,9 @@ function G5Link:loadMap(name)
     self.lastCmdId = self:readHighestCommandId()  -- ignore commands left over from last session
     self.lastVehicle = nil
     self:resetWork()
+    if G5LinkHeadland ~= nil then
+        G5LinkHeadland:reset()
+    end
 
     if G5LinkProviders ~= nil then
         local ok, err = pcall(G5LinkProviders.loadMap, G5LinkProviders)
@@ -131,6 +134,13 @@ function G5Link:update(dt)
 
     if vehicle ~= nil then
         self:accumulateWork(vehicle, dt)
+    end
+    if G5LinkHeadland ~= nil then
+        local ok, err = pcall(G5LinkHeadland.update, G5LinkHeadland, vehicle, dt, self)
+        if not ok and not self.headlandErrorLogged then
+            self.headlandErrorLogged = true
+            print("G5Link: headland automation failed: " .. tostring(err))
+        end
     end
     if G5LinkControls ~= nil then
         local ok, err = pcall(G5LinkControls.update, G5LinkControls, vehicle, dt, self)
@@ -563,6 +573,9 @@ function G5Link:writeTelemetry(vehicle)
         end
 
         self:writeCombine(xml, vehicle)
+        if G5LinkHeadland ~= nil then
+            pcall(G5LinkHeadland.write, G5LinkHeadland, xml)
+        end
         if G5LinkControls ~= nil then
             local ok, err = pcall(G5LinkControls.write, G5LinkControls, xml, vehicle, self)
             if not ok and not self.controlsErrorLogged then

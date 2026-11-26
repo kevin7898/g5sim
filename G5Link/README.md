@@ -29,8 +29,17 @@ files in `Documents\My Games\FarmingSimulator2025\modSettings\FS25_G5Link\`.
 | **Planter** | With FieldPath Realistic Seeder: target and actual rate, singulation, skips, doubles (or distribution CV on drills), seed depth, established population, yield potential, a row-by-row rate chart, downforce and closing, soil moisture and compaction |
 | **Field** | Soil under the machine from [Realistic Soil & Fertilizer](https://github.com/Realistic-Farming/FS25_SoilFertilizer): N, P and K with Good/Fair/Poor, pH, organic matter, compaction, yield potential, last crop, weed, pest and disease pressure, rotation. Ground from Mud System Physics: wheel slip, mud, tire pressure. AI driver from Courseplay or AutoDrive: state, progress, distance and turns left |
 
+**Headland Management** (Menu > Headland, the HEADLAND key, or the chip on the Guidance map). When armed, the
+implement lifts as its front edge reaches the headland, the speed changes if you set a headland speed, and after the
+turn the implement drops and the work speed comes back. The headland is the band inside the field boundary
+(a distance, or a number of passes times the implement width, with an override per field) and, like the G5,
+**ground already worked** in this operation, so headland passes done first count. Lowering is automatic as the
+implement leaves the headland, when steering is switched on (base game steering assist or Enhanced Vehicle track
+steering), or either. Lead times allow for the hitch. Lifting by hand pauses it until you lower again. Without a
+boundary or coverage it uses the steering assist line end or Enhanced Vehicle's headland distance.
+
 **Shortcut keys follow the machine too.** The four free keys show what the machine has, in this order:
-Auto Speed (combines), Auger (combines, forage harvesters, auger wagons), Fold, Work Lights, Beacon,
+Headland (implements that lift), Auto Speed (combines), Auger (combines, forage harvesters, auger wagons), Fold, Work Lights, Beacon,
 Hazard, Lights. They call the same game functions as the keyboard.
 
 **Run pages follow the machine.** Only the pages that fit what you are driving are offered: Harvesting
@@ -140,7 +149,7 @@ node g5link-bridge.js --dir "D:\path\..."   custom modSettings\FS25_G5Link folde
 ## Project layout
 
 ```
-mod/FS25_G5Link/   the FS25 mod (modDesc.xml, scripts/G5Link.lua, scripts/Controls.lua, icon.dds)
+mod/FS25_G5Link/   the FS25 mod (modDesc.xml, scripts/G5Link.lua, Controls.lua, Headland.lua, icon.dds)
 bridge/            g5link-bridge.js (Node, no dependencies) + .bat launchers
 app/               the display web app (served by the bridge)
 tools/             make_icon.py, package.py

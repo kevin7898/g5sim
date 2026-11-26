@@ -31,4 +31,6 @@ node "$HERE/coverage_test.js"
 
 echo "== Ops Center field store"
 node "$HERE/fields_test.js"
+echo "== headland link"
+node "$HERE/headland_test.js"
 echo "all passed"

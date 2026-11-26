@@ -23,6 +23,7 @@ Requires the G5Link bridge running on the same PC. See README for setup.]]></en>
         <sourceFile filename="scripts/providers/Providers.lua"/>
         <sourceFile filename="scripts/Json.lua"/>
         <sourceFile filename="scripts/Controls.lua"/>
+        <sourceFile filename="scripts/Headland.lua"/>
         <sourceFile filename="scripts/G5Link.lua"/>
     </extraSourceFiles>
 </modDesc>

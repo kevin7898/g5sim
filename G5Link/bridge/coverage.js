@@ -102,6 +102,36 @@ class Operation {
     for (const q of frame.q) this.paint(q, frame.p);
     if (persist) this.pending.push(JSON.stringify(frame));
   }
+  // Covered cells (worked at least once) within r metres of a point, as runs per grid row in cell units:
+  // Map(cz -> [[cx0, cx1), ...]). Used for coverage-based headland automation (bridge/headland.js).
+  coveredRowsNear(x, z, r) {
+    const rows = new Map();
+    const c0x = Math.floor((x - r) / CELL), c1x = Math.floor((x + r) / CELL);
+    const c0z = Math.floor((z - r) / CELL), c1z = Math.floor((z + r) / CELL);
+    for (let tz = Math.floor(c0z / TILE); tz <= Math.floor(c1z / TILE); tz++) {
+      for (let tx = Math.floor(c0x / TILE); tx <= Math.floor(c1x / TILE); tx++) {
+        const t = this.tiles.get(tx + ',' + tz);
+        if (!t) continue;
+        for (let r0 = 0; r0 < TILE; r0++) {
+          const cz = tz * TILE + r0;
+          if (cz < c0z || cz > c1z) continue;
+          let start = -1;
+          for (let c = 0; c <= TILE; c++) {
+            const cx = tx * TILE + c;
+            const on = c < TILE && cx >= c0x && cx <= c1x && t.cnt[r0 * TILE + c] >= 1;
+            if (on && start < 0) start = cx;
+            if (!on && start >= 0) {
+              if (!rows.has(cz)) rows.set(cz, []);
+              const list = rows.get(cz), last = list[list.length - 1];
+              if (last && last[1] === start) last[1] = cx; else list.push([start, cx]);   // join across tiles
+              start = -1;
+            }
+          }
+        }
+      }
+    }
+    return rows;
+  }
   // Overlap cells as runs per grid row: [x0, x1, z] in metres (cell edges).
   overlapRuns() {
     if (this.overlapCache) return this.overlapCache;
@@ -390,4 +420,4 @@ class CoverageStore {
   }
 }
 
-module.exports = { CoverageStore, VALUE_KEYS, TILL_NAMES, quadArea };
+module.exports = { CoverageStore, VALUE_KEYS, TILL_NAMES, quadArea, CELL };

@@ -348,6 +348,10 @@ const CTX_SLOTS = 4;
 const AUTO_STATE = { active: 'ON', standby: 'STBY', cruiseOff: 'STBY', notThreshing: 'STBY', noCrop: 'STBY', ai: 'AI', off: 'OFF' };
 function contextKeys(d) {
   const c = d.controls || {}, keys = [], auto = d.harvestAuto;
+  const hl = d.headland;
+  if ((d.implements || []).some(i => i.canLower)) keys.push({ id: 'headland', act: 'headland', icon: 'headland', label: 'HEADLAND',
+    on: !!(hl && hl.armed && hl.state === 'work'), amber: !!(hl && hl.armed && hl.state !== 'work'),
+    txt: !hl || !hl.armed ? 'OFF' : hl.state === 'headland' ? 'RAISED' : hl.state === 'manual' ? 'MANUAL' : 'ARMED' });
   if (d.combine && auto) keys.push({ id: 'auto', cmd: 'harvestAuto', value: -1, icon: 'autospeed', label: 'AUTO SPEED',
     on: auto.on && auto.state === 'active', amber: auto.on && auto.state !== 'active', txt: auto.on ? (AUTO_STATE[auto.state] || 'STBY') : 'OFF' });
   if (c.pipe) keys.push({ id: 'pipe', cmd: 'pipeToggle', icon: 'auger', label: 'AUGER', on: c.pipe.open, txt: c.pipe.open ? 'OUT' : 'IN' });
@@ -361,13 +365,17 @@ function contextKeys(d) {
   return keys.slice(0, CTX_SLOTS);
 }
 let ctxLayout = '';
+$('skCtx').addEventListener('click', e => {
+  const b = e.target.closest('[data-act]');
+  if (b && b.dataset.act === 'headland' && window.G5Headland) G5Headland.toggle();
+});
 function renderContextKeys(d) {
   const keys = d.state === 'vehicle' ? contextKeys(d) : [];
   const layout = keys.map(k => k.id).join(',');
   const box = $('skCtx');
   if (layout !== ctxLayout) {   // rebuild only when the set of keys changes, so a tap is never lost mid-render
     ctxLayout = layout;
-    box.innerHTML = keys.map(k => `<button class="sk" data-cmd="${k.cmd}" data-value="${k.value ?? 0}" id="skc-${k.id}">` +
+    box.innerHTML = keys.map(k => `<button class="sk" ${k.cmd ? `data-cmd="${k.cmd}" data-value="${k.value ?? 0}"` : `data-act="${k.act}"`} id="skc-${k.id}">` +
       `<svg><use href="#i-${k.icon}"/></svg><b>${k.label}</b><span>--</span></button>`).join('') +
       '<div class="sk empty"></div>'.repeat(Math.max(1, CTX_SLOTS - keys.length));
   }

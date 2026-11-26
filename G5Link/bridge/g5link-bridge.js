@@ -50,6 +50,9 @@ const APP_DIR = path.resolve(__dirname, '..', 'app');
 const STALE_MS = 3000; // no new seq for this long => game considered paused/closed
 const { CoverageStore } = require('./coverage.js');
 const { FieldStore, simplifyRing } = require('./fields.js');
+const { HeadlandLink } = require('./headland.js');
+let headlandLink = null;
+const headland = () => headlandLink || (headlandLink = new HeadlandLink({ dir: DIR, write: !DEMO }));
 
 // ---------------------------------------------------------------- tiny XML parser
 // Handles the flat, attribute-only XML the mod writes. Not a general parser.
@@ -122,6 +125,7 @@ function telemetryFromXml(text) {
     combine: (child(g5, 'combine') || {}).attrs || null,
     rh: rhFromNode(child(g5, 'rh')),
     controls: controlsFromNode(child(g5, 'controls')),
+    headland: (child(g5, 'headland') || {}).attrs || null,
     harvestAuto: (child(g5, 'harvestAuto') || {}).attrs || null,
   };
 }
@@ -256,7 +260,10 @@ function setTelemetry(t) {
   if (fresh) {
     try { mapStore().onFrame(latest); } catch (e) { console.warn('Map recording failed:', e.message); }
     try { boundaryFrame(latest); importGameFields(); } catch (e) { console.warn('Field update failed:', e.message); }
+    try { headland().update(latest, fieldStore(), currentSave(), mapStore()); } catch (e) { console.warn('Headland update failed:', e.message); }
   }
+  latest.headlandLink = headland().status;
+  if (DEMO) latest.headland = demoHeadland(latest);
   latest.map = mapStore().status();
   latest.ops = { fields: fieldStore().version, boundary: boundaryStatus() };
   broadcast();
@@ -452,6 +459,25 @@ function demoCombine(t, dt, working, meters) {
   };
   return t;
 }
+// Headland automation as the mod reports it: the demo's turns are the headlands.
+function demoHeadland(t) {
+  let h;
+  try { h = fieldStore().headland(currentSave()); } catch (e) { return null; }
+  if (!h.armed) return { armed: false, state: 'off', source: 'none', v: 0, events: 0 };
+  const P = demoPath;
+  let dist = null;
+  if (P && demo.pathI !== undefined) {
+    const want = !demo.turning;                       // working: distance to the next turn; turning: to the next pass
+    for (let i = demo.pathI + 1; i < P.length; i++) {
+      const isWork = P[i - 1].work && P[i].work;
+      if (isWork !== want) { dist = Math.max(0, P[i - 1].s - demo.pathS); break; }
+    }
+  }
+  if (demo.hlTurning !== demo.turning) { demo.hlEvents = (demo.hlEvents || 0) + 1; demo.hlTurning = demo.turning; }
+  return { armed: true, state: demo.turning ? 'headland' : 'work', source: h.useBoundary ? 'boundary' : 'coverage',
+    dist: dist === null ? undefined : +dist.toFixed(1), v: 1, events: demo.hlEvents || 0, steer: 'base', steerOn: !demo.turning };
+}
+
 // Harvest Automation as the mod runs it: cruise speed steps toward RH's recommended speed, 0.5 km/h per second.
 function demoAuto(dt) {
   const a = demo.auto;
@@ -490,7 +516,9 @@ function demoTillage(t, dt, working) {
 function demoTick(dt) {
   demo.t += dt;
   if (DEMO_COMBINE) demoAuto(dt);
-  const target = !demo.motorOn ? 0 : demo.cc ? demo.ccSpeed : 6 + 4 * Math.sin(demo.t / 9000);
+  let hlSpeed = 0;
+  try { const h = fieldStore().headland(currentSave()); if (h.armed && demo.turning && h.headSpeed > 0) hlSpeed = h.headSpeed; } catch (e) { /* no store yet */ }
+  const target = !demo.motorOn ? 0 : hlSpeed || (demo.cc ? demo.ccSpeed : 6 + 4 * Math.sin(demo.t / 9000));
   demo.speed += (target - demo.speed) * Math.min(1, dt / 1500);
   const meters = demo.speed / 3.6 * dt / 1000;
   const working = demo.lowered && demo.unfolded && demo.turnedOn && demo.speed > 0.3 && !demo.turning;
@@ -779,6 +807,7 @@ const server = http.createServer((req, res) => {
       }
       if (u.pathname === '/api/ops/work-setup') return json(200, { workSetup: store.workSetup(save), clientDefault: store.db(save).settings.client || null,
         farmDefault: gameFields ? gameFields.farmName || null : null });
+      if (u.pathname === '/api/ops/headland') return json(200, { headland: store.headland(save), status: headland().status });
       if (u.pathname === '/api/ops/finance') return json(200, { farmFinance: economy && economy.farmFinance || null, equipment: equipment.vehicles });
       if (u.pathname === '/api/boundary') return json(200, { ...boundaryStatus(), path: rec.active ? rec.points : [] });
       return json(404, { error: 'unknown route' });
@@ -793,6 +822,7 @@ const server = http.createServer((req, res) => {
         throw new Error('unknown action');
       });
       if (u.pathname === '/api/ops/work-setup') return post(c => ({ workSetup: store.setWorkSetup(save, c) }));
+      if (u.pathname === '/api/ops/headland') return post(c => ({ headland: store.setHeadland(save, c) }));
       if (u.pathname === '/api/ops/profit-settings') return post(c => ({ settings: store.setProfitSettings(save, c) }));
       if (u.pathname === '/api/ops/boundary') return post(c => store.addBoundary(save, { fieldId: c.fieldId, name: c.name, source: c.source, polygon: c.polygon, note: c.note, newField: !!c.newField }));
       if (u.pathname === '/api/ops/active') return post(c => { store.setActive(save, c.fieldId, Number(c.v)); });

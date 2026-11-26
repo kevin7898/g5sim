@@ -567,3 +567,25 @@ a.app { text-decoration: none; color: inherit; }
 .tl-gauge { position: relative; width: 60px; height: 170px; border: 3px solid var(--frame); background: linear-gradient(#e7d7b4, #8a5a2b); }
 .tl-gauge .act { position: absolute; left: 0; right: 0; top: 0; height: 0; background: rgba(30, 30, 27, .55); border-bottom: 3px solid var(--ink); transition: height .3s linear; }
 .tl-gauge .tgt { position: absolute; left: -10px; right: -10px; height: 0; border-top: 3px dashed var(--tile-on); top: 0; }
+
+/* Headland Management */
+.map-hl { position: absolute; right: 12px; top: 134px; z-index: 3; background: rgba(30, 30, 27, .85); color: #fff; padding: 4px 12px 6px;
+  border-radius: 4px; border-left: 6px solid var(--tile-on); display: flex; flex-direction: column; cursor: pointer; min-width: 150px; }
+.map-hl[hidden] { display: none; }
+.map-hl.raised { border-left-color: var(--warn); } .map-hl.manual { border-left-color: var(--tile-off); }
+.map-hl b { font-size: 14px; } .map-hl span { font-size: 17px; font-weight: 700; }
+.hl-win { width: 1060px; } .hl-win .win-body { padding: 4px 22px 10px; }
+.hl-win .set-row { padding: 5px 0; }
+.hl-win .set-row .seg { width: auto; height: 42px; } .hl-seg button { font-size: 16px; min-width: 92px; padding: 0 12px; white-space: nowrap; }
+.hl-right { display: flex; align-items: center; gap: 10px; }
+.hl-val { height: 42px; min-width: 110px; font-size: 17px; font-weight: 700; padding: 0 12px; }
+.hl-chk { height: 42px; font-size: 16px; font-weight: 700; padding: 0 14px; }
+.hl-chk.on { outline: 3px solid var(--tile-on); outline-offset: -3px; }
+.hl-status { display: flex; flex-direction: column; gap: 1px; padding: 6px 12px; margin: 2px 0 4px; border-left: 6px solid var(--tile-off);
+  background: var(--cream); font-size: 15px; font-weight: 600; color: var(--ink-2); }
+.hl-status b { font-size: 19px; color: var(--ink); }
+.hl-status.armed { border-left-color: var(--tile-on); } .hl-status.raised { border-left-color: var(--warn); }
+.hl-cols { display: grid; grid-template-columns: 1fr 1.3fr; gap: 0 28px; }
+.hl-top { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; }
+.hl-cols h4 { margin: 8px 0 0; font-size: 16px; color: var(--muted); }
+.hl-win .hint { margin: 8px 0 0; font-size: 13.5px; }

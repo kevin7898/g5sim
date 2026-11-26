@@ -179,6 +179,7 @@ function XMLFile.load(name, path)
 end
 function XMLObj:getString(key, default) local v = self.values[key] if v == nil then return default end return v end
 function XMLObj:getInt(key, default) local v = tonumber(self.values[key]) if v == nil then return default end return math.floor(v) end
+function XMLObj:getBool(key, default) local v = self.values[key] if v == nil then return default end return v == "true" end
 function XMLObj:getFloat(key, default) local v = tonumber(self.values[key]) if v == nil then return default end return v end
 function XMLObj:iterate(path, fn)
     local i = 0
@@ -242,6 +243,7 @@ Lights = {LIGHT_TYPE_DEFAULT = 0, LIGHT_TYPE_WORK_BACK = 1, LIGHT_TYPE_WORK_FRON
         v.spec_lights.beaconLightsActive = not v.spec_lights.beaconLightsActive end,
     actionEventToggleTurnLightHazard = function(v) record("hazardToggle", v) v.spec_lights.turnLightState = 3 end,
 }
+AIAutomaticSteering = {STATE = {DISABLED = 0, AVAILABLE = 1, ACTIVE = 2}}
 Pipe = {actionEventTogglePipe = function(v) record("pipeToggle", v) v.spec_pipe.targetState = 2 end}
 Foldable = {actionEventFoldAll = function(v) record("foldToggle", v) v.spec_foldable.foldMoveDirection = -1 end}
 
@@ -940,6 +942,133 @@ do
     check(called("raiseDirtyFlags") ~= nil, "Cultivator Settings dirty flag raised")
     eq(csLocked.spec_CultivatorSettings.mode, 2, "locked Cultivator Settings tool not changed")
     eq(telemetry(dir)["g5.implements.implement(1).tillage#depth"], "6.000000", "new depth reported")
+    mod:deleteMap()
+end
+
+---------------------------------------------------------------------------
+-- Scenario 7: headland automation (boundary band, coverage, steering assist fallback)
+---------------------------------------------------------------------------
+do
+    local dir = newScenario("headland", {})
+    local tractor, ts = makeVehicle({name = "Test Tractor", speed = 10})
+    local planter, ps = makeImplement(12.19, 4)
+    tractor.children = {tractor, planter}
+    tractor.movingDirection = 1
+    planter.getAttacherVehicle = function(self) return tractor end
+    tractor.getAttacherJointIndexFromObject = function(self, obj) return 1 end
+    tractor.handleLowerImplementByAttacherJointIndex = function(self, idx, down)
+        record("lowerImpl", idx, down) ps.lowered = down end
+    ts.ccSpeed = 11.5
+    g_localPlayer = {getCurrentVehicle = function(self) return tractor end}
+    -- every node of the machine, to drive it around
+    local machine = {tractor.rootNode}
+    for _, wa in ipairs(planter.spec_workArea.workAreas) do
+        machine[#machine + 1] = wa.start machine[#machine + 1] = wa.width machine[#machine + 1] = wa.height
+    end
+    local function shift(dx, heading)
+        for _, id in ipairs(machine) do
+            nodes[id].x = nodes[id].x + dx
+            if heading then nodes[id].dx = heading end
+        end
+    end
+    local function turnAround()   -- mirror the machine about the tractor, now facing -x
+        local cx = nodes[tractor.rootNode].x
+        for _, id in ipairs(machine) do nodes[id].x = 2 * cx - nodes[id].x nodes[id].dx = -1 end
+    end
+    mod:loadMap("test")
+    os.execute('mkdir -p "' .. dir .. '"')
+    local function writeHeadland(v, extra, pts)
+        writeFile(dir .. "headland.xml", '<?xml version="1.0"?>\n<headland v="' .. v .. '" armed="true" field="23" width="20" raiseLead="0.6" lowerLead="1.0" '
+            .. extra .. '>\n' .. (pts or '') .. '</headland>\n')
+    end
+    local square = '<pt x="0" z="100"/><pt x="200" z="100"/><pt x="200" z="300"/><pt x="0" z="300"/>'
+    writeHeadland(1, 'lowerMode="auto" headSpeed="8" workSpeed="0" useBoundary="true" useCoverage="true"', square)
+    tick(10)
+    local t = telemetry(dir)
+    eq(t["g5.headland#armed"], "true", "headland armed from headland.xml")
+    eq(t["g5.headland#state"], "work", "working with the planter down")
+    eq(t["g5.headland#source"], "boundary", "boundary band is the source")
+    near(tonumber(t["g5.headland#dist"]), 88, 1, "distance to the headland band (front edge 92.5, band at 180)")
+    -- drive east until the planter lifts
+    local liftedAt
+    for _ = 1, 60 do
+        shift(2)
+        tick(1)
+        if not ps.lowered then liftedAt = nodes[planter.spec_workArea.workAreas[1].start].x break end
+    end
+    check(liftedAt ~= nil and liftedAt >= 176 and liftedAt < 180, "lifted just before the 20 m band: " .. tostring(liftedAt))
+    near(ts.ccSpeed, 8, 0.001, "headland speed set")
+    eq(telemetry(dir)["g5.headland#state"], "headland", "in the headland")
+    -- drive into the band, turn, come back
+    shift(8) tick(2)
+    turnAround() tick(2)
+    check(not ps.lowered, "still raised after the turn, inside the band")
+    local loweredAt
+    for _ = 1, 30 do
+        shift(-1.5)
+        tick(1)
+        if ps.lowered then loweredAt = nodes[tractor.rootNode].x break end
+    end
+    check(loweredAt ~= nil, "lowered on the way back out of the band")
+    near(ts.ccSpeed, 11.5, 0.001, "work speed restored")
+    -- the operator raises by hand: automation stands aside
+    tick(14)  -- past the own-change window
+    ps.lowered = false
+    shift(-1.5) tick(2)
+    eq(telemetry(dir)["g5.headland#state"], "manual", "manual raise detected")
+    ps.lowered = true
+    shift(-1.5) tick(2)
+    eq(telemetry(dir)["g5.headland#state"], "work", "back to work after a manual lower")
+
+    -- coverage source: covered strip ahead (x 40..60 at z 190..210), boundary off
+    local rows = {}
+    for z = 190, 210 do rows[#rows + 1] = string.format('<r z="%d" x="40,60"/>', z) end
+    writeFile(dir .. "headcov.xml", '<?xml version="1.0"?>\n<headcov v="3" cell="1">\n' .. table.concat(rows, "\n") .. '\n</headcov>\n')
+    writeHeadland(2, 'lowerMode="auto" headSpeed="0" workSpeed="0" useBoundary="false" useCoverage="true"', square)
+    tick(10)
+    t = telemetry(dir)
+    eq(t["g5.headland#source"], "coverage", "coverage is the source")
+    eq(t["g5.headland#covRuns"], "21", "coverage runs loaded")
+    local covLift
+    for _ = 1, 200 do
+        shift(-1)
+        tick(1)
+        if not ps.lowered then covLift = nodes[planter.spec_workArea.workAreas[1].start].x break end
+    end
+    -- facing -x the front edge is the mirrored bar; it lifts as it reaches x = 60
+    check(covLift ~= nil, "lifted at previously covered ground")
+    local covLower
+    for _ = 1, 60 do
+        shift(-1)
+        tick(1)
+        if ps.lowered then covLower = true break end
+    end
+    check(covLower, "lowered again past the covered strip")
+
+    -- steering assist fallback: no boundary, no coverage; lower when steering is engaged
+    os.remove(dir .. "headcov.xml")
+    writeHeadland(3, 'lowerMode="steer" headSpeed="0" workSpeed="0" useBoundary="false" useCoverage="false"', '')
+    local steerState = AIAutomaticSteering.STATE.ACTIVE
+    tractor.spec_aiAutomaticSteering = {lastDistanceToEnd = 30}
+    tractor.getAIAutomaticSteeringState = function(self) return steerState end
+    tractor.getAIAutomaticSteeringLookAheadDistance = function(self) return 4 end
+    tick(10)
+    t = telemetry(dir)
+    eq(t["g5.headland#steer"], "base", "base game steering assist found")
+    eq(t["g5.headland#source"], "base", "steering assist distance is the source")
+    check(ps.lowered, "still working while the line end is far")
+    tractor.spec_aiAutomaticSteering.lastDistanceToEnd = 0.5   -- 0.5 m past the look-ahead point: 5 m ahead of the tool, at 10 km/h
+    G5LinkHeadland.settings.raiseLead = 2.0
+    tick(2)
+    check(not ps.lowered, "raised at the steering assist line end")
+    steerState = AIAutomaticSteering.STATE.AVAILABLE
+    tick(2)
+    check(not ps.lowered, "stays raised while steering is off")
+    steerState = AIAutomaticSteering.STATE.ACTIVE
+    tractor.spec_aiAutomaticSteering.lastDistanceToEnd = 200
+    tick(2)
+    check(ps.lowered, "lowered when steering assist is engaged")
+    keepLive(dir)
     mod:deleteMap()
 end
 

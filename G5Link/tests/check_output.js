@@ -143,5 +143,16 @@ if (fs.existsSync(live)) {
   }
 }
 
+{
+  const f = path.join(OUT, 'headland', 'telemetry_live.xml');
+  check(fs.existsSync(f), 'headland live telemetry copy exists');
+  if (fs.existsSync(f)) {
+    const t = telemetryFromXml(fs.readFileSync(f, 'utf8'));
+    eq(t.headland && t.headland.armed, true, 'live: headland armed');
+    eq(t.headland && t.headland.steer, 'base', 'live: steering helper');
+    check(t.headland && t.headland.events >= 4, 'live: headland events counted');
+  }
+}
+
 console.log(`node checks: ${checks}, failures: ${failures}`);
 process.exit(failures ? 1 : 0);

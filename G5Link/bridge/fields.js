@@ -393,6 +393,32 @@ class FieldStore {
     return ws;
   }
 
+  // ---------------------------------------------------------------- Headland management (G5 headland automation)
+  // width: distance mode in metres, or passes x the implement width; perField overrides the width per field.
+  headland(save) {
+    const d = this.db(save);
+    d.headland = Object.assign({ armed: false, widthMode: 'distance', width: 20, passes: 2, perField: {},
+      raiseLead: 0.6, lowerLead: 1.0, lowerMode: 'auto', headSpeed: 0, workSpeed: 0, useBoundary: true, useCoverage: true }, d.headland || {});
+    return d.headland;
+  }
+  setHeadland(save, h) {
+    const cur = this.headland(save);
+    const n = (v, lo, hi) => typeof v === 'number' && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : undefined;
+    for (const [k, lo, hi] of [['width', 0, 200], ['passes', 0, 10], ['raiseLead', 0, 5], ['lowerLead', 0, 5], ['headSpeed', 0, 40], ['workSpeed', 0, 40]]) {
+      if (n(h[k], lo, hi) !== undefined) cur[k] = +n(h[k], lo, hi).toFixed(2);
+    }
+    for (const k of ['armed', 'useBoundary', 'useCoverage']) if (typeof h[k] === 'boolean') cur[k] = h[k];
+    if (['distance', 'passes'].includes(h.widthMode)) cur.widthMode = h.widthMode;
+    if (['auto', 'steer', 'both'].includes(h.lowerMode)) cur.lowerMode = h.lowerMode;
+    if (h.field !== undefined && h.field !== null && String(h.field) !== '') {
+      const w = n(h.fieldWidth, 0, 200);
+      if (h.fieldWidth === null) delete cur.perField[String(h.field)];
+      else if (w !== undefined) cur.perField[String(h.field)] = +w.toFixed(2);
+    }
+    this.write(save);
+    return cur;
+  }
+
   // ---------------------------------------------------------------- Harvest Profit
   // Profit settings per savegame: machinery cost per hectare by work type, land rent, crop price overrides.
   profitSettings(save) {

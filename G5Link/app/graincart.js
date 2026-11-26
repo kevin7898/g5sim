@@ -53,7 +53,32 @@
     send('grainCart', 0, CMD[b.dataset.gc], b);
   };
   function open() { closeWin('menu'); openWin('grainCartWin'); render(); }
+
+  // Floating keys over the Guidance map, stacked above the map legend so the map stays in view.
+  function renderFloat() {
+    const g = gc(), box = $('mapGc');
+    const show = !!(g && g.name && !g.inCart && data.state === 'vehicle');
+    box.hidden = !show;
+    if (!show) return;
+    const legend = $('mapLegend');
+    box.style.bottom = (legend && !legend.hidden ? legend.offsetHeight + 20 : 12) + 'px';
+    box.classList.toggle('collapsed', !!settings.gcCollapsed);
+    box.classList.toggle('ok', !g.paused && !g.released && (g.kind === 'unloading' || g.kind === 'driving'));
+    box.classList.toggle('warn', !!(g.paused || g.released || g.outOfPosition));
+    $('mgcName').textContent = g.name + (g.carts > 1 ? ` (1 of ${g.carts})` : '');
+    $('mgcState').textContent = stateText(g) + (g.dist !== undefined ? ' · ' + lenTxt(g.dist) : '');
+    $('mgcFill').textContent = g.cap ? fmt(g.fill / g.cap * 100, 0) + '%' : '--%';
+    $('mgcPause').textContent = g.paused ? 'Resume' : 'Pause';
+    $('mgcPause').classList.toggle('on', !!g.paused);
+  }
+  $('mgcHead').onclick = () => { settings.gcCollapsed = !settings.gcCollapsed; saveSettings(); renderFloat(); };
+  $('mgcBody').onclick = e => {
+    const b = e.target.closest('[data-gc]');
+    if (!b) return;
+    if (b.dataset.gc === 'more') return open();
+    send('grainCart', 0, CMD[b.dataset.gc], b);
+  };
   $('appGrainCart').onclick = open;
 
-  window.G5GrainCart = { open, render, shortText, stateText, call: el => send('grainCart', 0, CMD.call, el) };
+  window.G5GrainCart = { open, render: () => { render(); renderFloat(); }, shortText, stateText, call: el => send('grainCart', 0, CMD.call, el) };
 })();

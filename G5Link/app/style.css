@@ -612,3 +612,19 @@ a.app { text-decoration: none; color: inherit; }
 .ha-cart[hidden], .ha-cart-txt[hidden] { display: none; }
 .ha-cart svg { width: 26px; height: 26px; }
 .ha-cart-txt { margin-top: 3px; font-size: 13px; font-weight: 700; color: var(--ink-2); text-align: center; }
+
+/* Floating grain cart keys over the Guidance map (above the map legend) */
+.map-gc { position: absolute; left: 70px; bottom: 12px; z-index: 2; width: 266px; background: rgba(241,239,228,.95); border: 2px solid var(--frame);
+  border-radius: 3px; box-shadow: 0 2px 6px rgba(0,0,0,.35); color: var(--ink); }
+.map-gc[hidden] { display: none; }
+.mgc-head { width: 100%; display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto auto; gap: 0 8px; text-align: left;
+  border: 0; border-left: 6px solid var(--tile-off); background: var(--strip); color: #fff; padding: 3px 8px 4px; cursor: pointer; }
+.mgc-head b { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mgc-head span { grid-column: 1; font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mgc-head em { grid-column: 2; grid-row: 1 / 3; align-self: center; font-style: normal; font-size: 18px; font-weight: 800; }
+.map-gc.ok .mgc-head { border-left-color: var(--tile-on); } .map-gc.warn .mgc-head { border-left-color: var(--warn); }
+.mgc-body { display: flex; flex-direction: column; gap: 4px; padding: 5px; }
+.map-gc.collapsed .mgc-body { display: none; }
+.mgc-row { display: flex; gap: 4px; }
+.mgc-row .g5btn { flex: 1; height: 40px; padding: 0; font-size: 14px; letter-spacing: -.2px; font-weight: 700; min-width: 0; }
+.mgc-row .g5btn.on { outline: 3px solid var(--warn); outline-offset: -3px; }

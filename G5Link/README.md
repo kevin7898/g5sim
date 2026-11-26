@@ -113,7 +113,7 @@ Everything is optional. G5Link checks for each mod and only uses it when it is i
 | Courseplay, AutoDrive | AI driver state, Courseplay course on the map |
 | Enhanced Vehicle | Track steering as a headland source and "lower on steering engage" |
 | [Cultivator Settings](https://github.com/jason0611/FS25_CultivatorSettings) | Shallow / Normal / Deep from the Tillage page |
-| **Recommended:** [Courseplay Grain Cart](https://mmp-farms.itch.io/grain-cart-remote-cp) (MMP Farms, needs Courseplay) | **Grain Cart** remote on the display: call the cart, pause, release, send it to unload, move it out of the way, and nudge it forward, back, left and right under the pipe. The cart shows on the Guidance map, with its fill level and status on the GRAIN CART key and the Harvest Automation page |
+| **Recommended:** [Courseplay Grain Cart](https://mmp-farms.itch.io/grain-cart-remote-cp) (MMP Farms, needs Courseplay) | **Grain Cart** remote on the display: call the cart, pause, release, send it to unload, move it out of the way, and nudge it forward, back, left and right under the pipe. On the Guidance map the cart shows as a marker, and floating keys above the map legend (tap the header to fold them away) keep Call, Pause, Unload, Away and the nudges one tap away without covering the map. More opens the full window |
 
 ## Setup on the Windows PC
 

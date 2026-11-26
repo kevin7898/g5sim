@@ -1447,9 +1447,9 @@ do
     mod:loadMap("test")
     g_currentMission.vehicleSystem = {vehicles = {tractor}}
     os.execute('mkdir -p "' .. dir .. '"')
-    local function guidance(v, shift, turn)
-        writeFile(dir .. "guidance.xml", string.format('<?xml version="1.0"?>\n<guidance v="%d" spacing="10" shift="%s">\n  <track id="tr1" name="East" ax="0" az="0" h="90"/>\n  %s\n</guidance>\n',
-            v, tostring(shift), turn or '<turn on="false"/>'))
+    local function guidance(v, shift, turn, extra)
+        writeFile(dir .. "guidance.xml", string.format('<?xml version="1.0"?>\n<guidance v="%d" spacing="10" shift="%s" %s>\n  <track id="tr1" name="East" ax="0" az="0" h="90"/>\n  %s\n</guidance>\n',
+            v, tostring(shift), extra or "", turn or '<turn on="false"/>'))
     end
     guidance(1, 0)
     tick(6)
@@ -1471,6 +1471,31 @@ do
         end
     end
     eq(telemetry(dir)["g5.autotrac#state"], "ready", "ready with a track")
+    eq(telemetry(dir)["g5.autotrac#stage"], "3", "stage 3/4: Enabled (Steer ON by default)")
+    eq(telemetry(dir)["g5.autotrac#sens"], "70", "default Steering Sensitivity 70")
+    check(string.find(telemetry(dir)["g5.autotrac#diag"] or "", "track=1;noAi=1;steerOn=1;speed=1;heading=1;onTrack=1", 1, true) ~= nil,
+        "diagnostics all met: " .. tostring(telemetry(dir)["g5.autotrac#diag"]))
+    -- Steer OFF: stage 2/4, Resume will not engage
+    guidance(1, 0, nil, 'steerOn="false"')
+    G5LinkSteer.guidance.v = -1
+    tick(12)
+    eq(telemetry(dir)["g5.autotrac#stage"], "2", "Steer OFF: stage 2/4 Configured")
+    eq(telemetry(dir)["g5.autotrac#reason"], "steerOff", "reason: Steer OFF")
+    G5LinkSteer.actionResume(tractor, "G5LINK_RESUME", 1)
+    eq(G5LinkSteer.engaged, false, "Resume does nothing with Steer OFF")
+    eq(G5LinkSteer.reason, "steerOff", "exit code steerOff")
+    -- engage rules: not within 40 % of the spacing of a pass
+    nodes[node].z = 4.5
+    guidance(1, 0, nil, 'steerOn="true" sens="140"')
+    G5LinkSteer.guidance.v = -1
+    tick(12)
+    eq(telemetry(dir)["g5.autotrac#sens"], "140", "sensitivity from the G5")
+    G5LinkSteer.actionResume(tractor, "G5LINK_RESUME", 1)
+    eq(G5LinkSteer.reason, "offTrack", "will not engage 4.5 m off a 10 m spacing")
+    nodes[node].z = 3
+    guidance(1, 0)
+    G5LinkSteer.guidance.v = -1
+    tick(12)
     writeFile(dir .. "commands.xml", '<?xml version="1.0"?>\n<commands>\n    <cmd id="1" name="autotrac" value="1" index="0"/>\n</commands>\n')
     drive(600)                                            -- 60 s at 10 km/h
     local t = telemetry(dir)
@@ -1516,6 +1541,20 @@ do
     near(nodes[node].z, 15, 0.3, "on the next pass (right of travel)")
     check(nodes[node].dx < -0.98, "driving back the other way")
     eq(telemetry(dir)["g5.autotrac#state"], "engaged", "still engaged after the turn")
+    eq(telemetry(dir)["g5.autotrac#stage"], "4", "stage 4/4: Engaged")
+    -- stopping: lets go after 3 s under 0.5 km/h
+    ts.speed = 0
+    drive(20)
+    eq(G5LinkSteer.engaged, true, "a 2 s stop keeps it engaged")
+    drive(20)
+    eq(G5LinkSteer.engaged, false, "stopped over 3 s: disengaged")
+    eq(telemetry(dir)["g5.autotrac#last"], "slow", "exit code slow")
+    G5LinkSteer.actionResume(tractor, "G5LINK_RESUME", 1)
+    eq(G5LinkSteer.reason, "speed", "will not engage standing still")
+    ts.speed = 10
+    G5LinkSteer.actionResume(tractor, "G5LINK_RESUME", 1)
+    drive(5)
+    eq(G5LinkSteer.engaged, true, "moving again: Resume engages")
     keepLive(dir)
     mod:deleteMap()
     InputDevice = nil

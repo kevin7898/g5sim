@@ -323,8 +323,13 @@ from `FieldPathPrivateIntegration.lua`:
 - Track from the display via POST /api/guidance -> guidance.xml (track ax/az/h, spacing, shift, turn on/skip/dir/radius).
   Pass k = round((dot(P-A, right) - shift) / spacing), locked at engage, re-acquired on a track/shift change.
   Steers the believed position (true + G5LinkRtk.offset), so receiver error moves the real line.
-- Lets go: hand steering, AI, > 1 spacing + 1 m off, > 75 deg off, no track, no activation (G5LinkRtk.allows
-  "autotrac": receiver + AUTOTRAC activation when requirements are on).
+- Lets go: hand steering, AI, > 1 spacing + 1 m off, > 80 deg off, no track, no activation (G5LinkRtk.allows
+  "autotrac": receiver + AUTOTRAC activation when requirements are on), Steer OFF, < 0.5 km/h for 3 s, reverse 45 s.
+- Deere stages (research/deere-guidance-and-shortcuts.md): stage() 0-4 from ready()'s reason (activation/receiver/
+  steerable -> 0, noTrack/aiActive -> 1), Steer OFF -> 2, else 3, engaged 4. Engage rules: Steer ON, >= 0.5 km/h,
+  heading <= 80 deg (either way along the track), |xte to the nearest pass| <= 0.4 spacing; the refusal is the exit
+  code (self.reason -> #last). guidance.xml carries steerOn (missing = on) and sens 50-200: look-ahead x 70/sens.
+  Telemetry g5.autotrac#stage/#steerOn/#sens/#diag ("activation=1;receiver=1;...;onTrack=1").
 - Turn Automation: when headland automation is in "headland" and the field edge (headland boundary) is within the room
   the turn needs (D/2 for a half circle when D = (skip+1) x spacing >= 2R, else 2R for a bulb) + 2 m, a path is built
   (half circle, or three arcs solved by bisection) and followed by pure pursuit, then the next pass k + side x s x
@@ -374,7 +379,7 @@ Sampled palette (in `G5Link/app/style.css` `:root`):
 | Module title strip | `#413f22` |
 | Tile and panel cream | `#f1efe4` / `#f5f3e1` |
 | Tile top strip | `#858585` (off), `#32b04b` (on) |
-| Shortcut keys | `#e1dfcf` → `#cfcdb4` on a black bar, black state strip |
+| Shortcut keys | `#e1dfcf` → `#cfcdb4` on a black bar; state strip black/white text (off), `#32b04b`/white (on) |
 | Lightbar center | `#ffee3f`; lit segment `#c40b0b` |
 | Alert window shade | `#ebbfc1` with a `#f27579` border |
 
@@ -384,9 +389,7 @@ with a yellow-and-green bottom stripe. The icons in the app are original line dr
 
 ## Ideas / next steps
 
-- **AutoTrac-style steering** in FS25: have the mod steer to the track (needs track sync to the mod and a steering hook)
 - Layout Manager-style run page editing
 - AB curves and circle tracks; coverage saved across sessions
 - Native iPad app (Swift) on the same SSE stream
 - Corner post display page
-- Shortcut keys that can be assigned like on the G5

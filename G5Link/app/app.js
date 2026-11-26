@@ -105,7 +105,6 @@ $('menuBtn').onclick = () => { selectTab('pages'); openWin('menu'); };
 $('tab-apps').onclick = e => { const b = e.target.closest('[data-goto]'); if (b) { showPage(b.dataset.goto); closeWin('menu'); } };
 $('appStatus').onclick = () => { closeWin('menu'); openWin('scPanel'); };
 $('appReset').onclick = () => { closeWin('menu'); $('resetWork').onclick(); };
-$('skPageSet').onclick = () => { openWin('menu'); selectTab('display'); };
 $('statusCenter').onclick = () => openWin('scPanel');
 function selectTab(name) {
   document.querySelectorAll('#menuTabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
@@ -266,7 +265,6 @@ document.addEventListener('click', e => {
   send(b.dataset.cmd, Number(b.dataset.value || 0), Number(b.dataset.index || 0), b);
 });
 $('resetWork').onclick = () => confirmBox('Work Monitor', 'Reset all work counters to zero?', () => send('resetWork'));
-$('skWork').onclick = () => showPage('Work Monitor');
 
 // ------------------------------------------------------------ derived rates
 const samples = [];
@@ -372,15 +370,8 @@ function render() {
   $('compassRose').style.transform = hdg === null || hdg === undefined ? '' : `rotate(${-hdg}deg)`;
   $('headingTxt').textContent = hdg === null || hdg === undefined ? '---°' : fmt(hdg, 0) + '°';
 
-  // ---- Shortcut bar
-  const sk = (id, on, txt) => { $(id).classList.toggle('on', !!on); $(id + 'State').textContent = txt; };
-  sk('skMotor', v && v.motorOn, v ? (v.motorOn ? 'ON' : 'OFF') : '---');
-  sk('skCruise', ccOn, v ? (ccOn ? 'ON' : 'OFF') : '---');
-  const anyLowered = imps.some(i => i.lowered), anyOn = imps.some(i => i.turnedOn);
-  sk('skLower', anyLowered, imps.length ? (anyLowered ? 'LOWERED' : 'RAISED') : '---');
-  sk('skTurnOn', anyOn, imps.length ? (anyOn ? 'ON' : 'OFF') : '---');
-  sk('skWork', w.recording, w.recording ? 'ON' : 'OFF');
-  renderContextKeys(d);
+  // ---- Shortcut bar (keys.js)
+  if (window.G5Keys) G5Keys.render(d);
   if (window.G5GrainCart) G5GrainCart.render();
   if (window.G5Rate) G5Rate.render();
 
@@ -394,61 +385,6 @@ function render() {
   renderField(d);
   renderPlanter(d);
   if (window.onTelemetry) window.onTelemetry(d);
-}
-
-// Context shortcut keys: the four free slots show the keys this machine supports, in priority order.
-const CTX_SLOTS = 4;
-const AUTO_STATE = { active: 'ON', standby: 'STBY', cruiseOff: 'STBY', notThreshing: 'STBY', noCrop: 'STBY', ai: 'AI', off: 'OFF' };
-function contextKeys(d) {
-  const c = d.controls || {}, keys = [], auto = d.harvestAuto;
-  const at = d.autotrac;
-  if (at && !(at.state === 'notReady' && at.reason === 'noTrack')) keys.push({ id: 'autotrac', cmd: 'autotrac', value: -1, icon: 'wheel', label: 'AUTOTRAC',
-    on: at.state === 'engaged', amber: at.state === 'turning', txt: { engaged: 'ENGAGED', turning: 'TURNING', ready: 'READY' }[at.state] || 'NOT READY' });
-  if (d.rate) keys.push({ id: 'rate', act: 'rate', icon: 'rate', label: 'RATE', on: !!d.rate.rxActive, amber: false,
-    txt: window.G5Rate ? G5Rate.shortTxt(d.rate) : '--' });
-  const hl = d.headland;
-  if ((d.implements || []).some(i => i.canLower)) keys.push({ id: 'headland', act: 'headland', icon: 'headland', label: 'HEADLAND',
-    on: !!(hl && hl.armed && hl.state === 'work'), amber: !!(hl && hl.armed && hl.state !== 'work'),
-    txt: !hl || !hl.armed ? 'OFF' : hl.state === 'headland' ? 'RAISED' : hl.state === 'manual' ? 'MANUAL' : hl.state === 'noSignal' ? 'NEEDS SF2' : 'ARMED' });
-  if (d.combine && auto) keys.push({ id: 'auto', cmd: 'harvestAuto', value: -1, icon: 'autospeed', label: 'AUTO SPEED',
-    on: auto.on && auto.state === 'active', amber: auto.on && auto.state !== 'active', txt: auto.on ? (AUTO_STATE[auto.state] || 'STBY') : 'OFF' });
-  const g = d.grainCart;
-  if (g && (g.carts > 0 || g.inCart)) keys.push({ id: 'graincart', act: 'graincart', icon: 'graincart', label: 'GRAIN CART',
-    on: !!(g.name && !g.paused && !g.released && (g.kind === 'unloading' || g.kind === 'driving')), amber: !!(g.paused || g.released),
-    txt: window.G5GrainCart ? G5GrainCart.shortText(g) : '--' });
-  if (c.pipe) keys.push({ id: 'pipe', cmd: 'pipeToggle', icon: 'auger', label: 'AUGER', on: c.pipe.open, txt: c.pipe.open ? 'OUT' : 'IN' });
-  if (c.fold) keys.push({ id: 'fold', cmd: 'foldToggle', icon: 'fold', label: 'FOLD', on: c.fold.unfolded,
-    amber: c.fold.moving, txt: c.fold.moving ? 'MOVING' : c.fold.unfolded ? 'UNFOLDED' : 'FOLDED' });
-  if (c.workFront !== undefined) keys.push({ id: 'work', cmd: 'workLightsToggle', icon: 'worklight', label: 'WORK LIGHTS',
-    on: c.workFront || c.workBack, txt: c.workFront || c.workBack ? 'ON' : 'OFF' });
-  if (c.beacon !== undefined) keys.push({ id: 'beacon', cmd: 'beaconToggle', icon: 'beacon', label: 'BEACON', on: c.beacon, txt: c.beacon ? 'ON' : 'OFF' });
-  if (c.hazard !== undefined) keys.push({ id: 'hazard', cmd: 'hazardToggle', icon: 'hazard', label: 'HAZARD', on: false, amber: c.hazard, txt: c.hazard ? 'ON' : 'OFF' });
-  if (c.lights !== undefined) keys.push({ id: 'lights', cmd: 'lightsToggle', icon: 'headlight', label: 'LIGHTS', on: c.lights, txt: c.lights ? 'ON' : 'OFF' });
-  return keys.slice(0, CTX_SLOTS);
-}
-let ctxLayout = '';
-$('skCtx').addEventListener('click', e => {
-  const b = e.target.closest('[data-act]');
-  if (b && b.dataset.act === 'headland' && window.G5Headland) G5Headland.toggle();
-  if (b && b.dataset.act === 'graincart' && window.G5GrainCart) G5GrainCart.open();
-  if (b && b.dataset.act === 'rate' && window.G5Rate) G5Rate.open();
-});
-function renderContextKeys(d) {
-  const keys = d.state === 'vehicle' ? contextKeys(d) : [];
-  const layout = keys.map(k => k.id).join(',');
-  const box = $('skCtx');
-  if (layout !== ctxLayout) {   // rebuild only when the set of keys changes, so a tap is never lost mid-render
-    ctxLayout = layout;
-    box.innerHTML = keys.map(k => `<button class="sk" ${k.cmd ? `data-cmd="${k.cmd}" data-value="${k.value ?? 0}"` : `data-act="${k.act}"`} id="skc-${k.id}">` +
-      `<svg><use href="#i-${k.icon}"/></svg><b>${k.label}</b><span>--</span></button>`).join('') +
-      '<div class="sk empty"></div>'.repeat(Math.max(1, CTX_SLOTS - keys.length));
-  }
-  for (const k of keys) {
-    const el = $('skc-' + k.id);
-    el.classList.toggle('on', !!k.on);
-    el.classList.toggle('amber', !!k.amber);
-    el.lastChild.textContent = k.txt;
-  }
 }
 
 function sectionBar(imp) {

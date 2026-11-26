@@ -414,6 +414,7 @@ function setGuidance(g) {
     ? { id: String(g.track.id || ''), name: String(g.track.name || '').slice(0, 60), ax: g.track.ax, az: g.track.az, h: g.track.h } : null;
   const turn = g && g.turn || {};
   const next = { track: t, spacing: num(g && g.spacing, 0.5, 200) || 0, shift: num(g && g.shift, -1000, 1000) || 0,
+    steerOn: !(g && g.steerOn === false), sens: Math.round(num(g && g.sens, 50, 200) || 70),
     turn: { on: turn.on === true, skip: Math.round(num(turn.skip, 0, 10) || 0), dir: ['left', 'right'].includes(turn.dir) ? turn.dir : 'auto',
       radius: num(turn.radius, 0, 50) || 0 } };
   const key = JSON.stringify(next);
@@ -421,7 +422,7 @@ function setGuidance(g) {
   guidanceKey = key; guidanceState = next; guidanceV++;
   if (!DEMO) {
     const a = v => String(v).replace(/[&"<>]/g, c => ({ '&': '&amp;', '"': '&quot;', '<': '&lt;', '>': '&gt;' }[c]));
-    const xml = `<?xml version="1.0" encoding="utf-8" standalone="no"?>\n<guidance v="${guidanceV}" spacing="${next.spacing}" shift="${next.shift}">\n` +
+    const xml = `<?xml version="1.0" encoding="utf-8" standalone="no"?>\n<guidance v="${guidanceV}" spacing="${next.spacing}" shift="${next.shift}" steerOn="${next.steerOn}" sens="${next.sens}">\n` +
       (t ? `  <track id="${a(t.id)}" name="${a(t.name)}" ax="${t.ax}" az="${t.az}" h="${t.h}"/>\n` : '') +
       `  <turn on="${next.turn.on}" skip="${next.turn.skip}" dir="${next.turn.dir}" radius="${next.turn.radius}"/>\n</guidance>\n`;
     try { fs.mkdirSync(DIR, { recursive: true }); fs.writeFileSync(path.join(DIR, 'guidance.xml.tmp'), xml); fs.renameSync(path.join(DIR, 'guidance.xml.tmp'), path.join(DIR, 'guidance.xml')); }
@@ -514,7 +515,13 @@ function demoCommand(c) {
     case 'grainCart': demoGrainCartCommand(c.index); break;
     case 'rateAuto': demo.rate = { ...(demo.rate || { idx: 3 }), auto: c.value === 1 }; break;
     case 'rateStep': demo.rate = { ...(demo.rate || { auto: false, idx: 3 }), idx: Math.max(1, Math.min(6, (demo.rate ? demo.rate.idx : 3) + (c.value > 0 ? 1 : -1))) }; break;
-    case 'autotrac': demo.at = c.value === 1 ? true : c.value === 0 ? false : !demo.at; if (demo.at && !(guidanceState && guidanceState.track)) demo.at = false; break;
+    case 'autotrac': {
+      const want = c.value === 1 ? true : c.value === 0 ? false : !demo.at;
+      const gs = guidanceState;
+      const why = !want ? 'off' : !(gs && gs.track) ? 'noTrack' : !gs.steerOn ? 'steerOff' : null;
+      demo.at = want && !why; demo.atExit = demo.at ? demo.atExit : why || demo.atExit;
+      break;
+    }
     case 'rtk': demoRtkCommand(c); break;
     case 'grainCartNext': break;
     case 'harvestAutoMax': demo.auto.max = Math.max(1, Math.min(40, c.value)); break;
@@ -796,9 +803,13 @@ function demoTick(dt) {
     rx: arx ? arx.id : undefined, rxName: arx ? arx.name : undefined, rxActive: !!arx && working,
     rxRate: arx && working ? arx.rates[Math.floor(demo.t / 20000) % arx.zones] : undefined };
   const gs = guidanceState;
-  frame.autotrac = demo.at
-    ? { state: demo.turning && gs && gs.turn.on ? 'turning' : 'engaged', track: gs.track.id, pass: 3, xte: +(0.02 * Math.sin(demo.t / 4000)).toFixed(3), turnOn: gs.turn.on, turns: Math.floor(demo.t / 60000) }
-    : { state: gs && gs.track ? 'ready' : 'notReady', reason: gs && gs.track ? undefined : 'noTrack', turnOn: !!(gs && gs.turn.on), turns: 0 };
+  if (demo.at && gs && !gs.steerOn) { demo.at = false; demo.atExit = 'steerOff'; }
+  const hasTrack = !!(gs && gs.track), steerOn = !gs || gs.steerOn !== false;
+  const diag = { activation: 1, receiver: 1, steerable: 1, track: +hasTrack, noAi: 1, steerOn: +steerOn, speed: +(demo.speed > 0.5), heading: 1, onTrack: 1 };
+  frame.autotrac = Object.assign(demo.at
+    ? { state: demo.turning && gs && gs.turn.on ? 'turning' : 'engaged', stage: 4, track: gs.track.id, pass: 3, xte: +(0.02 * Math.sin(demo.t / 4000)).toFixed(3), turnOn: gs.turn.on, turns: Math.floor(demo.t / 60000) }
+    : { state: hasTrack ? 'ready' : 'notReady', stage: !hasTrack ? 1 : steerOn ? 3 : 2, reason: !hasTrack ? 'noTrack' : steerOn ? undefined : 'steerOff', last: demo.atExit, turnOn: !!(gs && gs.turn.on), turns: 0 },
+  { steerOn, sens: gs ? gs.sens : 70, diag: Object.entries(diag).map(([k, v]) => k + '=' + v).join(';') });
   setTelemetry(demoGnss(DEMO_COMBINE ? demoCombine(frame, dt, working, meters) : DEMO_TILLAGE ? demoTillage(frame, dt, working) : frame, dt));
 }
 

@@ -38,9 +38,16 @@ implement leaves the headland, when steering is switched on (base game steering 
 steering), or either. Lead times allow for the hitch. Lifting by hand pauses it until you lower again. Without a
 boundary or coverage it uses the steering assist line end or Enhanced Vehicle's headland distance.
 
-**Shortcut keys follow the machine too.** The four free keys show what the machine has, in this order:
-Headland (implements that lift), Auto Speed (combines), Auger (combines, forage harvesters, auger wagons), Fold, Work Lights, Beacon,
-Hazard, Lights. They call the same game functions as the keyboard.
+**Shortcut keys follow the machine too.** On the *Automatic* bar the four free keys show what the machine has, in this
+order: AutoTrac, Rate, Headland (implements that lift), Auto Speed (combines), Grain Cart, Auger, Fold, Work Lights,
+Beacon, Hazard, Lights. They call the same game functions as the keyboard. Keys look like the G5's: a green strip with
+white text when on, an LED and AUTO on keys with an automatic mode, the value on the Rate key, the AutoTrac pie on the
+AUTOTRAC key, and gray keys that this machine can't use.
+
+**Layout Manager** (Menu > Layout Manager): make your own shortcut bars. Duplicate the Automatic bar or start a new one,
+Add Shortcut from each app (every key once, up to 12 plus MENU), move keys left or right, remove, rename, delete, and
+choose which bar tractors and combines use. Extra keys there: Resume, Guidance, Swap Track, StarFire, Layout and Help
+(what each key on the bar does).
 
 **Run pages follow the machine.** Only the pages that fit what you are driving are offered: Harvesting
 and Harvest Automation for a combine (instead of Tractor), Tillage with a tillage tool, Planter when a Realistic Seeder implement is attached, Implement
@@ -89,7 +96,8 @@ records ("Seeding · Corn · P1197AM").
 **Title bar:** run page name, game clock, link status (tap for the Status Center), and the
 previous/next run page arrows. You can also swipe between pages.
 
-**Shortcut bar:** Engine, Cruise, Lower/Raise (all), Turn On (all), Work, Display and Menu.
+**Shortcut bar:** Engine, Cruise, Lower/Raise (all), Turn On (all), Work, Setup, four machine keys, Display and Menu
+(or your own bar, see Layout Manager).
 
 **Menu:** Run Pages tab to jump to a page; Display tab for Metric / US units, Day / Night mode
 and alert sounds.
@@ -132,10 +140,19 @@ from a lease stop billing.
 ## AutoTrac, Resume and Turn Automation (part of the RTK package)
 
 With the **AutoTrac activation** (StarFire, $1,500 by default) G5Link steers the machine along the track you set on
-the G5, onto the nearest pass, following Shift Track live. Engage it with the **Resume** key: bind *G5Link: AutoTrac
-Resume* in the game's controls (Alt+R by default) to any key, joystick or wheel button, or tap the AutoTrac chip on
-the Guidance map or the AUTOTRAC shortcut key. Steering by hand disengages it. AutoTrac steers the position the
-receiver reports, so SF1 drift shows up as real skips and overlaps, and RTK holds the line.
+the G5, onto the nearest pass, following Shift Track live. Status works like the G5's four-quarter pie:
+**1/4 Installed** (activation and receiver), **2/4 Configured** (track set, no AI worker), **3/4 Enabled** (Steer ON)
+and **4/4 Engaged**. Tap the AUTOTRAC key or the pie on the Guidance map for the **AutoTrac** window: Steer ON/OFF,
+AutoTrac Diagnostics (each requirement), the Last Exit Code, Steering Sensitivity (50-200, default 70: higher steers
+harder), Track Spacing by distance or rows × row width, and Shift Master. Engage with the **Resume** key: bind
+*G5Link: AutoTrac Resume* in the game's controls (Alt+R by default) to any key, joystick or wheel button, or tap Resume
+in the window. As on the G5 it engages only within 80° of the track and within 40% of the track spacing of a pass, and
+above 0.5 km/h; it lets go when you steer by hand, turn Steer OFF, stop for 3 s or reverse for 45 s. While engaged the
+track can't change and shifts are limited to 12 in (0.3 m). AutoTrac steers the position the receiver reports, so SF1
+drift shows up as real skips and overlaps, and RTK holds the line.
+
+The Guidance page shows Track Spacing as the G5 does ("60.000ft"), the track number and direction under the heading
+("5S", "0" on Track 0), and "---" with no track. Swap Track (key or AutoTrac window) steps to the next track in the field.
 
 **Turn Automation** (Menu > Headland > Turn Automation): at the headland, once headland automation has lifted the
 implement, AutoTrac turns onto the next pass (a half circle, or a bulb turn when the passes are closer than twice the

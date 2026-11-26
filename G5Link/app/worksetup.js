@@ -70,16 +70,16 @@
     }
   });
   async function open() { closeWin('menu'); await load(); W.draft = Object.assign({}, W.ws || {}); openWin('workSetupWin'); render(); }
-  $('skSetup').onclick = open;
   $('appWorkSetup').onclick = open;
 
   // SETUP key state and the Location module follow the Work Setup on every frame
   window.G5WorkSetup = {
-    onTelemetry(d) {
+    open,
+    onTelemetry() {},
+    keyState(d) {
       const ws = d.workSetup || {};
       const crop = ws.crop || machineCrop();
-      $('skSetupState').textContent = crop ? cropLabel(String(crop).toUpperCase()).toUpperCase().slice(0, 12) : '--';
-      $('skSetup').classList.toggle('on', !!(ws.variety || ws.crop || ws.fieldMode === 'fixed'));
+      return { on: !!(ws.variety || ws.crop || ws.fieldMode === 'fixed'), txt: crop ? cropLabel(String(crop).toUpperCase()).toUpperCase().slice(0, 12) : '--' };
     },
   };
   load();

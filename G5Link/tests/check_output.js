@@ -194,6 +194,9 @@ if (fs.existsSync(live)) {
     eq(t.autotrac && t.autotrac.state, 'engaged', 'live: AutoTrac engaged');
     eq(t.autotrac && t.autotrac.turns, 1, 'live: one turn counted');
     eq(t.autotrac && t.autotrac.turnOn, true, 'live: Turn Automation on');
+    eq(t.autotrac && t.autotrac.stage, 4, 'live: AutoTrac stage 4/4');
+    eq(t.autotrac && t.autotrac.steerOn, true, 'live: Steer ON');
+    check(/^activation=1;.*onTrack=\d$/.test(t.autotrac && t.autotrac.diag || ''), 'live: AutoTrac diagnostics string');
   }
 }
 

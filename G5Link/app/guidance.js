@@ -5,7 +5,8 @@
 
 (function () {
   const G = Object.assign({ tracks: [], current: -1, currentId: null, lastByField: {}, migrated: false, spacing: null, shift: 0, incr: 0.0254, zoom: 1, view: '3d',
-    turn: { on: false, skip: 0, dir: 'auto', radius: 0 } }, settings.guid || {});
+    turn: { on: false, skip: 0, dir: 'auto', radius: 0 }, steerOn: true, sens: 70, spacingMode: 'distance', rows: 24, rowWidth: 0.762,
+    shiftMaster: true }, settings.guid || {});
   settings.guid = G;
   const save = () => { settings.guid = G; saveSettings(); };
 
@@ -20,23 +21,17 @@
   const CHEV_STEP = 60;        // metres between pass-direction chevrons
   const VIEW_R = 640;          // the G5 shows map data within 0.64 km of the machine
 
-  // AutoTrac chip on the map (tap = Resume on screen)
-  const AT_TEXT = { engaged: 'Engaged', turning: 'Turning', ready: 'Ready' };
-  const AT_REASON = { noTrack: 'Set a track', needsActivation: 'Needs activation', needsReceiver: 'No GPS receiver', aiActive: 'AI driving',
-    notSteerable: 'Not steerable', noVehicle: '---' };
+  // AutoTrac chip on the map: the four-quarter status pie (tap = the AutoTrac window)
   function renderAutoTrac(d) {
     const at = d.autotrac, el = $('mapAt');
     el.hidden = !at || d.state !== 'vehicle';
-    if (el.hidden) return;
-    el.className = 'map-at ' + (at.state === 'notReady' ? '' : at.state);
-    $('mapAtTxt').textContent = AT_TEXT[at.state] || AT_REASON[at.reason] || 'Not ready';
+    if (el.hidden || !window.G5AutoTrac) return;
+    const st = G5AutoTrac.stageOf(at);
+    el.className = 'map-at ' + (at.state === 'notReady' ? '' : at.state === 'ready' && st < 3 ? 'off' : at.state);
+    setHtml($('mapAtPie'), G5AutoTrac.pie(st, at.state));
+    $('mapAtTxt').textContent = G5AutoTrac.shortText(at);
   }
-  $('mapAt').onclick = () => {
-    const at = data.autotrac;
-    if (at && at.state === 'notReady') return shade(at.reason === 'needsActivation' ? 'AutoTrac needs its activation: Menu > StarFire.'
-      : at.reason === 'noTrack' ? 'Set a guidance track first.' : `AutoTrac is not ready: ${AT_REASON[at.reason] || at.reason}.`, 'info', 4000);
-    send('autotrac', -1, 0, $('mapAt'));
-  };
+  $('mapAt').onclick = () => window.G5AutoTrac && G5AutoTrac.open();
 
   window.onTelemetry = d => {
     renderAutoTrac(d);
@@ -45,6 +40,7 @@
     if (window.G5WorkSetup) G5WorkSetup.onTelemetry(d);
     if (window.G5Headland) G5Headland.onTelemetry(d);
     if (window.G5StarFire) G5StarFire.onTelemetry(d);
+    if (window.G5AutoTrac) G5AutoTrac.onTelemetry(d);
     if (d.ops && d.ops.fields !== T.version) loadTracks();
     const v = d.vehicle;
     if (d.state !== 'vehicle' || !v || v.x === undefined) { pose.ok = false; return; }
@@ -92,7 +88,10 @@
   }
 
   // ---------------------------------------------------------------- guidance math
-  const spacing = () => G.spacing || pose.width || 12;
+  const spacing = () => G.spacingMode === 'rows' && G.rows > 0 && G.rowWidth > 0 ? G.rows * G.rowWidth : G.spacing || pose.width || 12;
+  // While AutoTrac steers, the G5 keeps the track: no track change and no shift over 0.3 m (12 in)
+  const engaged = () => !!(data.autotrac && (data.autotrac.state === 'engaged' || data.autotrac.state === 'turning'));
+  const MAX_SHIFT_ENGAGED = 0.3;
   // Tracks live in the bridge (Data Sync), shared with every display and the Ops Center.
   const T = { list: [], version: -1, loading: false, field: undefined };
   const currentTrack = () => T.list.find(t => t.id === G.currentId) || null;
@@ -134,7 +133,7 @@
   }
   // When the field changes, pick up the track last used in that field (as the G5 does).
   function onFieldChange(field) {
-    if (field === T.field) return;
+    if (field === T.field || engaged()) return;
     if (T.field !== undefined && G.currentId) G.lastByField[T.field ?? ''] = G.currentId;
     T.field = field;
     const last = G.lastByField[field ?? ''];
@@ -184,23 +183,43 @@
   }
 
   // ---------------------------------------------------------------- side modules
-  const lenText = m => metric('distance') ? `${m.toFixed(2)} m` : `${(m * 3.28084).toFixed(1)} ft`;
+  // as the G5 writes it: three decimals, no space ("60.000ft")
+  const lenText = m => metric('distance') ? `${m.toFixed(3)}m` : `${(m * 3.28084).toFixed(3)}ft`;
   // AutoTrac in the mod steers to what this display shows: send the selected track, spacing, shift and the
   // Turn Automation settings to the bridge (guidance.xml) whenever they change.
   let sentKey = '';
   function sendGuidance() {
     const t = currentTrack();
-    const body = { track: t ? { id: t.id, name: t.name, ax: t.ax, az: t.az, h: t.h } : null, spacing: spacing(), shift: G.shift || 0, turn: G.turn };
+    const body = { track: t ? { id: t.id, name: t.name, ax: t.ax, az: t.az, h: t.h } : null, spacing: spacing(), shift: G.shift || 0, turn: G.turn,
+      steerOn: G.steerOn !== false, sens: G.sens || 70 };
     const key = JSON.stringify(body);
     if (key === sentKey) return;
     sentKey = key;
     fetch('/api/guidance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: key }).catch(() => { sentKey = ''; });
   }
-  window.G5Guidance = { turn: () => G.turn, setTurn: patch => { G.turn = { ...G.turn, ...patch }; save(); sendGuidance(); }, send: sendGuidance };
+  // Swap Track: the next track in this field (or every track when the field has none), as the G5's SWAP TRACK key
+  function swapTrack() {
+    if (engaged()) return shade('The track can not change while AutoTrac is engaged.', 'info', 3000), false;
+    const field = workField();
+    const here = T.list.filter(t => (t.fieldId ?? null) === field);
+    const list = here.length ? here : T.list;
+    if (!list.length) return shade('No guidance tracks yet: Set Track > New Track.', 'info', 3000), false;
+    const i = list.findIndex(t => t.id === G.currentId);
+    const next = list[(i + 1) % list.length];
+    if (next.id === G.currentId) return shade('This field has only one track.', 'info', 2500), false;
+    G.currentId = next.id; G.shift = 0; save(); renderTrackList(); renderSide();
+    shade(`Track: ${next.name}`, 'info', 2000);
+    return true;
+  }
+  window.G5Guidance = {
+    turn: () => G.turn, setTurn: patch => { G.turn = { ...G.turn, ...patch }; save(); sendGuidance(); }, send: sendGuidance,
+    get: () => G, set: patch => { Object.assign(G, patch); save(); renderSide(); }, spacing, lenText, track: currentTrack, swap: swapTrack,
+    tracks: () => T.list, engaged,
+  };
   function renderSide() {
     sendGuidance();
     const t = currentTrack();
-    $('trkName').textContent = t ? t.name : 'No track';
+    $('trkName').textContent = t ? t.name : '---';
     $('trkSpacing').textContent = lenText(spacing());
     $('trkIncr').textContent = metric('distance') ? `${(G.incr * 100).toFixed(1)} cm` : `${(G.incr / 0.0254).toFixed(1)} in`;
     const wf = workField(), ws = data.workSetup || {};
@@ -212,18 +231,24 @@
   }
 
   $('setTrackBtn').onclick = () => { renderTrackList(); openWin('trackWin'); };
-  $('spacingBtn').onclick = () => openNumpad(`Track Spacing (${metric('distance') ? 'm' : 'ft'})`, v => {
-    G.spacing = metric('distance') ? v : v / 3.28084; save(); renderSide();
-  });
+  $('spacingBtn').onclick = () => G.spacingMode === 'rows'
+    ? openNumpad('Track Spacing: number of rows', v => { G.rows = Math.max(1, Math.min(96, Math.round(v))); save(); renderSide(); })
+    : openNumpad(`Track Spacing (${metric('distance') ? 'm' : 'ft'})`, v => { G.spacing = metric('distance') ? v : v / 3.28084; save(); renderSide(); });
   const INCRS = [0.0254, 0.0508, 0.1016, 0.3048, 0.01, 0.05, 0.1];
   $('incrBtn').onclick = () => { G.incr = INCRS[(INCRS.indexOf(G.incr) + 1) % INCRS.length]; save(); renderSide(); };
   document.querySelectorAll('[data-shift]').forEach(b => {
     b.onclick = () => {
       const dirn = +b.dataset.shift;
+      if (G.shiftMaster === false) return shade('Shift Track is off (Shift Master in AutoTrac settings).', 'info', 3000);
+      let d = 0;
       if (dirn === 0) {                            // center the nearest track on the vehicle
         const s = solve(livePose());
-        if (s) G.shift += s.err;
-      } else G.shift += dirn * G.incr;
+        if (s) d = s.err;
+      } else d = dirn * G.incr;
+      if (engaged() && Math.abs(d) > MAX_SHIFT_ENGAGED) {
+        return shade(`No shift over ${metric('distance') ? '0.3 m' : '12 in'} while AutoTrac is engaged.`, 'info', 3500);
+      }
+      G.shift += d;
       save();
     };
   });
@@ -248,7 +273,8 @@
     $('abStatus').textContent = pointA ? 'Point A set. Drive at least 3 m along the line, then tap Set B.'
       : 'Drive to point A, tap Set A, then drive at least 3 m and tap Set B.';
   }
-  $('trackList').onclick = e => { const b = e.target.closest('[data-trk]'); if (b) { G.currentId = b.dataset.trk; G.shift = 0; save(); renderTrackList(); renderSide(); } };
+  $('trackList').onclick = e => { const b = e.target.closest('[data-trk]'); if (b && b.dataset.trk !== G.currentId && engaged()) return shade('The track can not change while AutoTrac is engaged.', 'info', 3000);
+    if (b) { G.currentId = b.dataset.trk; G.shift = 0; save(); renderTrackList(); renderSide(); } };
   $('newHeading').onclick = () => { const p = livePose(); if (!p) return shade('No vehicle position. Enter a vehicle first.', 'info', 3000); addTrack(p.x, p.z, p.h, 'A+Heading'); };
   $('setA').onclick = () => { const p = livePose(); if (!p) return shade('No vehicle position. Enter a vehicle first.', 'info', 3000); pointA = p; renderTrackList(); };
   $('setB').onclick = () => {
@@ -486,7 +512,8 @@
     drawTractor(proj);
 
     $('mapHdg').textContent = `${cardinal(p.h)} ${Math.round(p.h)}°`;
-    $('mapTrk').textContent = s ? `${Math.abs(s.k)}${s.k === 0 ? '' : ' ' + cardinal((s.k > 0 ? t.h + 90 : t.h - 90))}` : '---';
+    // track number and direction from Track 0, as the G5 writes it ("5S", "0" on Track 0)
+    $('mapTrk').textContent = s ? `${Math.abs(s.k)}${s.k === 0 ? '' : cardinal((s.k > 0 ? t.h + 90 : t.h - 90))}` : '---';
     $('mapArrow').style.transform = `rotate(${-p.h}deg)`;
   }
 

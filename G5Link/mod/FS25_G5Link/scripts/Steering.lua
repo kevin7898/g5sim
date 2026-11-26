@@ -16,7 +16,12 @@ G5LinkSteer = {}
 
 G5LinkSteer.GUIDANCE_INTERVAL = 1000   -- ms between guidance.xml reads
 G5LinkSteer.MAX_XTE = 1.0              -- x spacing: farther off the line than this and AutoTrac lets go
-G5LinkSteer.MAX_HEADING = 75           -- degrees off the line heading before it lets go
+G5LinkSteer.MAX_HEADING = 80           -- degrees off the line heading: Deere's limit to engage and to stay engaged
+G5LinkSteer.ENGAGE_XTE = 0.4           -- x spacing: engage only this close to a pass (Deere: 40 % of track spacing)
+G5LinkSteer.MIN_SPEED = 0.5            -- km/h: below this AutoTrac will not engage, and lets go after SLOW_MS
+G5LinkSteer.SLOW_MS = 3000
+G5LinkSteer.REVERSE_MS = 45000         -- stays engaged in reverse this long (Deere: 45 s)
+G5LinkSteer.SENS_DEFAULT = 70          -- Steering Sensitivity 50..200 (Deere default 70)
 G5LinkSteer.TURN_MARGIN = 2.0          -- m between the end of a turn and the field edge
 G5LinkSteer.DEFAULT_RADIUS = 7.0       -- m turning radius when the machine does not report one
 G5LinkSteer.PATH_STEP = 0.5            -- m between points of a turn path
@@ -49,8 +54,15 @@ function G5LinkSteer:reset()
     self.turns = 0
     self.lastSide = nil
     self.xte = nil
+    self.slowMs, self.reverseMs = 0, 0
 end
 G5LinkSteer:reset()
+
+-- Deere's four-quarter AutoTrac status: 0 none, 1 Installed, 2 Configured, 3 Enabled (Steer ON), 4 Engaged
+G5LinkSteer.STAGE_OF_REASON = {
+    noVehicle = 0, needsActivation = 0, needsReceiver = 0, notSteerable = 0,
+    noTrack = 1, aiActive = 1,
+}
 
 ---------------------------------------------------------------------------
 -- guidance.xml from the bridge
@@ -77,6 +89,8 @@ function G5LinkSteer:loadGuidance(path)
         g.skip = math.max(0, xml:getInt("guidance.turn#skip", 0))
         g.dir = xml:getString("guidance.turn#dir", "auto")            -- auto | left | right
         g.radius = xml:getFloat("guidance.turn#radius", 0)              -- 0 = from the machine
+        g.steerOn = xml:getString("guidance#steerOn", "true") ~= "false"   -- Steer ON/OFF on the G5 (older files: on)
+        g.sens = clamp(xml:getFloat("guidance#sens", G5LinkSteer.SENS_DEFAULT) or G5LinkSteer.SENS_DEFAULT, 50, 200)
         local ok = finite(g.ax) and finite(g.az) and finite(g.h) and finite(g.spacing) and g.spacing > 0.5
         g.valid = ok
         local old = self.guidance
@@ -128,6 +142,50 @@ function G5LinkSteer:ready(vehicle)
     return true
 end
 
+-- AutoTrac stage (see STAGE_OF_REASON) and the reason it is not higher
+function G5LinkSteer:stage(vehicle)
+    if self.engaged and self.vehicle == vehicle then return 4 end
+    local ok, reason = self:ready(vehicle)
+    if not ok then return G5LinkSteer.STAGE_OF_REASON[reason] or 1, reason end
+    if not self.guidance.steerOn then return 2, "steerOff" end
+    return 3
+end
+
+-- Heading off the track (degrees, 0..90: either direction of travel) and the distance to the nearest pass
+function G5LinkSteer:approach(vehicle, p)
+    local g = self.guidance
+    if not g.valid or p == nil then return nil end
+    local fx, fz = fwdOf(g.h)
+    local cosH = math.abs(clamp(p.dx * fx + p.dz * fz, -1, 1))
+    local k = self:nearestPass(p)
+    local ox, oz, _, _, nx, nz = self:line(k)
+    return math.deg(math.acos(cosH)), (p.x - ox) * nx + (p.z - oz) * nz, k
+end
+
+-- Each AutoTrac requirement (the G5's AutoTrac Diagnostics): name -> true/false
+function G5LinkSteer:diagnostics(vehicle)
+    local d = {}
+    local rtkOk, need = true, nil
+    if G5LinkRtk ~= nil and G5LinkRtk.data ~= nil then
+        local ok, allowed, n = pcall(G5LinkRtk.allows, G5LinkRtk, vehicle, "autotrac")
+        if ok and allowed == false then rtkOk, need = false, n end
+    end
+    d.activation = rtkOk or need ~= "activation"
+    d.receiver = rtkOk or need == "activation"
+    d.steerable = vehicle ~= nil and type(vehicle.updateVehiclePhysics) == "function"
+    d.track = self.guidance.valid == true
+    d.noAi = vehicle ~= nil and call(vehicle, "getIsAIActive") ~= true
+    d.steerOn = self.guidance.steerOn == true
+    local kmh = vehicle and call(vehicle, "getLastSpeed") or 0
+    d.speed = finite(kmh) and kmh >= G5LinkSteer.MIN_SPEED
+    local p = vehicle and self:pose(vehicle)
+    local dh, xte = self:approach(vehicle, p)
+    d.heading = dh ~= nil and dh <= G5LinkSteer.MAX_HEADING
+    d.onTrack = xte ~= nil and math.abs(xte) <= self.guidance.spacing * G5LinkSteer.ENGAGE_XTE
+    return d
+end
+G5LinkSteer.DIAG_ORDER = { "activation", "receiver", "steerable", "track", "noAi", "steerOn", "speed", "heading", "onTrack" }
+
 -- Line k of the track: origin point and unit vectors (believed frame)
 function G5LinkSteer:line(k)
     local g = self.guidance
@@ -160,6 +218,11 @@ G5LinkSteer.REASON_TEXT = {
     needsReceiver = "G5Link AutoTrac: this machine has no GPS receiver",
     notSteerable = "G5Link AutoTrac: this machine cannot be steered",
     lost = "G5Link AutoTrac: too far off the track",
+    steerOff = "G5Link AutoTrac: turn Steer ON on the G5 Guidance page",
+    speed = "G5Link AutoTrac: drive faster than 0.5 km/h",
+    slow = "G5Link AutoTrac: speed under 0.5 km/h, disengaged",
+    reverse = "G5Link AutoTrac: reversing too long, disengaged",
+    offTrack = "G5Link AutoTrac: drive within 40% of the track spacing of a pass",
     heading = "G5Link AutoTrac: heading too far off the track",
     manual = "G5Link AutoTrac: steering by hand, disengaged",
 }
@@ -203,6 +266,19 @@ function G5LinkSteer:engage(vehicle)
         warn(G5LinkSteer.REASON_TEXT[reason] or ("G5Link AutoTrac: " .. tostring(reason)))
         return false, reason
     end
+    -- Deere's engage rules: Steer ON, moving, heading within 80 degrees, within 40 % of the spacing of a pass
+    local why
+    local kmh = call(vehicle, "getLastSpeed") or 0
+    local dh, xte = self:approach(vehicle, self:pose(vehicle))
+    if not self.guidance.steerOn then why = "steerOff"
+    elseif not (finite(kmh) and kmh >= G5LinkSteer.MIN_SPEED) then why = "speed"
+    elseif dh == nil or dh > G5LinkSteer.MAX_HEADING then why = "heading"
+    elseif math.abs(xte) > self.guidance.spacing * G5LinkSteer.ENGAGE_XTE then why = "offTrack" end
+    if why ~= nil then
+        self.reason = why
+        warn(G5LinkSteer.REASON_TEXT[why])
+        return false, why
+    end
     -- the base game's steering assist would fight us
     if call(vehicle, "getAIAutomaticSteeringState") == (AIAutomaticSteering and AIAutomaticSteering.STATE and AIAutomaticSteering.STATE.ACTIVE) then
         call(vehicle, "setAIAutomaticSteeringEnabled", false)
@@ -213,6 +289,7 @@ function G5LinkSteer:engage(vehicle)
     self.value = vehicle.rotatedTime or 0
     self.engagedAt = g_time or 0
     self.lastInput = 0
+    self.slowMs, self.reverseMs = 0, 0
     return true
 end
 
@@ -234,7 +311,7 @@ end
 
 -- the Resume key (input action G5LINK_RESUME), bound in the game's controls like any key or button
 function G5LinkSteer.actionResume(vehicle, actionName, inputValue, callbackState, isAnalog)
-    G5LinkSteer:toggle(vehicle)
+    G5LinkSteer:toggle(vehicle)       -- engage() checks Steer ON and the engage rules, and says why not
 end
 
 ---------------------------------------------------------------------------
@@ -262,7 +339,9 @@ end
 
 function G5LinkSteer:lookAhead(vehicle)
     local kmh = call(vehicle, "getLastSpeed") or 0
-    return clamp(kmh / 3.6 * 1.8, 4, 12)
+    -- Steering Sensitivity: higher looks closer and steers harder (70 = the base look-ahead)
+    local sens = self.guidance.sens or G5LinkSteer.SENS_DEFAULT
+    return clamp(kmh / 3.6 * 1.8, 4, 12) * G5LinkSteer.SENS_DEFAULT / sens
 end
 
 -- Turning radius of the machine: the setting, the machine's own value, or the default.
@@ -379,6 +458,13 @@ function G5LinkSteer:update(vehicle, dt, host)
     if vehicle ~= self.vehicle then self:disengage("off") return end
     local ok, reason = self:ready(vehicle)
     if not ok then self:disengage(reason) return end
+    if not self.guidance.steerOn then self:disengage("steerOff") return end
+    -- Deere: lets go below 0.5 km/h (here after 3 s, so a stop in a turn does not) and after 45 s in reverse
+    local kmh = call(vehicle, "getLastSpeed") or 0
+    self.slowMs = (finite(kmh) and kmh < G5LinkSteer.MIN_SPEED) and self.slowMs + dt or 0
+    if self.slowMs > G5LinkSteer.SLOW_MS then self:disengage("slow") return end
+    self.reverseMs = (vehicle.movingDirection or 1) < 0 and self.reverseMs + dt or 0
+    if self.reverseMs > G5LinkSteer.REVERSE_MS then self:disengage("reverse") return end
     local p = self:pose(vehicle)
     if p == nil then return end
     local g = self.guidance
@@ -438,6 +524,19 @@ function G5LinkSteer:write(xml, vehicle)
     xml:setBool(k .. "#turnOn", self.guidance.turnOn == true)
     xml:setInt(k .. "#turns", self.turns)
     if self.mode == "turn" and self.nextK ~= nil then xml:setInt(k .. "#nextPass", self.nextK) end
+    local stage, why = self:stage(vehicle)
+    xml:setInt(k .. "#stage", stage)
+    if why == "steerOff" and state == "ready" then xml:setString(k .. "#reason", why) end
+    xml:setBool(k .. "#steerOn", self.guidance.steerOn == true)
+    xml:setInt(k .. "#sens", math.floor((self.guidance.sens or G5LinkSteer.SENS_DEFAULT) + 0.5))
+    if vehicle ~= nil then
+        local ok, d = pcall(self.diagnostics, self, vehicle)
+        if ok and d ~= nil then
+            local t = {}
+            for _, name in ipairs(G5LinkSteer.DIAG_ORDER) do table.insert(t, name .. "=" .. (d[name] and "1" or "0")) end
+            xml:setString(k .. "#diag", table.concat(t, ";"))
+        end
+    end
 end
 
 -- "autotrac" command from the display: value 1 engage, 0 disengage, else toggle

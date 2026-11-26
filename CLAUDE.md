@@ -56,7 +56,7 @@ python3 G5Link/tools/make_icon.py                   # regenerate mod icon.dds
 - `G5Link/bridge/`: g5link-bridge.js, coverage.js (map recording), fields.js (Ops Center fields and records), headland.js (headland files for the mod),
   start-bridge.bat, start-demo.bat
 - `G5Link/app/`: index.html, style.css, app.js (pages, windows, commands, units), layers.js (map layers, legend,
-  Select Map View), boundary.js (Boundary app), guidance.js (Guidance page and map drawing), headland.js (Headland Management), graincart.js (Grain Cart remote), starfire.js (StarFire / RTK), rate.js (Rate Controller), starfire.js (StarFire / RTK), shared.js (settings,
+  Select Map View), boundary.js (Boundary app), guidance.js (Guidance page and map drawing), autotrac.js (AutoTrac window, status pie), keys.js (shortcut key registry, Layout Manager), headland.js (Headland Management), graincart.js (Grain Cart remote), starfire.js (StarFire / RTK), rate.js (Rate Controller), starfire.js (StarFire / RTK), shared.js (settings,
   units; also used by the Ops Center), ops/ (Ops Center web app at /ops/)
 - `G5Link/tools/`: package.py, make_icon.py
 - `research/`: Deere help-center study notes, page index, simulator exploration log

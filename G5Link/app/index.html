@@ -46,6 +46,10 @@
     <symbol id="i-graincart" viewBox="0 0 48 48"><path d="M8 14h28l-3 16H11z" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linejoin="round"/><circle cx="16" cy="36" r="4" fill="none" stroke="currentColor" stroke-width="3"/><circle cx="29" cy="36" r="4" fill="none" stroke="currentColor" stroke-width="3"/><path d="M36 16l6-8M38 8h5v5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="i-wheel" viewBox="0 0 48 48"><circle cx="24" cy="24" r="17" fill="none" stroke="currentColor" stroke-width="4"/><circle cx="24" cy="24" r="4.5" fill="currentColor"/><path d="M8 21c5-2 10-3 16-3s11 1 16 3M24 28v13" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"/></symbol>
     <symbol id="i-rate" viewBox="0 0 48 48"><path d="M8 34h32M12 34V24M20 34V16M28 34V20M36 34V10" stroke="currentColor" stroke-width="4" stroke-linecap="round"/><path d="M10 40h28" stroke="currentColor" stroke-width="3"/></symbol>
+    <symbol id="i-guidance" viewBox="0 0 48 48"><path d="M14 42 L20 6 M34 42 L28 6" fill="none" stroke="currentColor" stroke-width="3"/><path d="M24 40v-6M24 28v-6M24 16v-6" stroke="currentColor" stroke-width="4" stroke-linecap="round"/></symbol>
+    <symbol id="i-swap" viewBox="0 0 48 48"><path d="M10 6v36M38 6v36" fill="none" stroke="currentColor" stroke-width="3"/><path d="M15 24h18M27 17l7 7-7 7" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-help" viewBox="0 0 48 48"><circle cx="24" cy="24" r="19" fill="none" stroke="currentColor" stroke-width="3.5"/><path d="M18 19a6 6 0 1 1 9 5c-2 1-3 2-3 5" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"/><circle cx="24" cy="35" r="2.6" fill="currentColor"/></symbol>
+    <symbol id="i-layout" viewBox="0 0 48 48"><rect x="5" y="8" width="38" height="32" rx="2" fill="none" stroke="currentColor" stroke-width="3"/><path d="M5 31h38M15 31v9M24 31v9M33 31v9" stroke="currentColor" stroke-width="3"/></symbol>
     <symbol id="i-gear" viewBox="0 0 48 48"><circle cx="24" cy="24" r="8" fill="none" stroke="currentColor" stroke-width="3.4"/><path d="M24 4v7M24 37v7M4 24h7M37 24h7M10 10l5 5M33 33l5 5M38 10l-5 5M15 33l-5 5" stroke="currentColor" stroke-width="4" stroke-linecap="round"/></symbol>
   </defs>
 </svg>
@@ -110,7 +114,7 @@
             </div>
             <div class="map-rec" id="mapRec" hidden></div>
             <div class="map-hl" id="mapHl" hidden></div>
-            <button class="map-at" id="mapAt" hidden aria-label="AutoTrac"><svg><use href="#i-wheel"/></svg><span><b>AutoTrac</b><em id="mapAtTxt">---</em></span></button>
+            <button class="map-at" id="mapAt" hidden aria-label="AutoTrac"><i class="map-at-pie" id="mapAtPie"></i><span><b>AutoTrac</b><em id="mapAtTxt">---</em></span></button>
             <div class="map-ai" id="mapAi" hidden><b id="mapAiName">---</b><span id="mapAiTxt"></span></div>
           </div>
           <div class="side">
@@ -425,14 +429,7 @@
 
     <!-- Shortcut bar -->
     <footer class="shortcuts">
-      <button class="sk" data-cmd="motorToggle" id="skMotor"><svg><use href="#i-engine"/></svg><b>ENGINE</b><span id="skMotorState">--</span></button>
-      <button class="sk" data-cmd="cruiseToggle" id="skCruise"><svg><use href="#i-cruise"/></svg><b>CRUISE</b><span id="skCruiseState">--</span></button>
-      <button class="sk" data-cmd="lowerAll" id="skLower"><svg><use href="#i-hitch"/></svg><b>LOWER/RAISE</b><span id="skLowerState">--</span></button>
-      <button class="sk" data-cmd="turnOnAll" id="skTurnOn"><svg><use href="#i-pto"/></svg><b>TURN ON</b><span id="skTurnOnState">--</span></button>
-      <button class="sk" id="skWork"><svg><use href="#i-work"/></svg><b>WORK</b><span id="skWorkState">--</span></button>
-      <button class="sk" id="skSetup"><svg><use href="#i-seed"/></svg><b>SETUP</b><span id="skSetupState">--</span></button>
-      <div class="sk-ctx" id="skCtx"></div>
-      <button class="sk" id="skPageSet"><svg><use href="#i-gear"/></svg><b>DISPLAY</b><span class="nostrip"></span></button>
+      <div class="sk-bar" id="skBar"></div>
       <button class="sk menu" id="menuBtn"><svg><use href="#i-menu"/></svg><b>MENU</b><span class="nostrip"></span></button>
     </footer>
 
@@ -458,6 +455,7 @@
             <button class="app" id="appWorkSetup"><span class="app-ico"><svg><use href="#i-seed"/></svg></span><b>Work Setup</b></button>
             <button class="app" id="appStarfire"><span class="app-ico"><svg><use href="#i-sat"/></svg></span><b>StarFire</b></button>
             <button class="app" id="appGrainCart"><span class="app-ico"><svg><use href="#i-graincart"/></svg></span><b>Grain Cart</b></button>
+            <button class="app" id="appLayout"><span class="app-ico"><svg><use href="#i-layout"/></svg></span><b>Layout Manager</b></button>
             <button class="app" id="appHeadland"><span class="app-ico"><svg><use href="#i-headland"/></svg></span><b>Headland</b></button>
             <button class="app" id="appBoundary"><span class="app-ico"><svg><use href="#i-layers"/></svg></span><b>Boundary</b></button>
             <a class="app" href="/ops/"><span class="app-ico"><svg><use href="#i-sat"/></svg></span><b>Ops Center</b></a>
@@ -530,6 +528,24 @@
       <div class="window hl-win">
         <div class="win-head"><b>Headland Management</b><button class="win-close" data-close="headlandWin" aria-label="Close"><svg><use href="#i-x"/></svg></button></div>
         <div class="win-body" id="hlBody"></div>
+      </div>
+    </div>
+
+    <!-- App window: Layout Manager (shortcut bars) and shortcut keys help -->
+    <div class="window-wrap" id="keysWin" hidden>
+      <div class="window km-win">
+        <div class="win-head"><b id="kmTitle">Layout Manager</b><button class="win-close" data-close="keysWin" aria-label="Close"><svg><use href="#i-x"/></svg></button></div>
+        <div class="win-body" id="kmBody"></div>
+        <div class="win-foot" id="kmFoot"><button class="g5btn" id="kmDelete">Delete</button><button class="g5btn" id="kmRename">Rename</button><button class="g5btn" id="kmDup">Duplicate</button><button class="g5btn" id="kmNew">New Bar</button></div>
+      </div>
+    </div>
+
+    <!-- App window: AutoTrac (status pie, Steer ON, diagnostics, sensitivity, spacing) -->
+    <div class="window-wrap" id="autotracWin" hidden>
+      <div class="window at-win">
+        <div class="win-head"><b>AutoTrac</b><button class="win-close" data-close="autotracWin" aria-label="Close"><svg><use href="#i-x"/></svg></button></div>
+        <div class="win-body" id="atBody"></div>
+        <div class="win-foot"><button class="g5btn" id="atSwap">Swap Track</button><button class="g5btn" id="atResume">Resume</button></div>
       </div>
     </div>
 
@@ -615,6 +631,8 @@
 <script src="graincart.js"></script>
 <script src="starfire.js"></script>
 <script src="rate.js"></script>
+<script src="autotrac.js"></script>
 <script src="guidance.js"></script>
+<script src="keys.js"></script>
 </body>
 </html>

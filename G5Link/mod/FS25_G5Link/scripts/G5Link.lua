@@ -16,7 +16,7 @@
 -- one odd vehicle can never break the game loop.
 
 G5Link = {}
-G5Link.VERSION = "0.5.0"
+G5Link.VERSION = "0.5.1"
 G5Link.WRITE_INTERVAL = 250   -- ms between telemetry writes (4 Hz)
 G5Link.CMD_INTERVAL = 250     -- ms between command file polls
 G5Link.MAX_IMPLEMENTS = 8
@@ -823,8 +823,11 @@ function G5Link:writeFields()
         return  -- empty during loading; retried on the next check
     end
     local farmId = self:getFarmId()
-    local out = {farmId = farmId, fields = {}}
-    local keyParts = {tostring(farmId)}
+    -- farm name for the Ops Center's Client > Farm > Field naming (Farm.name; unverified field, guarded)
+    local farm = call(g_farmManager, "getFarmById", farmId)
+    local farmName = type(farm) == "table" and type(farm.name) == "string" and farm.name or nil
+    local out = {farmId = farmId, farmName = farmName, fields = {}}
+    local keyParts = {tostring(farmId), tostring(farmName)}
     for _, field in ipairs(fm.fields) do
         local id = field.fieldId
         if type(id) == "number" then

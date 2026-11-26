@@ -149,7 +149,12 @@ from `FieldPathPrivateIntegration.lua`:
 - Expand from coverage: field interior plus covered cells outside other fields, closed by 2 cells, flood-filled from
   the field, outer edge traced and simplified (1.2 m). Saving is always a separate, explicit step.
 - Reference: `research/deere-ops-center-notes.md` (structure of the real Operations Center; captures local only).
-- **Not yet checked in game:** `fields.json` content on real maps (polygon node order, owner values), and equipment.
+- Boundary sources: game, driven, drawn (Ops map), coverage. Fields are colored by last work type (`lastWork`, sampled
+  from every 10th swath, refreshed at most every 10 s while working, at once after a boundary change).
+- Client name is an Ops setting; the farm name is read from `g_farmManager:getFarmById(farmId).name` (the `name`
+  field is not confirmed in the LUADOC; guarded, falls back to "My Farm").
+- **Not yet checked in game:** `fields.json` content on real maps (polygon node order, owner values), the farm name,
+  and equipment.
 
 ## Design reference (how the look was matched)
 

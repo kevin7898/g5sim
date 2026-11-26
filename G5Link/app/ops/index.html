@@ -5,46 +5,69 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="G5Link Ops">
-<title>G5Link Ops Center</title>
+<title>G5Link Operations Center</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="ops.css">
 </head>
 <body>
 <header class="top">
-  <b class="brand">G5Link <span>Ops Center</span></b>
-  <span class="save" id="saveName">---</span>
+  <b class="brand"><span class="logo">G5</span>Link <i></i><span class="product">Operations Center</span></b>
   <span class="link" id="linkState">---</span>
-  <a class="to-display" href="/">G5 Display</a>
+  <span class="org" id="orgName">---</span>
 </header>
 
-<nav class="tabs" id="tabs">
-  <button data-tab="fields" class="on">Fields</button>
-  <button data-tab="work">Work</button>
-  <button data-tab="equipment">Equipment</button>
-  <button data-tab="settings">Settings</button>
+<nav class="nav" id="nav">
+  <button data-page="map" class="on"><svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6a2.5 2.5 0 0 1 0 5.5z"/></svg>Map</button>
+  <button data-page="land"><svg viewBox="0 0 24 24"><path d="M3 5l6-2 6 2 6-2v16l-6 2-6-2-6 2zM9 5v14M15 7v14" fill="none" stroke="currentColor" stroke-width="2"/></svg>Land</button>
+  <button data-page="analyze"><svg viewBox="0 0 24 24"><path d="M4 20V10h3v10zm6 0V4h3v16zm6 0v-7h3v7z"/></svg>Analyze</button>
+  <button data-page="equipment"><svg viewBox="0 0 24 24"><path d="M5 17a3 3 0 1 0 6 0 3 3 0 0 0-6 0zm11 1a2 2 0 1 0 4 0 2 2 0 0 0-4 0zM4 14V9h7l2-4h5v4h2v6h-2.5M11 17h5" fill="none" stroke="currentColor" stroke-width="2"/></svg>Equipment</button>
+  <button data-page="settings"><svg viewBox="0 0 24 24"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm9 4l-2.2-.7-.5-1.3 1-2.1-1.4-1.4-2.1 1-1.3-.5L13.8 3h-2l-.7 2.2-1.3.5-2.1-1L6.3 6.1l1 2.1-.5 1.3L4.6 10v2l2.2.7.5 1.3-1 2.1 1.4 1.4 2.1-1 1.3.5.7 2.2h2l.7-2.2 1.3-.5 2.1 1 1.4-1.4-1-2.1.5-1.3L21 12z" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>Settings</button>
+  <span class="save" id="saveName">---</span>
+  <a class="to-display" href="/">G5 Display</a>
 </nav>
 
-<main class="main">
+<main class="main" id="main">
   <section class="panel" id="panel">
-    <div class="view" id="view-fields">
-      <div class="panel-head"><input id="fieldSearch" type="search" placeholder="Search fields"><span id="fieldCount"></span></div>
-      <div class="list" id="fieldList"></div>
+    <!-- Map page: Fields / Equipment -->
+    <div class="view" id="view-map">
+      <div class="panel-title"><h1>Map</h1></div>
+      <div class="subtabs" id="mapTabs"><button data-sub="fields" class="on">Fields</button><button data-sub="equipment">Equipment</button></div>
+      <div class="panel-head"><input id="mapSearch" type="search" placeholder="Search"></div>
+      <div class="chips" id="mapChips"></div>
+      <div class="list" id="mapList"></div>
     </div>
+    <!-- Land page: Client > Farm > Field -->
+    <div class="view" id="view-land" hidden>
+      <div class="panel-title"><h1>Land</h1>
+        <div class="add-wrap"><button class="btn primary" id="landAdd">+ Add ▾</button>
+          <div class="menu" id="landAddMenu" hidden>
+            <button data-add="draw"><b>From Map</b><span>Draw a new field on the map</span></button>
+            <button data-add="coverage"><b>From a previous operation</b><span>Create a field from recorded coverage</span></button>
+            <button data-add="drive"><b>Drive the edge</b><span>Use the Boundary app on the G5 display</span></button>
+          </div></div></div>
+      <div class="subtabs"><button class="on">Clients and Farms</button></div>
+      <div class="list" id="landList"></div>
+    </div>
+    <!-- Field page -->
     <div class="view" id="view-field" hidden>
-      <div class="panel-head"><button class="back" id="fieldBack">‹ Fields</button><button class="small" id="fieldRename">Rename</button></div>
+      <div class="panel-title crumbs"><button class="back" id="fieldBack">Land</button><span>›</span><b id="fieldCrumb">---</b></div>
       <div class="detail" id="fieldDetail"></div>
     </div>
-    <div class="view" id="view-work" hidden>
-      <div class="panel-head"><b>Work records</b><span id="workCount"></span></div>
+    <!-- Analyze: work records across fields -->
+    <div class="view" id="view-analyze" hidden>
+      <div class="panel-title"><h1>Work Analyzer</h1></div>
+      <div class="chips" id="workChips"></div>
       <div class="list" id="workList"></div>
     </div>
+    <!-- Equipment -->
     <div class="view" id="view-equipment" hidden>
-      <div class="panel-head"><b>Equipment</b><span id="equipCount"></span></div>
+      <div class="panel-title"><h1>Equipment</h1></div>
       <div class="list" id="equipList"></div>
     </div>
+    <!-- Settings -->
     <div class="view" id="view-settings" hidden>
-      <div class="panel-head"><b>Settings</b></div>
+      <div class="panel-title"><h1>Settings</h1></div>
       <div class="detail" id="settingsBody"></div>
     </div>
   </section>
@@ -52,15 +75,20 @@
   <section class="mapwrap">
     <canvas id="map"></canvas>
     <div class="map-tools">
-      <button id="zoomIn" aria-label="Zoom in">+</button>
-      <button id="zoomOut" aria-label="Zoom out">−</button>
-      <button id="zoomFit" aria-label="Fit map">⤢</button>
+      <button id="zoomFit" aria-label="Fit map" title="Fit"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2.2"/></svg></button>
+      <button id="zoomIn" aria-label="Zoom in" title="Zoom in"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 8v8M8 12h8" stroke="currentColor" stroke-width="2"/></svg></button>
+      <button id="zoomOut" aria-label="Zoom out" title="Zoom out"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 12h8" stroke="currentColor" stroke-width="2"/></svg></button>
+      <button id="locate" aria-label="Go to the machine in use" title="Machine in use"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4" stroke="currentColor" stroke-width="2"/></svg></button>
     </div>
     <div class="map-layer" id="mapLayer" hidden>
       <select id="layerOp" aria-label="Operation"></select>
       <select id="layerKey" aria-label="Layer"></select>
     </div>
     <div class="map-legend" id="mapLegend" hidden></div>
+    <div class="map-draw" id="mapDraw" hidden>
+      <b id="drawTitle">Draw boundary</b><span id="drawInfo">Tap the corners of the field</span>
+      <button class="btn" id="drawUndo">Undo</button><button class="btn" id="drawCancel">Cancel</button><button class="btn primary" id="drawDone">Finish</button>
+    </div>
     <div class="map-hint" id="mapHint" hidden></div>
   </section>
 </main>

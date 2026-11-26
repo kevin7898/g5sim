@@ -3,7 +3,8 @@
 //   game     imported from the map's field polygons (fields.json from the mod), optional per save
 //   driven   recorded by driving the edge (Boundary app on the display)
 //   coverage traced from recorded coverage, e.g. after plowing or cultivating new ground
-// The newest driven/coverage boundary wins over game boundaries unless the operator picks a version.
+//   drawn    drawn on the Ops Center map
+// The newest driven/coverage/drawn boundary wins over game boundaries unless the operator picks a version.
 // Work records are computed from coverage (coverage.js) against the active boundaries when asked,
 // so correcting a boundary also corrects the records. Stored in <dir>/maps/<save>/ops-fields.json.
 // Zero dependencies.
@@ -130,6 +131,7 @@ class FieldStore {
     this.saves = new Map();
     this.game = new Map();                             // save -> latest fields.json from the mod
     this.version = 0;
+    this.lastWorkMs = 10000;
   }
   file(save) { return path.join(this.dir, 'maps', slug(save), 'ops-fields.json'); }
   db(save) {
@@ -177,6 +179,7 @@ class FieldStore {
   setSettings(save, s) {
     const d = this.db(save);
     if (typeof s.importGame === 'boolean') d.settings.importGame = s.importGame;
+    if (typeof s.client === 'string' && s.client.trim()) d.settings.client = s.client.trim().slice(0, 60);
     this.write(save);
     if (d.settings.importGame && this.game.has(save)) this.importGame(save, this.game.get(save));
     return d.settings;
@@ -195,7 +198,7 @@ class FieldStore {
   }
   addBoundary(save, { fieldId = null, name = null, source, polygon, note = null, newField = false }) {
     if (!Array.isArray(polygon) || polygon.length < 3) throw new Error('a boundary needs at least 3 points');
-    if (!['driven', 'coverage', 'game'].includes(source)) throw new Error('unknown boundary source');
+    if (!['driven', 'coverage', 'drawn', 'game'].includes(source)) throw new Error('unknown boundary source');
     const d = this.db(save);
     const poly = round1(polygon);
     let f = fieldId ? d.fields[String(fieldId)] : null;
@@ -310,6 +313,30 @@ class FieldStore {
       }
     }
     return out.sort((a, b) => (b.lastDay ?? -1) - (a.lastDay ?? -1));
+  }
+
+  // Latest work type per field (for coloring fields like "Last Work Type"), cheap and cached.
+  lastWork(save) {
+    const ops = this.coverage ? [...this.coverage.ops(save).values()] : [];
+    const key = save + '|' + this.version + '|' + ops.map(o => o.id + ':' + o.seq).join(',');
+    const now = Date.now();
+    if (this.lwCache && this.lwCache.key === key) return this.lwCache.out;
+    // new coverage refreshes at most every lastWorkMs; a boundary change (version) refreshes at once
+    if (this.lwCache && this.lwCache.save === save && this.lwCache.version === this.version && now - this.lwCache.at < this.lastWorkMs) return this.lwCache.out;
+    const fields = this.list(save), out = {};
+    for (const op of ops) {
+      // sample every 10th frame: enough to know which fields an operation touched and when
+      for (let i = 0; i < op.frames.length; i += 10) {
+        const fr = op.frames[i], q = fr.q[0];
+        if (!q) continue;
+        const f = this.fieldAt(save, (q[0] + q[4]) / 2, (q[1] + q[5]) / 2, fields);
+        if (!f) continue;
+        const day = fr.d ?? -1, cur = out[f.id];
+        if (!cur || day > cur.day || (day === cur.day && fr.s > cur.s && op.id === cur.op)) out[f.id] = { kind: op.meta.kind, title: op.meta.title, op: op.id, day, s: fr.s };
+      }
+    }
+    this.lwCache = { key, save, version: this.version, at: now, out };
+    return out;
   }
 
   // ---------------------------------------------------------------- boundary from coverage

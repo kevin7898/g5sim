@@ -41,6 +41,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'g5fields-'));
 try {
   const cov = new CoverageStore({ dir: tmp, persist: true });
   const store = new FieldStore({ dir: tmp, persist: true, coverage: cov });
+  store.lastWorkMs = 0;                             // no throttling in the test
 
   // --- game import
   store.importGame(SAVE, GAME);
@@ -67,6 +68,8 @@ try {
   const r2b = store.addBoundary(SAVE, { source: 'driven', polygon: rect(10, 10, 60, 60), newField: true });
   check(r2b.field === 'u2', 'an explicit new field is not merged into the game field it lies in');
   store.removeBoundary(SAVE, 'u2', 1);
+  const lw0 = store.lastWork(SAVE);
+  check(Object.keys(lw0).length === 0, 'no last work before any coverage');
   store.setActive(SAVE, '1', 1);
   check(store.list(SAVE).find(f => f.id === '1').source === 'game', 'operator can switch back to the game version');
   store.setActive(SAVE, '1', 2);
@@ -81,6 +84,10 @@ try {
   const all = store.records(SAVE);
   const outside = all.find(r => r.field === null);
   check(outside && outside.swathHa > 0.25, 'work outside every field is listed as Outside fields');
+
+  const lw = store.lastWork(SAVE);
+  check(lw['1'] && lw['1'].kind === 'seeding' && lw['1'].day === 41, 'last work type of field 1 is seeding on day 41');
+  check(!lw['2'], 'field 2 has no work');
 
   // --- expand field 1 from coverage
   const prop = store.fromCoverage(SAVE, { fieldId: '1' });
@@ -100,11 +107,17 @@ try {
   check(newProp && newProp.field === null, 'proposal is for a new field');
   near(newProp && polygonArea(newProp.polygon) / 10000, 60 * 48.19 / 10000, 0.03, 'new field area');
 
+  const dr = store.addBoundary(SAVE, { fieldId: '2', source: 'drawn', polygon: rect(205, 5, 295, 95) });
+  check(dr.v === 2 && store.list(SAVE).find(f => f.id === '2').source === 'drawn', 'a drawn boundary becomes active');
+  store.setSettings(SAVE, { client: '  Test Client  ' });
+  check(store.db(SAVE).settings.client === 'Test Client', 'client name setting is trimmed and saved');
+
   // --- persistence
   cov.flush(Date.now(), true);
   const cov2 = new CoverageStore({ dir: tmp, persist: true });
   const store2 = new FieldStore({ dir: tmp, persist: true, coverage: cov2 });
   check(store2.list(SAVE).length === 3, 'fields reloaded');
+  check(store2.db(SAVE).settings.client === 'Test Client', 'settings reloaded');
   check(store2.field(SAVE, '1').boundaries.length === 3, 'boundary versions reloaded');
   near(store2.records(SAVE, '1')[0].coveredHa, 1.08 + 0.324, 0.05, 'records rebuilt after reload');
   store2.removeBoundary(SAVE, 'u1', 1);

@@ -558,7 +558,7 @@ function demoFields() {
   const h = DEMO_H * Math.PI / 180, f = { x: Math.sin(h), z: -Math.cos(h) }, r = { x: Math.cos(h), z: Math.sin(h) };
   const pt = (L, off) => [+(-120 + f.x * L + r.x * off).toFixed(1), +(340 + f.z * L + r.z * off).toFixed(1)];
   const edge = DEMO_W * 0.95 * 10 - DEMO_W / 2;      // ~ the first ten passes
-  return { farmId: 1, fields: [
+  return { farmId: 1, farmName: 'Demo Farm', fields: [
     { id: 23, name: 'Field 23', farmland: 23, owner: 1, polygon: [pt(-8, -DEMO_W / 2), pt(DEMO_LEN + 8, -DEMO_W / 2), pt(DEMO_LEN + 8, edge), pt(-8, edge)] },
     { id: 24, name: 'Field 24', farmland: 24, owner: 1, polygon: [pt(-8, -60), pt(DEMO_LEN + 8, -60), pt(DEMO_LEN + 8, -20), pt(-8, -20)] },
     { id: 25, name: 'Field 25', farmland: 25, owner: 0, polygon: [pt(DEMO_LEN + 60, 0), pt(DEMO_LEN + 260, 0), pt(DEMO_LEN + 260, 150), pt(DEMO_LEN + 60, 150)] },
@@ -652,7 +652,10 @@ const server = http.createServer((req, res) => {
     if (req.method === 'GET') {
       if (u.pathname === '/api/ops/summary') {
         const v = latest.vehicle;
-        return json(200, { save, farmId: gameFields ? gameFields.farmId : null, settings: store.db(save).settings, fields: store.list(save), version: store.version,
+        const lw = store.lastWork(save);
+        const fieldsOut = store.list(save).map(f => ({ ...f, lastWork: lw[f.id] || null }));
+        return json(200, { save, farmId: gameFields ? gameFields.farmId : null, farmName: gameFields ? gameFields.farmName || null : null,
+          settings: store.db(save).settings, fields: fieldsOut, version: store.version,
           equipment: equipment.vehicles, equipmentAge: equipmentAt ? Date.now() - equipmentAt : null,
           here: v && typeof v.x === 'number' ? { x: v.x, z: v.z, heading: v.heading, name: v.name } : null,
           game: latest.game || {}, link: latest.link, maps: mapStore().list().ops });

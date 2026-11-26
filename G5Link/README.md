@@ -46,6 +46,10 @@ Hazard, Lights. They call the same game functions as the keyboard.
 and Harvest Automation for a combine (instead of Tractor), Tillage with a tillage tool, Planter when a Realistic Seeder implement is attached, Implement
 Details and Work Monitor with an implement, Field when soil, ground or AI-driver data exists.
 
+**Every machine is recorded.** AI workers, Courseplay and AutoDrive machines and anything else of your farm that is
+working are mapped too (G5Link writes them to fleet.xml twice a second), so yield maps, work records and Harvest
+Profit include the fields you didn't drive yourself.
+
 **Map layers.** The bridge records coverage from each implement's real work areas (section by section) and
 saves it per savegame and operation in `modSettings/FS25_G5Link/maps/`. Tap the layers key on the map, or the
 layer chip, for **Select Map View**: pick the operation (Harvest · Wheat, Seeding · Corn, ...), the primary layer

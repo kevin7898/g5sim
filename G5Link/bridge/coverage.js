@@ -169,8 +169,10 @@ class CoverageStore {
     this.saves = new Map();      // save -> Map(opId -> Operation)
     this.save = null;
     this.current = null;         // op id being worked
-    this.track = new Map();      // implement key -> {runs, x, z}
-    this.pass = { id: 0, heading: null, working: false, op: null, x: null, z: null };
+    // per machine ('driven' = the player's, 'm:<uniqueId>' = AI workers and other machines from fleet.xml):
+    // {track: Map(implement key -> {runs}), pass: {id, heading, working, op, x, z}}
+    this.machines = new Map();
+    this.passSeq = 0;            // pass ids are unique across machines
     this.rates = new Map();      // implement key -> {level, area, rate}
     this.soil = null;
     this.lastFlush = 0;
@@ -200,8 +202,8 @@ class CoverageStore {
         try { rec = JSON.parse(line); } catch (e) { continue; }   // a torn last line after a crash
         if (rec.meta) { op = new Operation(rec.meta.id, rec.meta); m.set(op.id, op); continue; }
         if (op && Array.isArray(rec.q)) {
-          op.addFrame({ p: rec.p, h: rec.h, d: rec.d, q: rec.q, v: rec.v || {} }, false);
-          this.pass.id = Math.max(this.pass.id, (rec.p || 0) + 1);
+          op.addFrame(rec.m ? { p: rec.p, h: rec.h, d: rec.d, q: rec.q, v: rec.v || {}, m: rec.m } : { p: rec.p, h: rec.h, d: rec.d, q: rec.q, v: rec.v || {} }, false);
+          this.passSeq = Math.max(this.passSeq, (rec.p || 0) + 1);
         }
       }
     }
@@ -309,17 +311,24 @@ class CoverageStore {
     return v;
   }
 
-  onFrame(t) {
+  machine(id) {
+    let m = this.machines.get(id);
+    if (!m) { m = { track: new Map(), pass: { id: -1, heading: null, working: false, op: null, x: null, z: null } }; this.machines.set(id, m); }
+    return m;
+  }
+  // t: a telemetry frame (the driven machine) or a fleet frame of the same shape; machineId keeps their passes apart
+  onFrame(t, machineId = 'driven') {
     const now = Date.now();
+    const ms = this.machine(machineId);
     if (!t || t.state !== 'vehicle' || !t.vehicle || typeof t.vehicle.x !== 'number') {
-      this.track.clear();
-      this.pass.working = false;
-      this.current = null;
+      ms.track.clear();
+      ms.pass.working = false;
+      if (machineId === 'driven') this.current = null;
       this.flush(now);
       return;
     }
     const save = (t.game && t.game.save) || 'unsaved';
-    if (save !== this.save) { this.flush(now, true); this.save = save; this.track.clear(); }
+    if (save !== this.save) { this.flush(now, true); this.save = save; for (const m of this.machines.values()) m.track.clear(); }
     const sv = t.providers && t.providers['soil-fertilizer'] && t.providers['soil-fertilizer'].values;
     if (sv) this.soil = { n: sv.nitrogen && sv.nitrogen.value, p: sv.phosphorus && sv.phosphorus.value, k: sv.potassium && sv.potassium.value, ph: sv.pH };
 
@@ -328,10 +337,10 @@ class CoverageStore {
     let workedThisFrame = false;
     let currentOp = null;
     imps.forEach((impl, idx) => {
-      const key = idx + ':' + (impl.name || '');
+      const key = machineId + '|' + idx + ':' + (impl.name || '');
       const { runs, lat } = this.runsOf(impl, v);
-      const prev = this.track.get(key);
-      this.track.set(key, { runs });
+      const prev = ms.track.get(key);
+      ms.track.set(key, { runs });
       if (!runs.length) return;
       const opMeta = this.operationOf(t, impl);
       const opId = opMeta.kind + (opMeta.product ? ':' + slug(opMeta.product) : '') + (opMeta.variety ? ':' + slug(opMeta.variety) : '');
@@ -341,13 +350,14 @@ class CoverageStore {
 
       // new pass on a turn-around, a jump, or a change of operation
       const mid = runs[0].a;
-      if (!this.pass.working || this.pass.op !== opId || this.pass.heading === null
-        || angleDiff(v.heading || 0, this.pass.heading) > TURN_DEG
-        || (this.pass.x !== null && Math.hypot(mid[0] - this.pass.x, mid[1] - this.pass.z) > MAX_STEP * 2)) {
-        this.pass.id++;
-        this.pass.heading = v.heading || 0;
+      const pass = ms.pass;
+      if (!pass.working || pass.op !== opId || pass.heading === null || pass.id < 0
+        || angleDiff(v.heading || 0, pass.heading) > TURN_DEG
+        || (pass.x !== null && Math.hypot(mid[0] - pass.x, mid[1] - pass.z) > MAX_STEP * 2)) {
+        pass.id = this.passSeq++;
+        pass.heading = v.heading || 0;
       }
-      this.pass.working = true; this.pass.op = opId; this.pass.x = mid[0]; this.pass.z = mid[1];
+      pass.working = true; pass.op = opId; pass.x = mid[0]; pass.z = mid[1];
 
       const quads = [];
       for (const run of runs) {
@@ -368,10 +378,12 @@ class CoverageStore {
       const areaM2 = quads.reduce((s, q) => s + quadArea(q), 0);
       const op = this.getOp(opId, opMeta);
       const day = t.game && typeof t.game.day === 'number' ? t.game.day : undefined;
-      op.addFrame({ p: this.pass.id, h: Math.round(v.heading || 0), d: day, q: quads, v: this.valuesOf(t, impl, opMeta, key, areaM2) }, this.persist);
+      const frame = { p: ms.pass.id, h: Math.round(v.heading || 0), d: day, q: quads, v: this.valuesOf(t, impl, opMeta, key, areaM2) };
+      if (machineId !== 'driven') frame.m = machineId.replace(/^m:/, '');   // which machine (AI / fleet)
+      op.addFrame(frame, this.persist);
     });
-    if (!workedThisFrame) this.pass.working = false;
-    this.current = currentOp;
+    if (!workedThisFrame) ms.pass.working = false;
+    if (machineId === 'driven') this.current = currentOp;
     this.flush(now);
   }
 

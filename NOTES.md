@@ -291,6 +291,15 @@ from `FieldPathPrivateIntegration.lua`:
   multiplayer (live state is per machine on the server; clients get it through telemetry only), and real
   configuration names in vehicle mods with GPS options (Xerion US, MF 6480 realGPS, Buyable GPS).
 
+## Coverage for every machine (fleet.xml)
+
+- G5Link.lua writeFleet every 0.5 s: root motorized vehicles of the player's farm, not the driven one, that are AI
+  (getIsAIActive) or have an active main work area; up to 16. Same blocks as telemetry under fleet.vehicle(i)
+  (writeImplementsTo and writeCombine/writeRealisticHarvesting now take a base path). True positions.
+- Bridge fleetFromXml + pollFleet; each machine is recorded with CoverageStore.onFrame(frame, 'm:<uniqueId>'). The
+  recorder keeps track/pass state per machine (pass ids unique across machines, passSeq) and tags fleet frames with
+  m = uniqueId. Only the driven machine sets the display's current operation. latest.fleet lists working machines.
+
 ## AutoTrac and Turn Automation (scripts/Steering.lua)
 
 - Steering copies AIAutomaticSteering (LUADOC): look-ahead point in the AI root node frame, curvature 2x/(x^2+z^2),

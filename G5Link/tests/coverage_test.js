@@ -163,5 +163,24 @@ const eq = (a, b, label) => check(a === b, `${label}: expected ${b}, got ${a}`);
   eq(store.valuesOf(t, impl, op, 'k', 10).tillDepth, undefined, 'no depth without Realistic Tillage');
 }
 
+// Two machines at once (the driven one and an AI worker): separate passes, frames tagged with the machine
+{
+  const store = new CoverageStore({ persist: false });
+  let ai = 0;
+  for (let x = 0; x <= 60; x += 2) {
+    store.onFrame(frame({ x, z: 0, heading: 90 }));
+    store.onFrame(frame({ x, z: 100, heading: 90 }), 'm:vehAI');
+    ai++;
+  }
+  const op = store.ops().get(store.current);
+  check(op && op.frames.length >= 50, 'both machines recorded');
+  const passes = new Set(op.frames.map(f => f.p));
+  eq(passes.size, 2, 'one pass per machine, not one pass zig-zagging between them');
+  const tagged = op.frames.filter(f => f.m === 'vehAI').length;
+  check(tagged > 20 && tagged < op.frames.length, 'AI frames tagged with the machine id: ' + tagged);
+  store.onFrame(null, 'm:vehAI');
+  eq(store.current !== null, true, 'the AI stopping does not clear the driven operation');
+}
+
 console.log(`coverage checks: ${checks}, failures: ${failures}`);
 process.exit(failures ? 1 : 0);

@@ -45,7 +45,8 @@ const COURSE = path.join(DIR, 'course.json');       // Courseplay course + field
 const FIELDS = path.join(DIR, 'fields.json');       // map fields with polygons and owners (on change)
 const EQUIPMENT = path.join(DIR, 'equipment.json'); // the farm's machines (every 5 s)
 const ECONOMY = path.join(DIR, 'economy.json');
-const RTK = path.join(DIR, 'rtk.json');             // RTK package: receivers, subscriptions, bases, ledger (on change)     // prices, input costs, farm finances (every 30 s)
+const RTK = path.join(DIR, 'rtk.json');
+const FLEET = path.join(DIR, 'fleet.xml');         // other working machines (AI workers, Courseplay), every 0.5 s             // RTK package: receivers, subscriptions, bases, ledger (on change)     // prices, input costs, farm finances (every 30 s)
 const PROVIDER_STALE_MS = 6000;
 const APP_DIR = path.resolve(__dirname, '..', 'app');
 const STALE_MS = 3000; // no new seq for this long => game considered paused/closed
@@ -138,6 +139,50 @@ function telemetryFromXml(text) {
 function gnssFromNode(n) {
   if (!n) return null;
   return { ...n.attrs, gate: (child(n, 'gate') || {}).attrs || {}, result: (child(n, 'result') || {}).attrs || null };
+}
+
+// fleet.xml: every other working machine, each shaped like a telemetry frame so the recorder can map it.
+function fleetFromXml(text) {
+  const root = parseXml(text);
+  if (!root || root.name !== 'fleet') throw new Error('not a G5Link fleet file');
+  return { seq: root.attrs.seq, vehicles: children(root, 'vehicle').map(n => ({
+    id: String(n.attrs.id),
+    vehicle: { ...n.attrs },
+    implements: children(child(n, 'implements'), 'implement').map(m => ({
+      ...m.attrs,
+      areas: String(m.attrs.areas ?? '').split('').map(c => c === '1'),
+      fills: children(m, 'fill').map(f => f.attrs),
+      geometry: children(m, 'area').map(a => a.attrs),
+      seeder: seederFromNode(child(m, 'seeder')),
+      tillage: (child(m, 'tillage') || {}).attrs || null,
+    })),
+    combine: (child(n, 'combine') || {}).attrs || null,
+    rh: rhFromNode(child(n, 'rh')),
+  })) };
+}
+let fleetSeq = null, fleetSeen = new Set(), fleet = [];
+function pollFleet() {
+  let text;
+  try { text = fs.readFileSync(FLEET, 'utf8'); } catch (e) { return; }
+  let f;
+  try { f = fleetFromXml(text); } catch (e) { return; }   // half-written: next poll
+  if (f.seq === fleetSeq) return;
+  fleetSeq = f.seq;
+  takeFleet(f.vehicles);
+}
+// Records each working machine's coverage under its own id; machines that stopped are closed off.
+function takeFleet(vehicles) {
+  const seen = new Set();
+  for (const fv of vehicles) {
+    seen.add(fv.id);
+    const frame = { state: 'vehicle', game: latest.game, workSetup: latest.workSetup, providers: null, vehicle: fv.vehicle,
+      implements: fv.implements, combine: fv.combine, rh: fv.rh };
+    try { mapStore().onFrame(frame, 'm:' + fv.id); } catch (e) { console.warn('Fleet map recording failed:', e.message); }
+  }
+  for (const id of fleetSeen) if (!seen.has(id)) { try { mapStore().onFrame(null, 'm:' + id); } catch (e) { /* ignore */ } }
+  fleetSeen = seen;
+  fleet = vehicles.map(v => ({ id: v.id, name: v.vehicle.name, ai: v.vehicle.ai, x: v.vehicle.x, z: v.vehicle.z, field: v.vehicle.field,
+    working: v.implements.some(i => i.areas.some(Boolean)) }));
 }
 
 // Shortcut key state: lights, beacon, hazard, unloading pipe and fold (absent when the machine has none).
@@ -273,6 +318,7 @@ function setTelemetry(t) {
     try { headland().update(latest, fieldStore(), currentSave(), mapStore()); } catch (e) { console.warn('Headland update failed:', e.message); }
   }
   latest.headlandLink = headland().status;
+  latest.fleet = fleet;
   latest.rtkInfo = DEMO ? demoRtkSummary() : rtkState ? { day: rtkState.day, payer: rtkState.payer || null, gates: rtkState.gates, bases: (rtkState.bases || []).length } : null;
   if (DEMO) latest.headland = demoHeadland(latest);
   latest.map = mapStore().status();
@@ -1061,6 +1107,7 @@ if (DEMO) {
   setInterval(pollEquipment, 1000);
   setInterval(pollEconomy, 5000);
   setInterval(pollRtk, 1000);
+  setInterval(pollFleet, 500);
 }
 }
 
@@ -1071,4 +1118,4 @@ if (require.main === module) {
   process.on('SIGTERM', bye);
 }
 
-module.exports = { parseXml, telemetryFromXml };
+module.exports = { parseXml, telemetryFromXml, fleetFromXml };

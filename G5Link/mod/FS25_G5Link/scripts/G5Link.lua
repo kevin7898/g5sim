@@ -27,6 +27,8 @@ G5Link.FARM_INTERVAL = 5000      -- ms between equipment.json writes (Ops Center
 G5Link.FIELD_CHECK_INTERVAL = 10000  -- ms between field ownership checks (fields.json rewritten on change)
 G5Link.MAX_VEHICLES = 120
 G5Link.ECONOMY_INTERVAL = 30000  -- ms between economy.json writes (prices, farm finances)
+G5Link.FLEET_INTERVAL = 500      -- ms between fleet.xml writes (other working machines, for coverage maps)
+G5Link.MAX_FLEET = 16
 
 local function call(obj, fname, ...)
     if obj == nil then
@@ -76,6 +78,9 @@ function G5Link:loadMap(name)
     self.fieldsPath = self.dir .. "fields.json"
     self.farmTimer = 0
     self.economyPath = self.dir .. "economy.json"
+    self.fleetPath = self.dir .. "fleet.xml"
+    self.fleetTimer = 0
+    self.fleetSeq = 0
     self.economyTimer = G5Link.ECONOMY_INTERVAL - 3000   -- first write shortly after loading
     self.fieldTimer = G5Link.FIELD_CHECK_INTERVAL  -- first check on the first update (fields are empty during loadMap)
     self.fieldsKey = nil
@@ -193,6 +198,15 @@ function G5Link:update(dt)
     if self.writeTimer >= G5Link.WRITE_INTERVAL then
         self.writeTimer = 0
         self:writeTelemetry(vehicle)
+    end
+    self.fleetTimer = (self.fleetTimer or 0) + dt
+    if self.fleetTimer >= G5Link.FLEET_INTERVAL then
+        self.fleetTimer = 0
+        local ok, err = pcall(self.writeFleet, self, vehicle)
+        if not ok and not self.fleetErrorLogged then
+            self.fleetErrorLogged = true
+            print("G5Link: fleet write failed: " .. tostring(err))
+        end
     end
 
     self.cmdTimer = self.cmdTimer + dt
@@ -572,52 +586,7 @@ function G5Link:writeTelemetry(vehicle)
             end
         end
 
-        local implements = self:getImplements(vehicle)
-        for i, impl in ipairs(implements) do
-            local s = self:getImplementState(impl)
-            local ik = string.format("g5.implements.implement(%d)", i - 1)
-            xml:setString(ik .. "#name", s.name)
-            xml:setBool(ik .. "#canLower", s.canLower)
-            xml:setBool(ik .. "#lowered", s.lowered)
-            xml:setBool(ik .. "#canTurnOn", s.canTurnOn)
-            xml:setBool(ik .. "#turnedOn", s.turnedOn)
-            xml:setFloat(ik .. "#width", round(s.width, 2))
-            local bits = ""
-            for _, a in ipairs(s.areas) do
-                bits = bits .. (a and "1" or "0")
-            end
-            xml:setString(ik .. "#areas", bits)
-            for j, g in ipairs(s.geometry) do
-                if g then
-                    local ak = string.format("%s.area(%d)", ik, j - 1)
-                    xml:setInt(ak .. "#i", j - 1)
-                    local ox, oz = self.gnssOffset[1], self.gnssOffset[2]
-                    xml:setFloat(ak .. "#sx", round(g[1] + ox, 2))
-                    xml:setFloat(ak .. "#sz", round(g[2] + oz, 2))
-                    xml:setFloat(ak .. "#wx", round(g[3] + ox, 2))
-                    xml:setFloat(ak .. "#wz", round(g[4] + oz, 2))
-                    xml:setFloat(ak .. "#hx", round(g[5] + ox, 2))
-                    xml:setFloat(ak .. "#hz", round(g[6] + oz, 2))
-                end
-            end
-            if s.seeder ~= nil then
-                local ok, err = pcall(self.writeSeeder, self, xml, ik .. ".seeder", s.seeder)
-                if not ok and not self.seederErrorLogged then
-                    self.seederErrorLogged = true
-                    print("G5Link: Realistic Seeder read failed: " .. tostring(err))
-                end
-            end
-            if s.tillage ~= nil then
-                pcall(G5LinkControls.writeTillage, G5LinkControls, xml, ik .. ".tillage", s.tillage)
-            end
-            for j, f in ipairs(s.fills) do
-                local fk = string.format("%s.fill(%d)", ik, j - 1)
-                xml:setString(fk .. "#title", f.title)
-                xml:setString(fk .. "#type", f.type)
-                xml:setFloat(fk .. "#level", round(f.level, 1))
-                xml:setFloat(fk .. "#cap", round(f.cap, 0))
-            end
-        end
+        self:writeImplementsTo(xml, "g5.implements", vehicle, self.gnssOffset[1], self.gnssOffset[2])
 
         self:writeCombine(xml, vehicle)
         if G5LinkHeadland ~= nil then
@@ -745,12 +714,63 @@ function G5Link:findCombine(vehicle)
     return nil
 end
 
-function G5Link:writeCombine(xml, vehicle)
+-- Implements of a machine under base (e.g. "g5.implements"), positions moved by (ox, oz).
+function G5Link:writeImplementsTo(xml, base, vehicle, ox, oz)
+    local implements = self:getImplements(vehicle)
+    for i, impl in ipairs(implements) do
+        local s = self:getImplementState(impl)
+        local ik = string.format("%s.implement(%d)", base, i - 1)
+        xml:setString(ik .. "#name", s.name)
+        xml:setBool(ik .. "#canLower", s.canLower)
+        xml:setBool(ik .. "#lowered", s.lowered)
+        xml:setBool(ik .. "#canTurnOn", s.canTurnOn)
+        xml:setBool(ik .. "#turnedOn", s.turnedOn)
+        xml:setFloat(ik .. "#width", round(s.width, 2))
+        local bits = ""
+        for _, a in ipairs(s.areas) do
+            bits = bits .. (a and "1" or "0")
+        end
+        xml:setString(ik .. "#areas", bits)
+        for j, g in ipairs(s.geometry) do
+            if g then
+                local ak = string.format("%s.area(%d)", ik, j - 1)
+                xml:setInt(ak .. "#i", j - 1)
+                xml:setFloat(ak .. "#sx", round(g[1] + ox, 2))
+                xml:setFloat(ak .. "#sz", round(g[2] + oz, 2))
+                xml:setFloat(ak .. "#wx", round(g[3] + ox, 2))
+                xml:setFloat(ak .. "#wz", round(g[4] + oz, 2))
+                xml:setFloat(ak .. "#hx", round(g[5] + ox, 2))
+                xml:setFloat(ak .. "#hz", round(g[6] + oz, 2))
+            end
+        end
+        if s.seeder ~= nil then
+            local ok, err = pcall(self.writeSeeder, self, xml, ik .. ".seeder", s.seeder)
+            if not ok and not self.seederErrorLogged then
+                self.seederErrorLogged = true
+                print("G5Link: Realistic Seeder read failed: " .. tostring(err))
+            end
+        end
+        if s.tillage ~= nil then
+            pcall(G5LinkControls.writeTillage, G5LinkControls, xml, ik .. ".tillage", s.tillage)
+        end
+        for j, f in ipairs(s.fills) do
+            local fk = string.format("%s.fill(%d)", ik, j - 1)
+            xml:setString(fk .. "#title", f.title)
+            xml:setString(fk .. "#type", f.type)
+            xml:setFloat(fk .. "#level", round(f.level, 1))
+            xml:setFloat(fk .. "#cap", round(f.cap, 0))
+        end
+    end
+
+end
+
+function G5Link:writeCombine(xml, vehicle, base)
     local combine = self:findCombine(vehicle)
     if combine == nil then
         return
     end
-    local k = "g5.combine"
+    base = base or "g5"
+    local k = base .. ".combine"
     xml:setString(k .. "#name", call(combine, "getFullName") or "Combine")
     local idx = combine.spec_combine.fillUnitIndex
     if idx ~= nil then
@@ -767,7 +787,7 @@ function G5Link:writeCombine(xml, vehicle)
     end
     xml:setBool(k .. "#turnedOn", bool(call(combine, "getIsTurnedOn")))
 
-    local ok, err = pcall(self.writeRealisticHarvesting, self, xml, combine)
+    local ok, err = pcall(self.writeRealisticHarvesting, self, xml, combine, base)
     if not ok and not self.rhErrorLogged then
         self.rhErrorLogged = true
         print("G5Link: Realistic Harvesting read failed: " .. tostring(err))
@@ -787,7 +807,7 @@ function G5Link:getRhApi()
     return nil
 end
 
-function G5Link:writeRealisticHarvesting(xml, combine)
+function G5Link:writeRealisticHarvesting(xml, combine, base)
     local api = self:getRhApi()
     if api == nil then
         return
@@ -807,7 +827,7 @@ function G5Link:writeRealisticHarvesting(xml, combine)
         return
     end
 
-    local k = "g5.rh"
+    local k = (base or "g5") .. ".rh"
     xml:setString(k .. "#version", tostring(get("getVersion") or ""))
     xml:setString(k .. "#crop", tostring(get("getCurrentCrop", combine) or "--"))
     xml:setString(k .. "#mode", tostring(get("getSettingsMode", combine) or "MANUAL"))
@@ -914,6 +934,49 @@ function G5Link:getFieldIdAt(x, z)
 end
 
 -- The local player's farm (as Realistic Harvesting's RHM_Api.getActiveFarmId resolves it).
+-- fleet.xml: every other machine of the farm that is working right now (AI workers, Courseplay, AutoDrive,
+-- a second player), in the same shape as the telemetry's vehicle, implements, combine and rh blocks, so the
+-- bridge records their coverage too. True positions: their receivers are not simulated.
+function G5Link:writeFleet(current)
+    local vs = g_currentMission and g_currentMission.vehicleSystem
+    if vs == nil or type(vs.vehicles) ~= "table" or self.fleetPath == nil then return end
+    local farmId = self:getFarmId()
+    local xml = XMLFile.create("G5LinkFleet", self.fleetPath, "fleet")
+    if xml == nil then return end
+    self.fleetSeq = (self.fleetSeq or 0) + 1
+    xml:setInt("fleet#seq", self.fleetSeq)
+    local n = 0
+    for _, v in pairs(vs.vehicles) do
+        if n >= G5Link.MAX_FLEET then break end
+        local root = call(v, "getRootVehicle")
+        if v ~= current and v.rootNode ~= nil and v.spec_motorized ~= nil and (root == nil or root == v)
+            and (farmId == nil or call(v, "getOwnerFarmId") == farmId) then
+            local implements = self:getImplements(v)
+            local ai = call(v, "getIsAIActive") == true
+            if ai or self:isRecording(implements) then
+                local k = string.format("fleet.vehicle(%d)", n)
+                n = n + 1
+                local x, _, z = getWorldTranslation(v.rootNode)
+                local dx, _, dz = localDirectionToWorld(v.rootNode, 0, 0, 1)
+                xml:setString(k .. "#id", tostring(v.uniqueId or v.id or n))
+                xml:setString(k .. "#name", call(v, "getFullName") or "Vehicle")
+                xml:setFloat(k .. "#x", round(x, 2))
+                xml:setFloat(k .. "#z", round(z, 2))
+                xml:setFloat(k .. "#heading", round((180 - math.deg(math.atan2(dx, dz))) % 360, 0))
+                xml:setFloat(k .. "#speed", round(call(v, "getLastSpeed") or 0, 1))
+                xml:setBool(k .. "#ai", ai)
+                local fieldId = self:getFieldIdAt(x, z)
+                if fieldId ~= nil then xml:setInt(k .. "#field", fieldId) end
+                self:writeImplementsTo(xml, k .. ".implements", v, 0, 0)
+                self:writeCombine(xml, v, k)
+            end
+        end
+    end
+    xml:setInt("fleet#count", n)
+    xml:save()
+    xml:delete()
+end
+
 function G5Link:getFarmId()
     local id = call(g_localPlayer, "getFarmId")
     if type(id) ~= "number" or id == 0 then

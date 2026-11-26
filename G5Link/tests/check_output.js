@@ -3,7 +3,7 @@
 //   node G5Link/tests/check_output.js <output folder>
 const fs = require('fs');
 const path = require('path');
-const { telemetryFromXml } = require('../bridge/g5link-bridge.js');
+const { telemetryFromXml, fleetFromXml } = require('../bridge/g5link-bridge.js');
 
 const OUT = process.argv[2];
 if (!OUT) { console.error('usage: check_output.js <output folder>'); process.exit(2); }
@@ -194,6 +194,19 @@ if (fs.existsSync(live)) {
     eq(t.autotrac && t.autotrac.state, 'engaged', 'live: AutoTrac engaged');
     eq(t.autotrac && t.autotrac.turns, 1, 'live: one turn counted');
     eq(t.autotrac && t.autotrac.turnOn, true, 'live: Turn Automation on');
+  }
+}
+
+{
+  const f = path.join(OUT, 'fleet', 'fleet_live.xml');
+  check(fs.existsSync(f), 'fleet live copy exists');
+  if (fs.existsSync(f)) {
+    const fl = fleetFromXml(fs.readFileSync(f, 'utf8'));
+    eq(fl.vehicles.length, 1, 'fleet: one working machine');
+    eq(fl.vehicles[0] && fl.vehicles[0].id, 'vehAI', 'fleet: machine id');
+    eq(fl.vehicles[0] && fl.vehicles[0].implements[0].geometry.length, 1, 'fleet: header geometry');
+    check(fl.vehicles[0] && fl.vehicles[0].combine && fl.vehicles[0].combine.tankCap > 0, 'fleet: combine tank');
+    check(fl.vehicles[0] && fl.vehicles[0].rh && fl.vehicles[0].rh.crop === 'WHEAT', 'fleet: rh crop');
   }
 }
 

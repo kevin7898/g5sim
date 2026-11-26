@@ -1522,6 +1522,52 @@ do
 end
 
 ---------------------------------------------------------------------------
+-- Scenario 12: fleet.xml - coverage from AI workers and other machines
+---------------------------------------------------------------------------
+do
+    local dir = newScenario("fleet", {})
+    local me = makeVehicle({name = "My Tractor", x = 0, z = 0})
+    me.spec_motorized = {}
+    me.getOwnerFarmId = function() return 1 end
+    local ai = makeVehicle({name = "AI Combine", combine = true, x = 300, z = 200, speed = 6})
+    ai.spec_motorized, ai.uniqueId = {}, "vehAI"
+    ai.getIsAIActive = function() return true end
+    ai.getOwnerFarmId = function() return 1 end
+    ai.getRootVehicle = function(self) return self end
+    local header = makeImplement(9.1, 1)
+    ai.children = {ai, header}
+    local parked = makeVehicle({name = "Parked", x = 50, z = 50})
+    parked.spec_motorized, parked.uniqueId = {}, "vehP"
+    parked.getOwnerFarmId = function() return 1 end
+    local planter, ps = makeImplement(12.19, 4)
+    ps.on = false                                           -- not working
+    parked.children = {parked, planter}
+    local neighbour = makeVehicle({name = "Neighbour", x = 900, z = 900})
+    neighbour.spec_motorized, neighbour.uniqueId = {}, "vehN"
+    neighbour.getIsAIActive = function() return true end
+    neighbour.getOwnerFarmId = function() return 2 end
+    g_localPlayer = {getCurrentVehicle = function(self) return me end, getFarmId = function() return 1 end}
+    RHM_Api = rhApi()
+    mod:loadMap("test")
+    g_currentMission.vehicleSystem = {vehicles = {me, ai, parked, neighbour}}
+    tick(4)
+    local fx = readFile(dir .. "fleet.xml") or ""
+    writeFile(PROFILE .. "fleet_live.xml", fx)
+    check(string.find(fx, 'name="AI Combine"', 1, true) ~= nil, "AI worker listed")
+    check(string.find(fx, 'name="My Tractor"', 1, true) == nil, "the driven machine is not in the fleet")
+    check(string.find(fx, 'name="Parked"', 1, true) == nil, "machines not working are left out")
+    check(string.find(fx, 'name="Neighbour"', 1, true) == nil, "other farms are left out")
+    check(string.find(fx, '<area ', 1, true) ~= nil, "work-area geometry written")
+    check(string.find(fx, 'tankCap=', 1, true) ~= nil, "combine block written")
+    check(string.find(fx, '<rh ', 1, true) ~= nil, "Realistic Harvesting block written")
+    -- on foot the AI worker is still reported
+    g_localPlayer = {getCurrentVehicle = function(self) return nil end, getFarmId = function() return 1 end}
+    tick(4)
+    check(string.find(readFile(dir .. "fleet.xml") or "", 'name="AI Combine"', 1, true) ~= nil, "AI worker reported while on foot")
+    mod:deleteMap()
+end
+
+---------------------------------------------------------------------------
 -- JSON encoder samples for check_output.js
 ---------------------------------------------------------------------------
 do

@@ -226,11 +226,15 @@ function beep(times = 1) {
   }
 }
 let shadeTimer = null;
-function shade(text, level = 'info', ms = 5000) {
+// Window shade as on the G5: a bold title line in capitals over the message. "Title: message" splits there;
+// otherwise the title says what kind of message it is.
+const SHADE_TITLE = { info: 'Information', warn: 'Warning', stop: 'Alarm' };
+function shade(text, level = 'info', ms = 5000, title = null) {
   const el = $('shade');
   el.className = 'shade show ' + level;
-  $('shadeIcon').textContent = level === 'info' ? 'i' : '!';
-  $('shadeText').textContent = text;
+  const m = !title && /^([^:.!?]{3,32}): (.+)$/s.exec(String(text));
+  $('shadeTitle').textContent = (title || (m ? m[1] : SHADE_TITLE[level] || '')).toUpperCase();
+  $('shadeText').textContent = m ? m[2].charAt(0).toUpperCase() + m[2].slice(1) : text;
   beep(level === 'stop' ? 3 : level === 'warn' ? 2 : 1);
   clearTimeout(shadeTimer);
   shadeTimer = setTimeout(() => { el.className = 'shade ' + level; }, ms);

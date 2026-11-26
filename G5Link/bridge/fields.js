@@ -352,7 +352,7 @@ class FieldStore {
     d.tracks = d.tracks || [];
     d.nextTrack = d.nextTrack || 1;
     const fieldId = t.fieldId !== undefined && t.fieldId !== null && t.fieldId !== '' ? String(t.fieldId) : null;
-    const how = ['A+B', 'A+Heading'].includes(t.how) ? t.how : 'A+Heading';
+    const how = ['A+B', 'A+Heading', 'Quick Line'].includes(t.how) ? t.how : 'A+Heading';
     const sameField = d.tracks.filter(x => x.fieldId === fieldId).length;
     const track = { id: 'T' + (d.nextTrack++), name: String(t.name || `Track ${sameField + 1} (${how})`).slice(0, 60), fieldId, how,
       ax: +n(t.ax).toFixed(2), az: +n(t.az).toFixed(2), h: +(((n(t.h) % 360) + 360) % 360).toFixed(2), at: Date.now() };

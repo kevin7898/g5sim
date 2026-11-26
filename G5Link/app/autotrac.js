@@ -33,14 +33,13 @@
     return SHORT[at.reason] || 'Not ready';
   }
 
-  // Four-quarter pie, filled clockwise from 12 o'clock; all green when engaged
-  function pie(stage, state) {
+  // Four-quarter status pie as the G5 draws it: a white disc, a black cross, quarters filled blue clockwise
+  // from the top right
+  function pie(stage) {
     const q = [[24, 3, 45, 24], [45, 24, 24, 45], [24, 45, 3, 24], [3, 24, 24, 3]];
-    const on = stage >= 4 ? (state === 'turning' ? '#ffb400' : '#4ee166') : 'currentColor';
-    return `<svg viewBox="0 0 48 48" aria-hidden="true">${q.map(([x1, y1, x2, y2], i) =>
-      `<path d="M24 24 L${x1} ${y1} A21 21 0 0 1 ${x2} ${y2} Z" fill="${i < stage ? on : 'none'}" ${i < stage ? '' : 'opacity=".35"'}/>`).join('')}
-      <circle cx="24" cy="24" r="21" fill="none" stroke="currentColor" stroke-width="3"/>
-      <path d="M24 3v42M3 24h42" stroke="#1e1e1b" stroke-width="2"/></svg>`;
+    return `<svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="21" fill="#fff"/>${q.map(([x1, y1, x2, y2], i) =>
+      i < stage ? `<path d="M24 24 L${x1} ${y1} A21 21 0 0 1 ${x2} ${y2} Z" fill="#4fb0e3"/>` : '').join('')}
+      <path d="M24 3v42M3 24h42" stroke="#111" stroke-width="2.4"/><circle cx="24" cy="24" r="21" fill="none" stroke="#111" stroke-width="2.6"/></svg>`;
   }
 
   const lenIn = m => metric('distance') ? `${fmt(m * 100, 1)} cm` : `${fmt(m / 0.0254, 1)} in`;
@@ -61,7 +60,7 @@
       <div class="at-cols">
         <div>
           <div class="at-status s${st} ${at.state}">
-            <span class="at-pie">${pie(st, at.state)}</span>
+            <span class="at-pie">${pie(st)}</span>
             <div><b>${st}/4 ${STAGE[st]}</b><span>${eng ? (at.state === 'turning' ? 'Turning onto the next pass' : 'Steering on ' + esc((gd.track() || {}).name || 'the track'))
               : st === 3 ? 'Press Resume to engage' : esc(EXIT[at.reason] || 'See AutoTrac Diagnostics')}</span></div>
           </div>
@@ -119,6 +118,7 @@
   }
   $('atResume').onclick = () => resume($('atResume'));
   $('atSwap').onclick = () => window.G5Guidance && G5Guidance.swap();
+  $('appAutoTrac').onclick = () => { closeWin('menu'); window.G5AutoTrac.open(); };
 
   window.G5AutoTrac = {
     pie, stageOf, shortText, resume,

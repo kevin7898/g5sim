@@ -28,7 +28,7 @@
     if (el.hidden || !window.G5AutoTrac) return;
     const st = G5AutoTrac.stageOf(at);
     el.className = 'map-at ' + (at.state === 'notReady' ? '' : at.state === 'ready' && st < 3 ? 'off' : at.state);
-    setHtml($('mapAtPie'), G5AutoTrac.pie(st, at.state));
+    setHtml($('mapAtPie'), G5AutoTrac.pie(st));
     $('mapAtTxt').textContent = G5AutoTrac.shortText(at);
   }
   $('mapAt').onclick = () => window.G5AutoTrac && G5AutoTrac.open();
@@ -214,8 +214,16 @@
   window.G5Guidance = {
     turn: () => G.turn, setTurn: patch => { G.turn = { ...G.turn, ...patch }; save(); sendGuidance(); }, send: sendGuidance,
     get: () => G, set: patch => { Object.assign(G, patch); save(); renderSide(); }, spacing, lenText, track: currentTrack, swap: swapTrack,
-    tracks: () => T.list, engaged,
+    tracks: () => T.list, engaged, quickLine,
   };
+  // Quick Line (the G5's shortcut for A + Auto B): a straight track from here along the current heading
+  function quickLine() {
+    if (engaged()) return shade('AutoTrac: the track can not change while AutoTrac is engaged.', 'info', 3000);
+    const p = livePose();
+    if (!p) return shade('Quick Line: no machine position. Enter a machine first.', 'info', 3000);
+    addTrack(p.x, p.z, p.h, 'Quick Line');
+    shade(`Quick Line: new track along ${cardinal(p.h)} ${Math.round(p.h)}°.`, 'info', 2500);
+  }
   function renderSide() {
     sendGuidance();
     const t = currentTrack();
@@ -300,7 +308,9 @@
   document.querySelectorAll('[data-zoom]').forEach(b => {
     b.onclick = () => { G.zoom = Math.min(4, Math.max(0.5, G.zoom * (+b.dataset.zoom > 0 ? 1.4 : 1 / 1.4))); save(); };
   });
-  const paintView = () => { $('mapView').textContent = G.view === '3d' ? '2D' : '3D'; };
+  // the button shows the view it switches to: overhead (flat grid) or perspective
+  const paintView = () => { setHtml($('mapView'), `<svg><use href="#i-${G.view === '3d' ? 'overhead' : 'persp'}"/></svg>`);
+    $('mapView').setAttribute('aria-label', G.view === '3d' ? 'Overhead view' : 'Perspective view'); };
   $('mapView').onclick = () => { G.view = G.view === '3d' ? '2d' : '3d'; save(); paintView(); };
   paintView();
 

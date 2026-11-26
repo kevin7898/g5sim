@@ -44,6 +44,10 @@ Beacon, Hazard, Lights. They call the same game functions as the keyboard. Keys 
 white text when on, an LED and AUTO on keys with an automatic mode, the value on the Rate key, the AutoTrac pie on the
 AUTOTRAC key, and gray keys that this machine can't use.
 
+As in the G5 Field Guide, keys that switch something on or off have the status strip, and keys that open an app
+(Setup, Guidance, Quick Line, Swap Track, Rate, Grain Cart, Help) have none. **Quick Line** makes a straight track along
+the current heading; **Auto Turn** switches Turn Automation (its LED lights when on).
+
 **Layout Manager** (Menu > Layout Manager): make your own shortcut bars. Duplicate the Automatic bar or start a new one,
 Add Shortcut from each app (every key once, up to 12 plus MENU), move keys left or right, remove, rename, delete, and
 choose which bar tractors and combines use. Extra keys there: Resume, Guidance, Swap Track, StarFire, Layout and Help

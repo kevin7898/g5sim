@@ -62,6 +62,9 @@ end
 ---------------------------------------------------------------------------
 
 function G5Link:loadMap(name)
+    self.loadNumber = (self.loadNumber or 0) + 1
+    local started = type(getDate) == "function" and getDate("%Y%m%d%H%M%S") or "local"
+    self.session = string.format("%s-%d-%d", started, math.floor(g_time or 0), self.loadNumber)
     local base = getUserProfileAppPath() .. "modSettings/"
     createFolder(base)
     self.dir = base .. "FS25_G5Link/"
@@ -144,6 +147,7 @@ function G5Link:deleteMap()
 end
 
 function G5Link:resetWork()
+    self.workReset = (self.workReset or 0) + 1
     self.work = {
         area = 0,        -- m^2
         time = 0,        -- ms with work recording on
@@ -375,11 +379,18 @@ function G5Link:getImplementState(impl)
     -- world (start, width and height nodes, as WorkArea.lua reads them) for coverage mapping.
     s.areas = {}
     s.geometry = {}
+    s.processing = {}
     local spec = impl.spec_workArea
     if spec ~= nil and spec.workAreas ~= nil and impl.getIsWorkAreaActive ~= nil then
         for _, wa in ipairs(spec.workAreas) do
             if isMainWorkArea(wa) then
-                table.insert(s.areas, bool(call(impl, "getIsWorkAreaActive", wa)))
+                local active = bool(call(impl, "getIsWorkAreaActive", wa))
+                table.insert(s.areas, active)
+                local changed = nil
+                if type(wa.lastProcessingTime) == "number" and impl.getIsWorkAreaProcessing ~= nil then
+                    changed = active and wa.lastProcessingTime > 0 and call(impl, "getIsWorkAreaProcessing", wa) == true
+                end
+                table.insert(s.processing, changed == nil and "?" or changed and "1" or "0")
                 local sx, sz = nodePos(wa.start)
                 local wx, wz = nodePos(wa.width)
                 local hx, hz = nodePos(wa.height)
@@ -418,6 +429,16 @@ function G5Link:getImplementState(impl)
                 table.insert(geometry, { g.sx, g.sz, g.wx, g.wz, g.hx, g.hz })
             end
             if areas ~= nil and #areas > 0 then
+                -- Native processing is confirmed for the tool. The provider identifies enabled lanes.
+                local changed, measured = false, false
+                for _, bit in ipairs(s.processing) do
+                    changed = changed or bit == "1"
+                    measured = measured or bit ~= "?"
+                end
+                s.processing = {}
+                for i, active in ipairs(areas) do
+                    s.processing[i] = not active and "0" or changed and "1" or measured and "0" or "?"
+                end
                 s.areas, s.geometry = areas, geometry
             end
             s.section = sc
@@ -428,6 +449,28 @@ function G5Link:getImplementState(impl)
         if ok then
             s.tillage = t
         end
+    end
+
+    if impl.spec_sowingMachine ~= nil then
+        local index = call(impl, "getSowingMachineSeedFillTypeIndex")
+        local fill = index and call(g_fillTypeManager, "getFillTypeByIndex", index)
+        s.stockCrop = fill and fill.name or nil
+    end
+    if s.seeder ~= nil or impl.spec_sowingMachine ~= nil then
+        s.operation = "seeding"
+    elseif impl.spec_sprayer ~= nil then
+        s.operation = "application"
+        local params = impl.spec_sprayer.workAreaParameters
+        local index = call(impl, "getSprayerFillUnitIndex")
+        local productIndex = index and call(impl, "getFillUnitFillType", index)
+        local product = productIndex and call(g_fillTypeManager, "getFillTypeByIndex", productIndex)
+        s.sprayer = { master = s.turnedOn, tank = index, product = product and product.name,
+            level = index and call(impl, "getFillUnitFillLevel", index), cap = index and call(impl, "getFillUnitCapacity", index),
+            applying = params and params.isActive == true and (params.lastTotalArea or 0) > 0 and call(impl, "getAreEffectsVisible") == true }
+    elseif impl.spec_cutter ~= nil then
+        s.operation = "harvest"
+    elseif s.tillage ~= nil then
+        s.operation = "tillage"
     end
 
     s.fills = {}
@@ -455,14 +498,16 @@ end
 
 function G5Link:getImplements(vehicle)
     local list = {}
+    if vehicle == nil then return list end
     local children = call(vehicle, "getChildVehicles")
-    if children == nil then
-        return list
-    end
-    for _, child in ipairs(children) do
+    for _, child in ipairs(children or {}) do
         if child ~= vehicle and #list < G5Link.MAX_IMPLEMENTS then
             table.insert(list, child)
         end
+    end
+    -- Self-propelled sprayers have the same work areas and tank specialization as drawn tools.
+    if vehicle.spec_sprayer ~= nil and #list < G5Link.MAX_IMPLEMENTS then
+        table.insert(list, vehicle)
     end
     return list
 end
@@ -554,6 +599,7 @@ function G5Link:writeIdle(reason)
     self.seq = (self.seq or 0) + 1
     xml:setInt("g5#seq", self.seq)
     xml:setString("g5#version", G5Link.VERSION)
+    xml:setString("g5#session", self.session)
     xml:setString("g5#state", reason)
     xml:save()
     xml:delete()
@@ -567,6 +613,7 @@ function G5Link:writeTelemetry(vehicle)
     self.seq = self.seq + 1
     xml:setInt("g5#seq", self.seq)
     xml:setString("g5#version", G5Link.VERSION)
+    xml:setString("g5#session", self.session)
     xml:setInt("g5#time", math.floor(g_currentMission.time or 0))
     xml:setInt("g5#lastCmd", self.lastCmdId)
     self:writeGame(xml)
@@ -691,6 +738,7 @@ function G5Link:writeTelemetry(vehicle)
     xml:setBool("g5.work#recording", w.recording)
     xml:setFloat("g5.work#area", round(w.area, 0))
     xml:setFloat("g5.work#time", round(w.time / 1000, 0))
+    xml:setInt("g5.work#counterEpoch", self.workReset)
     xml:setFloat("g5.work#distance", round(w.distance, 0))
     xml:setFloat("g5.work#totalDistance", round(w.totalDistance, 0))
     xml:setFloat("g5.work#fuelUsed", round(w.fuelUsed, 2))
@@ -797,6 +845,19 @@ function G5Link:writeImplementsTo(xml, base, vehicle, ox, oz)
         xml:setBool(ik .. "#canTurnOn", s.canTurnOn)
         xml:setBool(ik .. "#turnedOn", s.turnedOn)
         xml:setFloat(ik .. "#width", round(s.width, 2))
+        if s.operation ~= nil then xml:setString(ik .. "#operation", s.operation) end
+        if s.stockCrop ~= nil then xml:setString(ik .. "#stockCrop", s.stockCrop) end
+        if #s.processing > 0 then xml:setString(ik .. "#processing", table.concat(s.processing)) end
+        if s.sprayer ~= nil then
+            local k, b = ik .. ".sprayer", s.sprayer
+            xml:setString(k .. "#provider", "fs25")
+            xml:setBool(k .. "#master", b.master)
+            if b.applying ~= nil then xml:setBool(k .. "#applying", b.applying) end
+            if type(b.tank) == "number" then xml:setInt(k .. "#tank", b.tank) end
+            if type(b.level) == "number" then xml:setFloat(k .. "#level", round(b.level, 1)) end
+            if type(b.cap) == "number" then xml:setFloat(k .. "#cap", round(b.cap, 0)) end
+            if b.product ~= nil then xml:setString(k .. "#product", b.product) end
+        end
         local bits = ""
         for _, a in ipairs(s.areas) do
             bits = bits .. (a and "1" or "0")
@@ -1033,6 +1094,10 @@ function G5Link:writeFleet(current)
     if xml == nil then return end
     self.fleetSeq = (self.fleetSeq or 0) + 1
     xml:setInt("fleet#seq", self.fleetSeq)
+    xml:setString("fleet#session", self.session)
+    xml:setInt("fleet#time", math.floor(g_currentMission.time or 0))
+    local save = self:saveKey()
+    if save ~= nil then xml:setString("fleet#save", save) end
     local n = 0
     for _, v in pairs(vs.vehicles) do
         if n >= G5Link.MAX_FLEET then break end
@@ -1457,7 +1522,10 @@ function G5Link:processCommands(vehicle)
                 name = xml:getString(key .. "#name", ""),
                 value = xml:getFloat(key .. "#value", 0),
                 index = xml:getInt(key .. "#index", 0),
-                arg = xml:getString(key .. "#arg", "")
+                arg = xml:getString(key .. "#arg", ""),
+                session = xml:getString(key .. "#session", ""),
+                save = xml:getString(key .. "#save", ""),
+                vehicle = xml:getString(key .. "#vehicle", "")
             })
         end
     end)
@@ -1466,7 +1534,11 @@ function G5Link:processCommands(vehicle)
     table.sort(pending, function(a, b) return a.id < b.id end)
     for _, cmd in ipairs(pending) do
         self.lastCmdId = cmd.id
-        self:runCommand(vehicle, cmd)
+        local actualId = vehicle and (vehicle.uniqueId or vehicle.id)
+        if cmd.session == "" or cmd.session == self.session and cmd.save == (self:saveKey() or "unsaved")
+            and actualId ~= nil and cmd.vehicle == tostring(actualId) then
+            self:runCommand(vehicle, cmd)
+        end
     end
 end
 

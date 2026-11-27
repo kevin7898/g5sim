@@ -373,13 +373,13 @@
 
       <!-- Run page: Tillage (TruSet-style depth control; levels via Cultivator Settings or WorkMode, depth via Realistic Tillage) -->
       <section class="page" data-name="Tillage">
-        <div class="page-grid main-side" id="tlPage">
+        <div class="page-grid machine-split" id="tlPage">
           <div class="module">
             <div class="mod-title" id="tlTitle">Tillage</div>
             <div class="tiles t4 compact" id="tlTiles"></div>
             <div class="mod-lower split tl-lower">
               <div class="lower-col">
-                <div class="lower-head"><span>TruSet Depth</span><span class="hv-mode" id="tlSrc">---</span></div>
+                <div class="lower-head"><span>Depth &amp; Mode</span><span class="hv-mode" id="tlSrc">---</span></div>
                 <div class="tl-set">
                   <button class="g5btn tl-step" id="tlMinus">−</button>
                   <button class="tl-setpoint" id="tlSetpoint"><small>Set Point</small><b id="tlSetVal">---</b></button>
@@ -387,7 +387,7 @@
                 </div>
                 <div class="tl-presets" id="tlPresets"></div>
                 <div class="seg tl-levels" id="tlLevels"><button data-l="2">Shallow</button><button data-l="3">Normal</button><button data-l="4">Deep</button></div>
-                <p class="ha-msg" id="tlMsg">---</p>
+                <p class="ha-msg" id="tlMsg">---</p><p class="machine-command" id="tlCommand" role="status"></p>
               </div>
               <div class="lower-col">
                 <div class="lower-head"><span>Tools</span><button class="g5btn tl-edit" id="tlEdit">Edit Presets</button></div>
@@ -395,28 +395,23 @@
               </div>
             </div>
           </div>
-          <div class="side">
-            <div class="module side-mod grow">
-              <div class="mod-title">Working Depth</div>
-              <div class="side-body center">
-                <div class="tl-gauge" id="tlGauge"><i class="act" id="tlGaugeAct"></i><i class="tgt" id="tlGaugeTgt"></i></div>
-                <div class="hv-tank-sub" id="tlGaugeTxt">---</div>
-              </div>
-            </div>
+          <div class="side machine-side">
+            <div class="machine-map" data-shared-map></div>
             <div class="module side-mod">
-              <div class="mod-title">Depth Sources</div>
-              <div class="side-body compact">
+              <div class="mod-title">Work Summary</div>
+              <div class="side-body compact" id="tlWork"></div>
+              <details class="machine-diagnostics"><summary>Depth sources</summary>
                 <div class="kv"><span>Cultivator Settings</span><b id="tlHasCs">---</b></div>
                 <div class="kv"><span>Realistic Tillage</span><b id="tlHasRt">---</b></div>
-              </div>
+              </details>
             </div>
           </div>
         </div>
       </section>
 
-      <!-- Run page: Planter (only with a Realistic Seeder implement; data from its Placement API) -->
+      <!-- Run page: stock and provider-backed seeders -->
       <section class="page" data-name="Planter">
-        <div class="page-grid main-side">
+        <div class="page-grid machine-split">
           <div class="module">
             <div class="mod-title" id="plTitle">Planter</div>
             <div class="tiles t4 compact" id="plTiles"></div>
@@ -424,23 +419,64 @@
               <div class="lower-col">
                 <div class="lower-head"><span>Row Details</span><span class="pl-legend"><i class="ok"></i>±5%<i class="mid"></i>±10%<i class="bad"></i>more<i class="auto"></i>auto off<i class="off"></i>off</span></div>
                 <div class="pl-rows" id="plRows"></div>
+                <div class="machine-readings" id="plLaneDetail" aria-live="polite"></div>
               </div>
             </div>
           </div>
-          <div class="side">
+          <div class="side machine-side">
+            <div class="machine-map" data-shared-map></div>
             <div class="module side-mod">
-              <div class="mod-title">Seed Monitor</div>
-              <div class="side-body compact" id="plMonitor"></div>
-            </div>
-            <div class="module side-mod">
-              <div class="mod-title" id="plSectionTitle">Section Control</div>
-              <div class="side-body compact" id="plSection"></div>
-            </div>
-            <div class="module side-mod grow">
-              <div class="mod-title" id="plSoilTitle">Soil</div>
-              <div class="side-body compact" id="plSoil"></div>
+              <div class="mod-title" id="plSectionTitle">Seed Monitor &amp; Section Control</div>
+              <div class="machine-planter-status">
+                <div class="side-body compact" id="plMonitor"></div>
+                <div id="plSectionHome"><div class="side-body compact" id="plSection"></div></div>
+              </div>
+              <details class="machine-diagnostics"><summary id="plSoilTitle">Soil observations</summary><div id="plSoil"></div></details>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section class="page" data-name="Section Control">
+        <div class="page-grid machine-split">
+          <div class="module"><div class="mod-title">Section Control</div><div class="machine-panel">
+            <p id="sectionRunStatus" class="hint"></p><div id="sectionRunControls"></div>
+            <div id="sectionRunLanes" class="lane-strip" aria-label="Planter lanes"></div>
+            <div class="machine-readings" id="sectionRunDetail" aria-live="polite"></div>
+          </div></div>
+          <div class="machine-map full" data-shared-map></div>
+        </div>
+      </section>
+
+      <section class="page" data-name="Harvest Logistics">
+        <div class="page-grid machine-split map-first">
+          <div class="machine-map full" data-shared-map></div>
+          <div class="module"><div class="mod-title">Harvest Logistics</div><div class="machine-panel">
+            <div class="machine-readings" id="harvestLogisticsReadings"></div>
+            <button class="g5btn" id="logisticsCart">Grain Cart Controls</button>
+          </div></div>
+        </div>
+      </section>
+
+      <section class="page" data-name="Spraying">
+        <div class="page-grid machine-split">
+          <div class="module"><div class="mod-title" id="sprayTitle">Spraying</div><div class="machine-panel">
+            <div class="tiles t3 compact" id="sprayTiles"></div>
+            <div class="machine-readings" id="sprayReadings"></div>
+            <div class="run-actions"><button class="g5btn" id="spraySectionPage">Boom &amp; Sections</button><button class="g5btn" id="sprayRates">Rate Controller</button></div>
+          </div></div>
+          <div class="machine-map full" data-shared-map></div>
+        </div>
+      </section>
+
+      <section class="page" data-name="Boom &amp; Sections">
+        <div class="page-grid machine-split">
+          <div class="module"><div class="mod-title">Boom &amp; Sections</div><div class="machine-panel">
+            <div class="machine-readings" id="boomReadings"></div>
+            <div class="lane-strip" id="boomStrip" aria-label="Application width"></div>
+            <p id="boomNote" class="hint"></p>
+          </div></div>
+          <div class="machine-map full" data-shared-map></div>
         </div>
       </section>
 
@@ -688,5 +724,6 @@
 <script src="guidance.js"></script>
 <script src="keys.js"></script>
 <script src="run-pages.js"></script>
+<script src="machine-pages.js"></script>
 </body>
 </html>

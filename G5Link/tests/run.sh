@@ -34,6 +34,8 @@ node "$HERE/coverage_test.js"
 
 echo "== Ops Center field store"
 node "$HERE/fields_test.js"
+echo "== work jobs and retained totals"
+node "$HERE/jobs_test.js"
 echo "== driven boundary recorder"
 node "$HERE/boundary_test.js"
 echo "== run page layout"

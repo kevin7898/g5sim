@@ -168,6 +168,35 @@ button.run-block { cursor: grab; }
 .run-order.editable li b { line-height: 42px; }
 .run-order.editable .g5btn { min-height: 36px; }
 .run-set-editor { max-width: 820px; margin: 0 auto; }
+.machine-split { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); }
+.machine-split.map-first { grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); }
+.machine-split > .module { overflow: auto; }
+.machine-map { position: relative; flex: 2 0 60%; min-height: 280px; overflow: hidden; }
+.machine-map.full { min-height: 0; }
+.machine-map .map-mod { height: 100%; }
+.machine-map .map-btns { top: auto; bottom: 9px; flex-direction: row; gap: 7px; }
+.machine-map .map-btn { width: 41px; height: 41px; }
+.machine-map .map-btn svg { width: 22px; height: 22px; }
+.machine-map .map-legend { left: 10px; bottom: 60px; max-width: 178px; }
+.machine-map .map-note { left: auto; bottom: 62px; right: 10px; transform: none; max-width: calc(100% - 200px); white-space: normal; font-size: var(--fs-sm); }
+.machine-map:not(.full) .map-gc { display: none; }
+.machine-side > .module { overflow: auto; }
+.machine-diagnostics { padding: 5px 10px 8px; font-size: var(--fs-sm); }
+.machine-diagnostics summary { cursor: pointer; }
+.machine-panel { padding: 13px; }
+.machine-panel .tiles > .tile .t-title { white-space: normal; text-align: center; }
+.machine-readings { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px 14px; align-content: start; margin: 12px 0; font-size: var(--fs-sm); }
+.machine-readings b { text-align: right; }
+.machine-planter-status { display: grid; grid-template-columns: 1fr 1fr; }
+.machine-planter-status .kv { font-size: var(--fs-sm); }
+.machine-command { min-height: 18px; margin: 5px 0; font-size: var(--fs-sm); }
+.machine-split .tl-lower { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); }
+.lane-strip { display: flex; flex-wrap: wrap; gap: 4px; margin: 15px 0; }
+.lane-mark { flex: 1 0 38px; min-height: 40px; color: #eee; background: #51514b; border: 1px solid #34342c; border-radius: 3px; font: inherit; }
+.lane-mark.on { background: #3d632d; }
+.lane-mark.auto { background: #866b21; }
+.lane-mark.is-selected { outline: 2px solid #e0bf47; outline-offset: -3px; }
+.lane-mark.broadcast { display: grid; place-items: center; }
 .side { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
 .module { background: var(--cream-2); border: 1px solid var(--frame); border-radius: 3px; display: flex; flex-direction: column;
   min-height: 0; overflow: hidden; }
@@ -541,6 +570,7 @@ button.run-block { cursor: grab; }
 .page[data-name="Planter"] .side-mod { flex: 0 0 auto; } .page[data-name="Planter"] .side-mod.grow { flex: 1 1 auto; }
 .pl-rows { flex: 1; display: flex; gap: 4px; align-items: stretch; min-height: 0; }
 .pl-row { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; }
+button.pl-row { border: 0; padding: 0; background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
 .pl-bar { flex: 1; width: 100%; position: relative; background: var(--cream); border: 1px solid var(--frame); }
 .pl-bar i { position: absolute; left: 0; right: 0; bottom: 0; }
 .pl-bar::after { content: ''; position: absolute; left: -2px; right: -2px; bottom: 80%; border-top: 2px dashed #1e1e1b; }   /* target */
@@ -606,6 +636,9 @@ a.app { text-decoration: none; color: inherit; }
 .trk-group { font-size: var(--fs-sm); font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin: 8px 2px 4px; }
 .trk-row em { font-style: normal; font-size: var(--fs-xs); color: var(--muted); margin-left: 8px; }
 .ws-win { width: 760px; } .ws-win .win-body { padding: 8px 22px 16px; }
+.ws-job { margin-top: 8px; }
+.ws-job div { display: grid; gap: 5px; }
+.ws-job small { font-size: var(--fs-sm); }
 .ws-in { width: 360px; height: var(--h-md); font-size: var(--fs-md); font-weight: 600; padding: 0 12px; border: 2px solid var(--btn-line); border-radius: 6px; background: #fff; color: #1e1e1b; }
 .ws-right { display: flex; align-items: center; gap: 12px; } .ws-seg { width: 260px; height: var(--h-md); } .ws-seg button { font-size: var(--fs-md); min-width: 0; }
 .ws-right select.ws-in { width: 220px; } .ws-right > select.ws-in:only-child { width: 360px; }
@@ -672,9 +705,6 @@ a.app { text-decoration: none; color: inherit; }
 .tl-tool span { text-align: right; white-space: nowrap; }
 .tl-tool .lvl { justify-self: end; font-size: var(--fs-xs); font-weight: 700; padding: 0 6px; border-radius: 3px; color: #fff; background: var(--tile-off); }
 .tl-tool .lvl.on { background: var(--tile-on); } .tl-tool .lvl.warn { background: var(--warn); color: #1e1e1b; }
-.tl-gauge { position: relative; width: 60px; height: 170px; border: 3px solid var(--frame); background: linear-gradient(#e7d7b4, #8a5a2b); }
-.tl-gauge .act { position: absolute; left: 0; right: 0; top: 0; height: 0; background: rgba(30, 30, 27, .55); border-bottom: 3px solid var(--ink); transition: height .3s linear; }
-.tl-gauge .tgt { position: absolute; left: -10px; right: -10px; height: 0; border-top: 3px dashed var(--tile-on); top: 0; }
 
 /* Headland Management */
 .map-hl { position: absolute; right: 12px; top: 134px; z-index: 3; background: rgba(30, 30, 27, .85); color: #fff; padding: 4px 12px 6px;

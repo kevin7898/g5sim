@@ -11,6 +11,7 @@
 //   node g5link-bridge.js --demo          fake data, no game needed (tractor + planter)
 //   node g5link-bridge.js --demo combine  fake combine with Realistic Harvesting data
 //   node g5link-bridge.js --demo tillage  fake tractor + field cultivator (Cultivator Settings, Realistic Tillage depth)
+//   node g5link-bridge.js --demo sprayer fake broadcast sprayer with a refill cycle
 //   node g5link-bridge.js --demo --demo-speed 8   run the demo 8x faster (to see maps fill quickly)
 //   node g5link-bridge.js --dir <folder>  custom modSettings/FS25_G5Link folder
 //   node g5link-bridge.js --port 8765
@@ -34,6 +35,7 @@ const DEMO = DEMO_OPT !== false;
 const DEMO_BIG = DEMO_OPT === 'bigfield';           // stress test: a 1500 ac odd-shaped field, 4 headland laps (demo-bigfield.js)
 const DEMO_COMBINE = DEMO_OPT === 'combine' || DEMO_BIG;
 const DEMO_TILLAGE = DEMO_OPT === 'tillage';
+const DEMO_SPRAYER = DEMO_OPT === 'sprayer';
 const DEMO_SPEED = Math.max(1, Math.min(60, Number(opt('demo-speed', 1)) || 1)); // demo time multiplier
 const PORT = Number(opt('port', 8765));
 const DEFAULT_DIR = path.join(os.homedir(), 'Documents', 'My Games', 'FarmingSimulator2025',
@@ -51,7 +53,7 @@ const FLEET = path.join(DIR, 'fleet.xml');         // other working machines (AI
 const PROVIDER_STALE_MS = 6000;
 const APP_DIR = path.resolve(__dirname, '..', 'app');
 const STALE_MS = 3000; // no new seq for this long => game considered paused/closed
-const { CoverageStore } = require('./coverage.js');
+const { CoverageStore, operationId } = require('./coverage.js');
 const { FieldStore } = require('./fields.js');
 const { BoundaryRecorder } = require('./boundary-recorder.js');
 const { HeadlandLink } = require('./headland.js');
@@ -95,7 +97,12 @@ function parseXml(text) {
     const node = { name, attrs: {}, children: [] };
     let a;
     attrRe.lastIndex = 0;
-    while ((a = attrRe.exec(attrText)) !== null) node.attrs[a[1]] = typed(decodeEntities(a[2]));
+    while ((a = attrRe.exec(attrText)) !== null) {
+      const value = decodeEntities(a[2]);
+      // Positional masks are strings, including their leading zeroes.
+      const mask = (name === 'implement' && (a[1] === 'areas' || a[1] === 'processing')) || (name === 'section' && a[1] === 'rows');
+      node.attrs[a[1]] = mask ? value : typed(value);
+    }
     stack[stack.length - 1].children.push(node);
     if (!selfClose) stack.push(node);
   }
@@ -105,12 +112,27 @@ function parseXml(text) {
 function child(node, name) { return node && node.children.find(c => c.name === name); }
 function children(node, name) { return node ? node.children.filter(c => c.name === name) : []; }
 
+function implementFromNode(node) {
+  const { areas, processing, ...attrs } = node.attrs;
+  return {
+    ...attrs,
+    areas: String(areas ?? '').split('').map(c => c === '1'),
+    processing: typeof processing === 'string' ? [...processing].map(c => c === '1' ? true : c === '0' ? false : null) : null,
+    fills: children(node, 'fill').map(f => f.attrs),
+    geometry: children(node, 'area').map(a => a.attrs),
+    seeder: seederFromNode(child(node, 'seeder')),
+    section: sectionFromNode(child(node, 'section')),
+    tillage: child(node, 'tillage')?.attrs || null,
+    sprayer: child(node, 'sprayer')?.attrs || null,
+  };
+}
+
 function telemetryFromXml(text) {
   const g5 = parseXml(text);
   if (!g5 || g5.name !== 'g5') throw new Error('not a G5Link telemetry file');
-  const implementsNode = child(g5, 'implements');
   return {
     seq: g5.attrs.seq,
+    session: g5.attrs.session ?? null,
     version: g5.attrs.version,
     state: g5.attrs.state,       // vehicle | onfoot | unloaded
     time: g5.attrs.time,
@@ -118,15 +140,7 @@ function telemetryFromXml(text) {
     game: (child(g5, 'game') || {}).attrs || {},
     vehicle: (child(g5, 'vehicle') || {}).attrs || null,
     work: (child(g5, 'work') || {}).attrs || {},
-    implements: children(implementsNode, 'implement').map(n => ({
-      ...n.attrs,
-      areas: String(n.attrs.areas ?? '').split('').map(c => c === '1'),
-      fills: children(n, 'fill').map(f => f.attrs),
-      geometry: children(n, 'area').map(a => a.attrs),
-      seeder: seederFromNode(child(n, 'seeder')),
-      section: sectionFromNode(child(n, 'section')),
-      tillage: (child(n, 'tillage') || {}).attrs || null,
-    })),
+    implements: children(child(g5, 'implements'), 'implement').map(implementFromNode),
     combine: (child(g5, 'combine') || {}).attrs || null,
     rh: rhFromNode(child(g5, 'rh')),
     controls: controlsFromNode(child(g5, 'controls')),
@@ -150,44 +164,43 @@ function gnssFromNode(n) {
 function fleetFromXml(text) {
   const root = parseXml(text);
   if (!root || root.name !== 'fleet') throw new Error('not a G5Link fleet file');
-  return { seq: root.attrs.seq, vehicles: children(root, 'vehicle').map(n => ({
+  return { seq: root.attrs.seq, session: root.attrs.session ?? null, time: root.attrs.time, save: root.attrs.save, vehicles: children(root, 'vehicle').map(n => ({
     id: String(n.attrs.id),
     vehicle: { ...n.attrs },
-    implements: children(child(n, 'implements'), 'implement').map(m => ({
-      ...m.attrs,
-      areas: String(m.attrs.areas ?? '').split('').map(c => c === '1'),
-      fills: children(m, 'fill').map(f => f.attrs),
-      geometry: children(m, 'area').map(a => a.attrs),
-      seeder: seederFromNode(child(m, 'seeder')),
-      section: sectionFromNode(child(m, 'section')),
-      tillage: (child(m, 'tillage') || {}).attrs || null,
-    })),
+    implements: children(child(n, 'implements'), 'implement').map(implementFromNode),
     combine: (child(n, 'combine') || {}).attrs || null,
     rh: rhFromNode(child(n, 'rh')),
   })) };
 }
-let fleetSeq = null, fleetSeen = new Set(), fleet = [];
+let fleetKey = null, fleetSeen = new Set(), fleet = [];
 function pollFleet() {
   let text;
   try { text = fs.readFileSync(FLEET, 'utf8'); } catch (e) { return; }
   let f;
   try { f = fleetFromXml(text); } catch (e) { return; }   // half-written: next poll
-  if (f.seq === fleetSeq) return;
-  fleetSeq = f.seq;
-  takeFleet(f.vehicles);
+  if (latest.link !== 'live' || !['vehicle', 'onfoot'].includes(latest.state)) return;
+  if (f.session && f.session !== latest.session || f.save && f.save !== currentSave()) return;
+  const key = JSON.stringify([f.session, f.save, f.seq]);
+  if (fleetKey === key) return;
+  fleetKey = key;
+  takeFleet(f.vehicles, f);
 }
 // Records each working machine's coverage under its own id; machines that stopped are closed off.
-function takeFleet(vehicles) {
+function takeFleet(vehicles, source) {
   const seen = new Set();
+  const visible = [];
   for (const fv of vehicles) {
+    if (fv.id === String(latest.vehicle?.id ?? '')) continue;
     seen.add(fv.id);
-    const frame = { state: 'vehicle', game: latest.game, workSetup: latest.workSetup, providers: null, vehicle: fv.vehicle,
+    visible.push(fv);
+    const frame = { state: 'vehicle', session: source.session ?? latest.session, seq: source.seq, time: source.time,
+      game: latest.game, workSetup: latest.workSetup, providers: null, vehicle: fv.vehicle,
       implements: fv.implements, combine: fv.combine, rh: fv.rh };
     try { mapStore().onFrame(frame, 'm:' + fv.id); } catch (e) { console.warn('Fleet map recording failed:', e.message); }
   }
   for (const id of fleetSeen) if (!seen.has(id)) { try { mapStore().onFrame(null, 'm:' + id); } catch (e) { /* ignore */ } }
   fleetSeen = seen;
-  fleet = vehicles.map(v => ({ id: v.id, name: v.vehicle.name, ai: v.vehicle.ai, x: v.vehicle.x, z: v.vehicle.z, field: v.vehicle.field,
+  fleet = visible.map(v => ({ id: v.id, name: v.vehicle.name, ai: v.vehicle.ai, x: v.vehicle.x, z: v.vehicle.z, field: v.vehicle.field,
     working: v.implements.some(i => i.areas.some(Boolean)) }));
 }
 
@@ -221,7 +234,7 @@ function rhFromNode(n) {
 
 // ---------------------------------------------------------------- state + SSE
 let latest = { state: 'waiting', link: 'waiting' };
-let lastSeq = null;
+let lastTelemetryKey = null;
 let lastSeqAt = 0;
 const clients = new Set();
 
@@ -281,16 +294,68 @@ function updateOpsTelemetry() {
   latest.ops = { fields: fieldStore().version, boundary: boundaryRecorder.status(currentSave(), latest) };
 }
 
+function workStateFor(frame) {
+  if (frame.link !== 'live') return { state: 'paused', reason: 'Telemetry paused' };
+  if (frame.state !== 'vehicle') return { state: 'unavailable', reason: 'Enter a vehicle' };
+  const tools = (frame.implements || []).filter(tool => tool.areas?.length || tool.sprayer);
+  if (!tools.length) return { state: 'unavailable', reason: 'No working tool data' };
+  if (tools.some(tool => tool.sprayer ? tool.sprayer.applying === true : tool.processing?.includes(true))) return { state: 'active', reason: null };
+  if (tools.some(tool => tool.sprayer ? tool.sprayer.applying === false : tool.processing?.includes(false))) {
+    if (tools.some(tool => tool.sprayer ? tool.sprayer.master : tool.areas.includes(true))) return { state: 'ready', reason: 'Awaiting ground work' };
+    return { state: 'paused', reason: 'Tool is inactive' };
+  }
+  return { state: 'unavailable', reason: 'Ground activity unavailable from this tool' };
+}
+
+function workContextFor(frame, setup) {
+  const tools = frame.implements || [];
+  const byKind = kind => tools.find(tool => tool.operation === kind);
+  const primary = frame.combine ? byKind('harvest') || tools.find(tool => tool.geometry?.length)
+    : byKind('seeding') || tools.find(tool => tool.seeder) || byKind('application') || tools.find(tool => tool.sprayer)
+      || byKind('tillage') || tools.find(tool => tool.tillage);
+  if (!primary) return null;
+  return mapStore().operationOf({ ...frame, workSetup: setup || {} }, primary);
+}
+
+function syncWorkFrame(frame, save, store) {
+  const active = store.activeJob(save);
+  const setup = frame.workSetup || {};
+  const context = workContextFor(frame, setup);
+  const live = frame.link === 'live' && frame.state === 'vehicle' && frame.session && frame.vehicle?.id != null;
+  const field = frame.vehicle?.field;
+  const otherGameField = active && setup.fieldMode !== 'fixed' && /^\d+$/.test(active.fieldId || '') && field != null && String(field) !== active.fieldId;
+  let reason = null;
+  if (!live) reason = 'Waiting for a live machine.';
+  else if (!context) reason = 'Choose a working implement.';
+  else if (active && (operationId(context) !== active.op || otherGameField || (setup.fieldMode === 'fixed' && String(setup.fieldId) !== active.fieldId)
+    || (setup.crop ?? null) !== active.setupCrop || (setup.product ?? null) !== active.setupProduct)) reason = 'Work Setup or machine changed. Finish this job to start another.';
+  const measured = frame.workState?.state;
+  frame.workJob = { eligible: !!live && !!context, reason, active: active ? { id: active.id, title: active.title, field: active.fieldName,
+    state: reason ? 'paused' : measured === 'active' || measured === 'ready' ? measured : 'requested' } : null };
+  return !reason ? active : null;
+}
+
 function setTelemetry(t) {
-  const fresh = t.seq !== lastSeq;
+  const key = JSON.stringify([t.session, t.game?.save, t.seq]);
+  const fresh = key !== lastTelemetryKey;
   if (fresh) {
-    lastSeq = t.seq;
+    if (t.session !== latest.session || t.game?.save !== latest.game?.save) {
+      fleetKey = null;
+      fleetSeen.clear();
+      fleet = [];
+    }
+    lastTelemetryKey = key;
     lastSeqAt = Date.now();
   }
-  latest = { ...t, ...currentExtras(), link: 'live' };
-  try { latest.workSetup = fieldStore().workSetup(currentSave()); } catch (e) { latest.workSetup = null; }
+  latest = { ...t, ...currentExtras(), link: fresh ? 'live' : latest.link };
+  latest.workState = workStateFor(latest);
+  let job = null;
+  try {
+    latest.workSetup = fieldStore().workSetup(currentSave());
+    job = syncWorkFrame(latest, currentSave(), fieldStore());
+  } catch (e) { latest.workSetup = null; }
   if (fresh) {
-    try { mapStore().onFrame(latest); } catch (e) { console.warn('Map recording failed:', e.message); }
+    try { mapStore().onFrame({ ...latest, activeWork: job }); } catch (e) { console.warn('Map recording failed:', e.message); }
     try { boundaryRecorder.onFrame(currentSave(), latest); importGameFields(); } catch (e) { console.warn('Field update failed:', e.message); }
     try { headland().update(latest, fieldStore(), currentSave(), mapStore()); } catch (e) { console.warn('Headland update failed:', e.message); }
   }
@@ -300,6 +365,7 @@ function setTelemetry(t) {
   latest.rtkInfo = DEMO ? demoRtkSummary() : rtkState ? { day: rtkState.day, payer: rtkState.payer || null, gates: rtkState.gates, bases: (rtkState.bases || []).length } : null;
   if (DEMO) latest.headland = demoHeadland(latest);
   latest.map = mapStore().status();
+  latest.passReport = mapStore().passReport();
   updateOpsTelemetry();
   broadcast();
 }
@@ -311,6 +377,14 @@ function heartbeat() {
   const link = !lastSeqAt ? 'waiting' : stale ? 'stale' : 'live';
   if (link !== latest.link) {
     latest = { ...latest, link };
+    latest.workState = workStateFor(latest);
+    syncWorkFrame(latest, currentSave(), fieldStore());
+    if (link === 'stale') {
+      mapStore().interrupt();
+      latest.map = mapStore().status();
+      fleet = [];
+      latest.fleet = fleet;
+    }
     boundaryRecorder.onFrame(currentSave(), latest);
     updateOpsTelemetry();
     broadcast();
@@ -430,7 +504,7 @@ function escAttr(v) {
 
 function writeCommands() {
   const body = cmdQueue.map(c =>
-    `    <cmd id="${c.id}" name="${escAttr(c.name)}" value="${Number(c.value) || 0}" index="${c.index | 0}"${c.arg ? ` arg="${escAttr(c.arg)}"` : ''}/>`
+    `    <cmd id="${c.id}" name="${escAttr(c.name)}" value="${Number(c.value) || 0}" index="${c.index | 0}"${c.arg ? ` arg="${escAttr(c.arg)}"` : ''}${c.target ? ` session="${escAttr(c.target.session)}" save="${escAttr(c.target.save)}" vehicle="${escAttr(c.target.vehicle)}"` : ''}/>`
   ).join('\n');
   const xml = `<?xml version="1.0" encoding="utf-8" standalone="no"?>\n<commands>\n${body}\n</commands>\n`;
   const tmp = COMMANDS + '.tmp';
@@ -448,10 +522,17 @@ function queueCommand(cmd) {
   // arg: "key=value;key=value" text for commands that need more than a number (rtk)
   const arg = typeof cmd.arg === 'string' ? cmd.arg.slice(0, 200).replace(/[^\w=;.\- ]/g, '') : '';
   const entry = { id: nextCmdId++, name: cmd.name, value: Number(cmd.value) || 0, index: cmd.index | 0, arg };
+  if (cmd.target) {
+    const { session, save, vehicle } = cmd.target;
+    if (latest.link !== 'live' || latest.state !== 'vehicle' || !latest.session || session !== latest.session || save !== currentSave()
+      || latest.vehicle?.id == null || String(vehicle) !== String(latest.vehicle.id)) throw new Error('Machine or save changed.');
+    entry.target = { session, save, vehicle: String(vehicle) };
+  }
   if (DEMO) { demoCommand(entry); return entry; }
   cmdQueue.push(entry);
   if (cmdQueue.length > 30) cmdQueue = cmdQueue.slice(-30);
-  writeCommands();
+  try { writeCommands(); }
+  catch (error) { cmdQueue = cmdQueue.filter(c => c !== entry); throw error; }
   return entry;
 }
 
@@ -640,7 +721,7 @@ function demoCombine(t, dt, working, meters) {
   t.vehicle.load = Math.round(Math.min(100, load));
   t.implements = [{
     name: 'Demo HD40F Header', canLower: true, lowered: demo.lowered && !demo.turning, canTurnOn: true, turnedOn: demo.turnedOn,
-    width, areas: [working], fills: [], geometry: demoAreas(1, width, 4.5),
+    id: 'demo-header', operation: 'harvest', width, areas: [demo.lowered], processing: [working], fills: [], geometry: demoAreas(1, width, 4.5),
   }];
   t.combine = { name: 'Demo S7 Combine', tank: Math.round(demo.tank), tankCap: cap, crop: 'WHEAT', cropTitle: 'Wheat', turnedOn: demo.turnedOn };
   t.grainCart = demoGrainCart(dt);
@@ -709,7 +790,7 @@ function demoTillage(t, dt, working) {
   t.vehicle.load = t.vehicle.motorOn ? Math.round(Math.min(100, 24 + draft * 52 + 4 * Math.sin(demo.t / 2600))) : 0;
   t.implements = [{
     name: 'Demo 2230FH Field Cultivator', canLower: true, lowered: demo.lowered && !demo.turning, canTurnOn: false, turnedOn: false,
-    width: 12.19, areas: [working], fills: [], geometry: demoAreas(1, 12.19, -7.5),
+    id: 'demo-cultivator', operation: 'tillage', width: 12.19, areas: [demo.lowered], processing: [working], fills: [], geometry: demoAreas(1, 12.19, -7.5),
     tillage: {
       type: 'cultivator', deep: k.level > 2, subsoil: k.level === 4, level: LEVEL_NAMES[k.level], levels: 'shallow,normal,deep',
       modeSource: 'cultivatorSettings', locked: false, changeAllowed: true,
@@ -719,6 +800,22 @@ function demoTillage(t, dt, working) {
   t.controls.fold.name = 'Demo 2230FH Field Cultivator';
   return t;
 }
+
+function demoSprayer(t, meters, working) {
+  const width = 24, capacity = 1800;
+  const phase = Math.floor(demo.t) % 54000;
+  if (demo.sprayTank === undefined || phase < 3000) demo.sprayTank = capacity;
+  if (working) demo.sprayTank = Math.max(0, demo.sprayTank - meters * width * 0.09);
+  const tank = { title: 'Liquid Fertilizer', type: 'LIQUIDFERTILIZER', level: +demo.sprayTank.toFixed(1), cap: capacity };
+  t.vehicle.name = 'Demo Broadcast Sprayer';
+  t.controls.fold.name = t.vehicle.name;
+  t.implements = [{ id: 'demo-boom', name: '24 m Broadcast Boom', operation: 'application', width,
+    canTurnOn: true, turnedOn: demo.turnedOn && phase >= 3000 && phase < 43000, areas: [demo.unfolded], processing: [working],
+    geometry: demoAreas(1, width, -5), fills: [tank], sprayer: { provider: 'demo', master: demo.turnedOn && phase >= 3000 && phase < 43000,
+      applying: working, tank: 1, product: tank.type, level: tank.level, cap: capacity } }];
+  return t;
+}
+
 function demoTick(dt) {
   demo.t += dt;
   if (DEMO_COMBINE) demoAuto(dt);
@@ -727,7 +824,9 @@ function demoTick(dt) {
   const target = !demo.motorOn ? 0 : hlSpeed || (demo.cc ? demo.ccSpeed : 6 + 4 * Math.sin(demo.t / 9000));
   demo.speed += (target - demo.speed) * Math.min(1, dt / 1500);
   const meters = demo.speed / 3.6 * dt / 1000;
-  const working = demo.lowered && demo.unfolded && demo.turnedOn && demo.speed > 0.3 && !demo.turning;
+  const sprayTime = Math.floor(demo.t) % 54000;
+  const working = demo.lowered && demo.unfolded && demo.turnedOn && demo.speed > 0.3 && !demo.turning
+    && (!DEMO_SPRAYER || sprayTime >= 7000 && sprayTime < 43000 && (demo.sprayTank ?? 1800) > 0);
   const burn = demo.motorOn ? (working ? 38 : 12) / 3600 * dt / 1000 : 0; // l per tick
   demo.fuel = Math.max(0, demo.fuel - burn);
   demo.def = Math.max(0, demo.def - burn * 0.05);
@@ -735,7 +834,7 @@ function demoTick(dt) {
   demo.work.totalDistance += meters;
   demo.work.totalFuel += burn;
   if (working) {
-    demo.work.area += 12.19 * meters;
+    demo.work.area += (DEMO_SPRAYER ? 24 : 12.19) * meters;
     demo.work.time += dt;
     demo.work.distance += meters;
     demo.work.fuelUsed += burn;
@@ -744,11 +843,11 @@ function demoTick(dt) {
   const rpm = demo.motorOn ? 850 + demo.speed * 55 + (working ? 250 : 0) : 0;
   const minutes = 6 * 60 + Math.floor(demo.t / 2500);
   const frame = ({
-    seq: Math.floor(demo.t / 250), version: 'demo', state: 'vehicle', time: Math.floor(demo.t),
+    seq: Math.floor(demo.t / 250), version: 'demo', session: 'demo-local', state: 'vehicle', time: Math.floor(demo.t),
     lastCmd: demo.lastCmd || 0,
     game: { day: DEMO_DAY, hour: Math.floor(minutes / 60) % 24, minute: minutes % 60 },
     vehicle: {
-      name: 'Demo 8R Tractor', speed: +demo.speed.toFixed(1), motorOn: demo.motorOn, ai: false, onField: true,
+      id: 'demo-machine', name: 'Demo 8R Tractor', speed: +demo.speed.toFixed(1), motorOn: demo.motorOn, ai: false, onField: true,
       rpm: Math.round(rpm), maxRpm: 2100, load: demo.motorOn ? Math.round(working ? 62 + 8 * Math.sin(demo.t / 3000) : 18) : 0,
       gear: demo.speed > 0.2 ? 'D' : 'N', cvt: true, dir: demo.speed > 0.2 ? 1 : 0,
       ccState: demo.cc, ccSpeed: demo.ccSpeed, ccMax: 40,
@@ -756,8 +855,9 @@ function demoTick(dt) {
       damage: 12.5, hours: 1287.4, x: +demo.x.toFixed(1), z: +demo.z.toFixed(1), heading: Math.round(demo.heading), farmland: 23,
     },
     implements: [{
-      name: 'Demo 1775NT Planter', canLower: true, lowered: demo.lowered && !demo.turning, canTurnOn: true, turnedOn: demo.turnedOn,
+      name: 'Demo 1775NT Planter', id: 'demo-seeder', operation: 'seeding', canLower: true, lowered: demo.lowered && !demo.turning, canTurnOn: true, turnedOn: demo.turnedOn,
       width: 12.19, areas: demoRowStates(working).map(c => working && c === '1'),
+      processing: demoRowStates(working).map(c => working && c === '1'),
       geometry: demoAreas(16, 12.19, -7.5),
       section: demoSectionBlock(working),
       fills: [{ title: 'Seeds', type: 'SEEDS', level: +demo.seed.toFixed(1), cap: 2800 }, { title: 'Liquid Fertilizer', type: 'LIQUIDFERTILIZER', level: 1600, cap: 2271 }],
@@ -769,7 +869,7 @@ function demoTick(dt) {
     },
     harvestAuto: DEMO_COMBINE ? { on: demo.auto.on, state: demo.auto.state, max: demo.auto.max, target: demo.auto.target ?? undefined, source: demo.auto.on ? 'rh' : undefined } : { on: false, state: 'off', max: 10 },
     work: {
-      recording: working, area: Math.round(demo.work.area), time: Math.round(demo.work.time / 1000),
+      recording: working, counterEpoch: demo.workEpoch || 0, area: Math.round(demo.work.area), time: Math.round(demo.work.time / 1000),
       distance: Math.round(demo.work.distance), totalDistance: Math.round(demo.work.totalDistance),
       fuelUsed: +demo.work.fuelUsed.toFixed(2), totalFuel: +demo.work.totalFuel.toFixed(2),
     },
@@ -792,7 +892,7 @@ function demoTick(dt) {
   if (!DEMO_COMBINE && !DEMO_TILLAGE) frame.rate = { system: 'sf', auto: arx ? false : demo.rate.auto, value: steps[demo.rate.idx - 1], steps: steps.join(','),
     rx: arx ? arx.id : undefined, rxName: arx ? arx.name : undefined, rxActive: !!arx && working,
     rxRate: arx && working ? arx.rates[Math.floor(demo.t / 20000) % arx.zones] : undefined };
-  if (!DEMO_COMBINE && !DEMO_TILLAGE) {
+  if (!DEMO_COMBINE && !DEMO_TILLAGE && !DEMO_SPRAYER) {
     const r = demo.rtkState;
     frame.section = { allowed: !!r.section || !r.gates, need: r.section || !r.gates ? undefined : 'activation', on: demo.section.on, overlap: demo.section.overlap,
       overlapName: ['Minimize Skips', '50% Covered', 'Minimize Overlap'][demo.section.overlap], implements: 1 };
@@ -805,7 +905,9 @@ function demoTick(dt) {
     ? { state: demo.turning && gs && gs.turn.on ? 'turning' : 'engaged', stage: 4, track: gs.track.id, pass: 3, xte: +(0.02 * Math.sin(demo.t / 4000)).toFixed(3), turnOn: gs.turn.on, turns: Math.floor(demo.t / 60000) }
     : { state: hasTrack ? 'ready' : 'notReady', stage: !hasTrack ? 1 : steerOn ? 3 : 2, reason: !hasTrack ? 'noTrack' : steerOn ? undefined : 'steerOff', last: demo.atExit, turnOn: !!(gs && gs.turn.on), turns: 0 },
   { steerOn, sens: gs ? gs.sens : 70, diag: Object.entries(diag).map(([k, v]) => k + '=' + v).join(';') });
-  setTelemetry(demoGnss(DEMO_COMBINE ? demoCombine(frame, dt, working, meters) : DEMO_TILLAGE ? demoTillage(frame, dt, working) : frame, dt));
+  const machine = DEMO_COMBINE ? demoCombine(frame, dt, working, meters) : DEMO_TILLAGE ? demoTillage(frame, dt, working)
+    : DEMO_SPRAYER ? demoSprayer(frame, meters, working) : frame;
+  setTelemetry(demoGnss(machine, dt));
 }
 
 // Demo planter row clutches: row 6 switched off now and then; with Section Control on (activation bought,
@@ -1068,7 +1170,8 @@ const server = http.createServer((req, res) => {
         const f = store.field(save, u.searchParams.get('id'));
         return f ? json(200, { field: f, records: store.records(save, f.id) }) : json(404, { error: 'no such field' });
       }
-      if (u.pathname === '/api/ops/records') return json(200, { records: store.records(save) });
+      if (u.pathname === '/api/ops/records') return json(200, { save, records: store.records(save) });
+      if (u.pathname === '/api/ops/jobs') return json(200, { save, jobs: store.jobs(save, u.searchParams.get('id')) });
       if (u.pathname === '/api/ops/profit') return json(200, { ...store.profit(save, economy), economyAge: economy ? 'live' : null });
       if (u.pathname === '/api/ops/tracks') {
         const fid = u.searchParams.get('field');
@@ -1102,6 +1205,27 @@ const server = http.createServer((req, res) => {
         throw new Error('unknown action');
       });
       if (u.pathname === '/api/ops/work-setup') return post(c => ({ workSetup: store.setWorkSetup(save, c) }));
+      if (u.pathname === '/api/ops/jobs') return post(c => {
+        if (c.save !== currentSave() || save !== currentSave() || c.session !== latest.session
+          || String(c.vehicle) !== String(latest.vehicle?.id) || latest.link !== 'live' || latest.state !== 'vehicle' || !latest.session || latest.vehicle?.id == null) {
+          throw new Error('The save or machine changed. Reopen Work Setup.');
+        }
+        let job;
+        if (c.action === 'start') {
+          const setup = store.prepareWorkSetup(save, c.setup || {});
+          const context = workContextFor(latest, setup);
+          if (!context) throw new Error('Choose a working implement first.');
+          const fieldId = setup.fieldMode === 'fixed' ? setup.fieldId : store.fieldAt(save, latest.vehicle.x, latest.vehicle.z)?.id ?? null;
+          if (setup.fieldMode === 'fixed' && !fieldId) throw new Error('Choose a field or use Automatic.');
+          job = store.startJob(save, { ...context, op: operationId(context), fieldId, client: setup.client, farm: setup.farm,
+            setupProduct: setup.product, setupCrop: setup.crop }, setup);
+          latest.workSetup = store.workSetup(save);
+        } else if (c.action === 'finish') job = store.finishJob(save, String(c.id));
+        else throw new Error('Unknown job action.');
+        syncWorkFrame(latest, save, store);
+        broadcast();
+        return { job: { id: job.id, title: job.title }, workSetup: latest.workSetup };
+      });
       if (u.pathname === '/api/ops/headland') return post(c => ({ headland: store.setHeadland(save, c) }));
       if (u.pathname === '/api/ops/rx') return post(c => {
         let out;

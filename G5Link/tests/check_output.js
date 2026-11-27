@@ -13,6 +13,21 @@ function eq(a, b, label) { check(a === b, `${label}: expected ${JSON.stringify(b
 const dirOf = s => path.join(OUT, s, 'modSettings', 'FS25_G5Link');
 const read = (s, f) => fs.readFileSync(path.join(dirOf(s), f), 'utf8');
 
+{
+  const impl = '<implement areas="0010" processing="0?10"><section lanes="4" rows="0010"/></implement>';
+  const frame = telemetryFromXml(`<g5 session="test-load" seq="1"><implements>${impl}</implements></g5>`);
+  const tool = frame.implements[0];
+  eq(frame.session, 'test-load', 'telemetry has a stable load identity');
+  eq(tool.areas.join(','), 'false,false,true,false', 'work-area leading zeroes preserve positions');
+  eq(JSON.stringify(tool.processing), '[false,null,true,false]', 'processing retains known and unknown observations');
+  eq(tool.section.states.join(''), '0010', 'section states preserve leading inactive lanes');
+  const fleet = fleetFromXml(`<fleet session="test-load" seq="1" time="500" save="savegame3"><vehicle id="worker"><implements>${impl}</implements></vehicle></fleet>`);
+  eq(fleet.session, frame.session, 'fleet and driven source share the load identity');
+  eq(fleet.time, 500, 'fleet supplies a source time');
+  eq(fleet.save, 'savegame3', 'fleet supplies a save key');
+  eq(fleet.vehicles[0].implements[0].areas.join(','), tool.areas.join(','), 'fleet uses the same positional masks');
+}
+
 // Scenario 1: vanilla tractor (the last telemetry is the "unloaded" idle file)
 {
   const t = telemetryFromXml(read('vanilla_tractor', 'telemetry.xml'));

@@ -147,6 +147,47 @@ try {
 }
 
 const eq = (a, b, label) => check(a === b, `${label}: expected ${b}, got ${a}`);
+
+// Observe a true gap, two fore-aft planes and a second operation during the same pass.
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'g5cov-planes-'));
+  try {
+    const store = new CoverageStore({ dir, persist: true });
+    const frameAt = (x, seq, { time = seq * 250, active = true, session = 'load-a' } = {}) => {
+      const t = frame({ x, z: 0, heading: 90, fills: [] });
+      const plane = (i, fore, lo, hi) => ({ i, sx: x + fore, wx: x + fore, sz: lo, wz: hi });
+      return { ...t, session, time, seq, vehicle: { ...t.vehicle, id: 'tractor' }, implements: [
+        { id: 'cult', operation: 'tillage', tillage: { type: 'cultivator' }, areas: [true, true, true, true], processing: [active, false, active, active],
+          geometry: [plane(0, 1, -4, -2), plane(1, 1, -2, 0), plane(2, 1, 0, 4), plane(3, -2, 0, 4)] },
+        { id: 'spray', operation: 'application', sprayer: { product: 'WATER', applying: active }, areas: [true], geometry: [plane(0, 0, -4, 4)] },
+      ] };
+    };
+    store.onFrame(frameAt(0, 1));
+    check(store.list().ops.length === 0, 'first or stationary pose does not paint');
+    store.onFrame(frameAt(1, 2));
+    store.onFrame(frameAt(2, 3));
+    store.onFrame(frameAt(3, 3), 'm:tractor');
+    const t = store.frames('tillage:cultivator').frames;
+    eq(t.length, 2, 'fleet cannot duplicate the driven machine');
+    check(t.every(f => f.q.length === 3), 'two planes and inactive lane remain distinct');
+    check(t.every(f => f.q.every(q => !(Math.min(q[1], q[3]) < 0 && Math.max(q[1], q[3]) > -2))), 'inactive lane stays clear');
+    eq(new Set(t.map(f => f.p)).size, 1, 'tillage keeps its pass while another operation is active');
+    eq(new Set(store.frames('application:water').frames.map(f => f.p)).size, 1, 'application keeps its own pass');
+    store.onFrame(frameAt(3, 4, { active: false }));
+    store.onFrame(frameAt(4, 5));
+    store.onFrame(frameAt(5, 6, { time: 10000 }));
+    store.onFrame(frameAt(6, 1, { session: 'load-b' }));
+    store.onFrame(frameAt(7, 2, { session: 'load-b' }));
+    const live = store.frames('tillage:cultivator').frames;
+    eq(live.length, 3, 'stopped tool, long gap and restarted session do not paint connecting strips');
+    store.flush(Date.now(), true);
+    const reopened = new CoverageStore({ dir, persist: true });
+    reopened.onFrame({ state: 'onfoot', session: 'load-b', game: { save: 'savegame1' } });
+    eq(JSON.stringify(reopened.frames('tillage:cultivator').frames), JSON.stringify(live), 'replay reopens the exact accepted geometry and pass IDs');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
 // Tillage: operation named by tool type, depth recorded per frame
 {
   const store = new CoverageStore({ persist: false });

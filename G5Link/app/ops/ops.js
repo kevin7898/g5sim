@@ -794,16 +794,33 @@ function renderLegend() {
 }
 
 // Work Analyzer: records across fields
+let workRequest = 0;
 async function loadWork() {
-  try { const r = await api('/api/ops/records'); S.work = r.records; renderWork(); } catch (e) { /* offline */ }
+  const request = ++workRequest;
+  const [history, jobs] = await Promise.allSettled([api('/api/ops/records'), api('/api/ops/jobs')]);
+  if (request !== workRequest || S.page !== 'analyze') return;
+  const current = r => r.status === 'fulfilled' && (!r.value.save || r.value.save === S.summary?.save);
+  if (current(history)) S.work = history.value.records;
+  S.workJobs = current(jobs) ? jobs.value.jobs : [];
+  renderWork();
 }
 function renderWork() {
   setHtml($('workChips'), Object.entries(KIND).map(([k, l]) =>
     `<button class="chip ${S.workKind === k ? 'on' : ''}" data-kind="${k}"><i style="background:${KIND_COLOR[k]}"></i>${l}</button>`).join(''));
   const recs = (S.work || []).filter(r => !S.workKind || r.kind === S.workKind);
+  const jobs = (S.workJobs || []).filter(j => !S.workKind || j.kind === S.workKind);
+  const jobList = jobs.length ? `<h4 class="jobs-group">Work Jobs</h4>${jobs.slice().reverse().map(j => {
+    const t = j.totals;
+    const stats = t ? [t.fieldHa != null ? `Field ${area(t.fieldHa)}` : null, t.overlapHa > 0 ? `Overlap ${area(t.overlapHa)}` : null,
+      t.remainingHa != null ? `Remaining ${area(t.remainingHa)}` : null, t.outsideHa > 0 ? `Outside ${area(t.outsideHa)}` : null,
+      t.appliedHa != null ? `Applied ${area(t.appliedHa)}` : null].filter(Boolean).join(' · ') : '';
+    return `<div class="row"><i class="wk ${esc(j.kind)}"></i><div class="nm"><b>${esc(j.title)}</b>
+      <span>${esc(j.fieldName || 'No field selected')}${j.boundaryVersion != null ? ` · Boundary ${j.boundaryVersion}` : ''} · ${j.finished ? 'Finished' : 'Open'}</span>
+      ${stats ? `<span>${esc(stats)}</span>` : ''}</div><span class="num">${t ? area(t.workedHa) : '—'}</span></div>`;
+  }).join('')}<h4 class="jobs-group">Operation History</h4>` : '';
   const prop = S.proposal && S.proposal.newField ? `<div class="proposal" style="margin:8px 14px">New field from a previous operation: ${area(S.proposal.areaHa)}
       <div class="acts"><button class="btn primary" id="newSave">Save as New Field</button><button class="btn" id="newDrop">Discard</button></div></div>` : '';
-  setHtml($('workList'), prop + (recs.length ? recs.map(r => `
+  setHtml($('workList'), prop + jobList + (recs.length ? recs.map(r => `
     <div class="row" ${r.field ? `data-field="${esc(r.field)}"` : ''}><i class="wk ${r.kind}"></i>
       <div class="nm"><b>${esc(r.title)}</b><span>${esc(r.fieldName)}${dayTxt(r.firstDay) ? ' · ' + dayTxt(r.firstDay) : ''}${r.lastDay !== r.firstDay && dayTxt(r.lastDay) ? ' – ' + dayTxt(r.lastDay) : ''}</span>
         <span>${esc(recordValues(r))}</span>${r.field ? '' : '<span><button class="linkbtn" data-pick="1">Create a field from this coverage</button></span>'}</div>

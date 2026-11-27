@@ -14,7 +14,8 @@ const CELL = 1;                 // m, overlap grid
 const TILE = 64;                // cells per tile side
 const MAX_STEP = 8;             // m between frames before a sweep is treated as a jump
 const TURN_DEG = 100;           // heading change from the pass start that starts a new pass
-const RUN_JOIN = 0.35;          // m: work areas closer than this are merged into one swath
+const ENDPOINT_TOLERANCE = 0.04; // m, work-area corners arrive rounded to centimetres
+const MAX_FRAME_GAP = 2000;      // ms of mission time
 const FLUSH_MS = 2000;
 const FRAME_LIMIT = 20000;      // frames per /api/map/frames response
 
@@ -26,6 +27,7 @@ const CROP_NAMES = { WV_SPRINGWHEAT: 'Spring Wheat', WV_WINTERWHEAT: 'Winter Whe
 const title = s => CROP_NAMES[String(s || '').toUpperCase()] || String(s || '').toLowerCase().replace(/(^|[\s_-])([a-z])/g, (m, a, b) => (a ? ' ' : '') + b.toUpperCase()).trim();
 
 // Value keys a frame can carry. The display maps these to layers and colors.
+const operationId = ({ kind, product, variety }) => kind + (product ? ':' + slug(product) : '') + (variety ? ':' + slug(variety) : '');
 const VALUE_KEYS = ['speed', 'yield', 'moisture', 'loss', 'rate', 'seedLph', 'skips', 'doubles', 'singulation', 'cv', 'depth',
   'soilMoisture', 'compaction', 'yieldPotential', 'soilN', 'soilP', 'soilK', 'soilPH', 'tillDepth'];
 // Tillage tool types the mod reports (Controls.lua getTillage).
@@ -172,9 +174,12 @@ class CoverageStore {
     // per machine ('driven' = the player's, 'm:<uniqueId>' = AI workers and other machines from fleet.xml):
     // {track: Map(implement key -> {runs}), pass: {id, heading, working, op, x, z}}
     this.machines = new Map();
+    this.drivenId = null;
+    this.session = null;
+    this.counter = null;
+    this.jobView = null;
     this.passSeq = 0;            // pass ids are unique across machines
     this.rates = new Map();      // implement key -> {level, area, rate}
-    this.soil = null;
     this.lastFlush = 0;
   }
 
@@ -202,7 +207,13 @@ class CoverageStore {
         try { rec = JSON.parse(line); } catch (e) { continue; }   // a torn last line after a crash
         if (rec.meta) { op = new Operation(rec.meta.id, rec.meta); m.set(op.id, op); continue; }
         if (op && Array.isArray(rec.q)) {
-          op.addFrame(rec.m ? { p: rec.p, h: rec.h, d: rec.d, q: rec.q, v: rec.v || {}, m: rec.m } : { p: rec.p, h: rec.h, d: rec.d, q: rec.q, v: rec.v || {} }, false);
+          const frame = { p: rec.p, h: rec.h, d: rec.d, q: rec.q, v: rec.v || {} };
+          if (rec.m) frame.m = rec.m;
+          if (typeof rec.job === 'string') frame.job = rec.job;
+          if (Number.isFinite(rec.dt)) frame.dt = rec.dt;
+          if (Number.isFinite(rec.dist)) frame.dist = rec.dist;
+          if (rec.application === true) frame.application = true;
+          op.addFrame(frame, false);
           this.passSeq = Math.max(this.passSeq, (rec.p || 0) + 1);
         }
       }
@@ -230,44 +241,55 @@ class CoverageStore {
     const fills = impl.fills || [];
     const ws = t.workSetup || {};
     const seed = fills.find(f => /SEED/i.test(f.type || f.title || ''));
-    if (impl.seeder || seed) {
+    if (impl.operation === 'seeding' || impl.seeder || seed && !impl.operation) {
       // crop from the seeder, else the Work Setup; the Work Setup variety splits maps per variety (like the G5)
-      const crop = (impl.seeder && impl.seeder.crop) || ws.crop;
+      const crop = impl.seeder?.crop || impl.stockCrop || ws.crop;
       return { kind: 'seeding', product: crop || '', variety: ws.variety || null,
         title: 'Seeding' + (crop ? ' · ' + title(crop) : '') + (ws.variety ? ' · ' + ws.variety : ''),
         rateUnit: impl.seeder ? (impl.seeder.unit === 'poundsPerAcre' ? 'lb/ac' : 'seeds/ac') : 'L/ha' };
     }
     const product = fills.find(f => f.level > 0) || fills[0];
-    if (impl.tillage && impl.tillage.type && !(product && impl.turnedOn)) {
+    if (impl.tillage?.type && impl.operation !== 'application' && (impl.operation === 'tillage' || !(product && impl.turnedOn))) {
       const tool = TILL_NAMES[impl.tillage.type] || title(impl.tillage.type);
       return { kind: 'tillage', product: impl.tillage.type, title: 'Tillage · ' + tool };
     }
-    if (product && impl.turnedOn) {
-      return { kind: 'application', product: product.type || product.title, title: 'Application · ' + (product.title || title(product.type)), rateUnit: 'L/ha' };
+    if (impl.operation === 'application' || product && impl.turnedOn) {
+      const applied = impl.sprayer?.product || product?.type || product?.title || '';
+      return { kind: 'application', product: applied, title: 'Application' + (applied ? ' · ' + title(applied) : ''), rateUnit: 'L/ha' };
     }
     return { kind: 'tillage', product: '', title: 'Tillage' };
   }
 
-  // Swath runs of one implement this frame: merged active work areas, ends ordered left to right.
-  runsOf(impl, v) {
+  // Keep area identity across samples. Width alone cannot identify two fore-aft work planes.
+  spansOf(impl, v) {
     const r = { x: Math.cos(rad(v.heading || 0)), z: Math.sin(rad(v.heading || 0)) };
     const lat = (x, z) => (x - v.x) * r.x + (z - v.z) * r.z;
-    const segs = [];
+    const spans = new Map();
+    if (impl.sprayer?.applying === false) return spans;
     (impl.geometry || []).forEach(g => {
       const i = g.i ?? 0;
       if (!impl.areas || !impl.areas[i]) return;
-      if ([g.sx, g.sz, g.wx, g.wz].some(n => typeof n !== 'number')) return;
+      if (impl.processing?.[i] === false && impl.sprayer?.applying !== true) return;
+      if (![g.sx, g.sz, g.wx, g.wz].every(Number.isFinite)) return;
       const ls = lat(g.sx, g.sz), lw = lat(g.wx, g.wz);
-      segs.push(ls <= lw ? { l0: ls, l1: lw, a: [g.sx, g.sz], b: [g.wx, g.wz] } : { l0: lw, l1: ls, a: [g.wx, g.wz], b: [g.sx, g.sz] });
+      spans.set(i, ls <= lw ? { l: ls, a: [g.sx, g.sz], b: [g.wx, g.wz] } : { l: lw, a: [g.wx, g.wz], b: [g.sx, g.sz] });
     });
-    segs.sort((p, q) => p.l0 - q.l0);
-    const runs = [];
-    for (const s of segs) {
-      const last = runs[runs.length - 1];
-      if (last && s.l0 <= last.l1 + RUN_JOIN) { if (s.l1 > last.l1) { last.l1 = s.l1; last.b = s.b; } }
-      else runs.push({ ...s });
+    return spans;
+  }
+
+  sweepsBetween(previous, current) {
+    const distance = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+    const strips = [];
+    for (const [id, to] of [...current.entries()].sort(([, a], [, b]) => a.l - b.l)) {
+      const from = previous.get(id);
+      if (!from) continue;
+      const step = Math.max(distance(from.a, to.a), distance(from.b, to.b));
+      if (step < 0.02 || step > MAX_STEP) continue;
+      const left = strips.find(strip => distance(strip.fromB, from.a) < ENDPOINT_TOLERANCE && distance(strip.toB, to.a) < ENDPOINT_TOLERANCE);
+      if (left) { left.fromB = from.b; left.toB = to.b; }
+      else strips.push({ fromA: from.a, fromB: from.b, toA: to.a, toB: to.b });
     }
-    return { runs, lat };
+    return strips.map(s => [...s.fromA, ...s.fromB, ...s.toB, ...s.toA].map(n => +n.toFixed(2))).filter(q => quadArea(q) > 0.001);
   }
 
   // Values recorded with this frame's swaths.
@@ -291,7 +313,7 @@ class CoverageStore {
       if (num(sd.compaction) !== undefined) set('compaction', sd.compaction * 100, 1);
       set('yieldPotential', sd.yieldPotential, 1);
       set('seedLph', sd.lph, 2);                 // seed litres per hectare at the set rate (for seed cost)
-    } else if (op.kind === 'seeding' || op.kind === 'application') {
+    } else if (op.kind === 'seeding' || op.kind === 'application' && !impl.sprayer) {
       // As-applied rate from the product leaving the tank over the area worked (L/ha).
       const fill = (impl.fills || []).find(f => op.kind === 'seeding' ? /SEED/i.test(f.type || f.title || '') : (f.type || f.title) === op.product);
       let st = this.rates.get(key);
@@ -307,89 +329,157 @@ class CoverageStore {
       } else if (fill) st.level = fill.level;
       set('rate', st.rate, 1);
     }
-    if (this.soil) { set('soilN', this.soil.n, 0); set('soilP', this.soil.p, 0); set('soilK', this.soil.k, 0); set('soilPH', this.soil.ph, 2); }
+    const soil = t.providers?.['soil-fertilizer']?.values;
+    if (soil) { set('soilN', soil.nitrogen?.value, 0); set('soilP', soil.phosphorus?.value, 0); set('soilK', soil.potassium?.value, 0); set('soilPH', soil.pH, 2); }
     return v;
   }
 
   machine(id) {
     let m = this.machines.get(id);
-    if (!m) { m = { track: new Map(), pass: { id: -1, heading: null, working: false, op: null, x: null, z: null } }; this.machines.set(id, m); }
+    if (!m) { m = { track: new Map(), passes: new Map(), source: null, position: null, time: null, seq: null, job: null }; this.machines.set(id, m); }
     return m;
   }
-  // t: a telemetry frame (the driven machine) or a fleet frame of the same shape; machineId keeps their passes apart
-  onFrame(t, machineId = 'driven') {
+
+  interrupt() {
+    this.machines.clear();
+    this.drivenId = null;
+    this.current = null;
+    this.rates.clear();
+    this.flush(Date.now(), true);
+  }
+  // A vehicle may move between the driven and fleet feeds. The next source starts a fresh sweep.
+  onFrame(t, source = 'driven') {
     const now = Date.now();
-    const ms = this.machine(machineId);
-    if (!t || t.state !== 'vehicle' || !t.vehicle || typeof t.vehicle.x !== 'number') {
-      ms.track.clear();
-      ms.pass.working = false;
-      if (machineId === 'driven') this.current = null;
+    const driven = source === 'driven';
+    if (t?.game?.save || t?.state === 'vehicle') {
+      const save = t.game?.save || 'unsaved';
+      const session = t.session ?? null;
+      if (save !== this.save || session !== this.session) {
+        this.interrupt();
+        this.save = save;
+        this.session = session;
+      }
+    }
+    const v = t?.vehicle;
+    if (t?.state !== 'vehicle' || !Number.isFinite(v?.x) || !Number.isFinite(v?.z)) {
+      const id = driven ? this.drivenId : source;
+      // A late empty fleet report must not interrupt the driver's current pose.
+      if (id && (driven || this.machines.get(id)?.source !== 'driven')) this.machines.delete(id);
+      if (driven) { this.drivenId = null; this.current = null; }
       this.flush(now);
       return;
     }
-    const save = (t.game && t.game.save) || 'unsaved';
-    if (save !== this.save) { this.flush(now, true); this.save = save; for (const m of this.machines.values()) m.track.clear(); }
-    const sv = t.providers && t.providers['soil-fertilizer'] && t.providers['soil-fertilizer'].values;
-    if (sv) this.soil = { n: sv.nitrogen && sv.nitrogen.value, p: sv.phosphorus && sv.phosphorus.value, k: sv.potassium && sv.potassium.value, ph: sv.pH };
+    const id = driven && v.id != null ? `m:${v.id}` : source;
+    if (!driven && id === this.drivenId) return;
+    if (driven && this.drivenId !== id) {
+      if (this.drivenId) this.machines.delete(this.drivenId);
+      this.drivenId = id;
+    }
+    const ms = this.machine(id);
+    if (source === ms.source && t.seq != null && t.seq === ms.seq) return;
+    const distance = ms.position ? Math.hypot(v.x - ms.position[0], v.z - ms.position[1]) : 0;
+    const elapsed = Number.isFinite(t.time) && ms.time !== null ? t.time - ms.time : null;
+    const job = driven ? t.activeWork || null : null;
+    if (source !== ms.source || ms.job !== job?.id || elapsed !== null && (elapsed < 0 || elapsed > MAX_FRAME_GAP) || distance > MAX_STEP) {
+      ms.track.clear();
+      ms.passes.clear();
+    }
+    ms.position = [v.x, v.z];
+    ms.source = source;
+    ms.seq = t.seq;
+    ms.time = Number.isFinite(t.time) ? t.time : null;
+    ms.job = job?.id;
 
-    const v = t.vehicle;
-    const imps = t.implements || [];
-    let workedThisFrame = false;
-    let currentOp = null;
-    imps.forEach((impl, idx) => {
-      const key = machineId + '|' + idx + ':' + (impl.name || '');
-      const { runs, lat } = this.runsOf(impl, v);
-      const prev = ms.track.get(key);
-      ms.track.set(key, { runs });
-      if (!runs.length) return;
-      const opMeta = this.operationOf(t, impl);
-      const opId = opMeta.kind + (opMeta.product ? ':' + slug(opMeta.product) : '') + (opMeta.variety ? ':' + slug(opMeta.variety) : '');
-      currentOp = currentOp || opId;
-      workedThisFrame = true;
-      if (!prev || !prev.runs.length) return;
+    let counterChanged = false;
+    if (driven) {
+      const scope = JSON.stringify([this.save, this.session, id, t.work?.counterEpoch]);
+      counterChanged = this.counter?.scope !== scope;
+      if (counterChanged) this.counter = { scope, areaM2: 0, distanceM: 0, timeS: Number.isFinite(t.time) ? 0 : null };
+    }
 
-      // new pass on a turn-around, a jump, or a change of operation
-      const mid = runs[0].a;
-      const pass = ms.pass;
-      if (!pass.working || pass.op !== opId || pass.heading === null || pass.id < 0
-        || angleDiff(v.heading || 0, pass.heading) > TURN_DEG
-        || (pass.x !== null && Math.hypot(mid[0] - pass.x, mid[1] - pass.z) > MAX_STEP * 2)) {
-        pass.id = this.passSeq++;
-        pass.heading = v.heading || 0;
+    const tracks = new Map(), passes = new Map();
+    const heading = v.heading || 0;
+    let swept = 0;
+    let jobSampleCounted = false;
+    for (const [index, impl] of (t.implements || []).entries()) {
+      const spans = this.spansOf(impl, v);
+      if (!spans.size) continue;
+      const meta = this.operationOf(t, impl);
+      const opId = operationId(meta);
+      const key = `${id}|${impl.id ?? `${index}:${impl.name || ''}`}|${opId}`;
+      tracks.set(key, spans);
+      let pass = passes.get(opId);
+      if (!pass) {
+        pass = ms.passes.get(opId);
+        if (!pass || angleDiff(heading, pass.heading) > TURN_DEG) pass = { id: this.passSeq++, heading };
+        passes.set(opId, pass);
       }
-      pass.working = true; pass.op = opId; pass.x = mid[0]; pass.z = mid[1];
-
-      const quads = [];
-      for (const run of runs) {
-        // previous run with the most lateral overlap, measured on this frame's axis
-        let best = null, bestOv = 0;
-        for (const p of prev.runs) {
-          const p0 = Math.min(lat(...p.a), lat(...p.b)), p1 = Math.max(lat(...p.a), lat(...p.b));
-          const ov = Math.min(run.l1, p1) - Math.max(run.l0, p0);
-          if (ov > bestOv) { bestOv = ov; best = p; }
+      const previous = ms.track.get(key);
+      if (!previous) continue;
+      const quads = this.sweepsBetween(previous, spans);
+      if (!quads.length) continue;
+      const areaM2 = quads.reduce((sum, q) => sum + quadArea(q), 0);
+      swept += areaM2;
+      const op = this.getOp(opId, meta);
+      const day = num(t.game?.day);
+      const frame = { p: pass.id, h: Math.round(heading), d: day, q: quads, v: this.valuesOf(t, impl, meta, key, areaM2) };
+      if (!driven) frame.m = id.replace(/^m:/, '');
+      if (meta.kind === 'application' && impl.sprayer?.applying === true) frame.application = true;
+      if (job?.op === opId) {
+        frame.job = job.id;
+        if (!jobSampleCounted) {
+          frame.dist = distance;
+          if (Number.isFinite(elapsed)) frame.dt = elapsed;
+          jobSampleCounted = true;
         }
-        if (!best) continue;
-        const step = Math.hypot(run.a[0] - best.a[0], run.a[1] - best.a[1]);
-        if (step < 0.02 || step > MAX_STEP) continue;
-        const q = [best.a[0], best.a[1], best.b[0], best.b[1], run.b[0], run.b[1], run.a[0], run.a[1]].map(n => +n.toFixed(2));
-        quads.push(q);
       }
-      if (!quads.length) return;
-      const areaM2 = quads.reduce((s, q) => s + quadArea(q), 0);
-      const op = this.getOp(opId, opMeta);
-      const day = t.game && typeof t.game.day === 'number' ? t.game.day : undefined;
-      const frame = { p: ms.pass.id, h: Math.round(v.heading || 0), d: day, q: quads, v: this.valuesOf(t, impl, opMeta, key, areaM2) };
-      if (machineId !== 'driven') frame.m = machineId.replace(/^m:/, '');   // which machine (AI / fleet)
       op.addFrame(frame, this.persist);
-    });
-    if (!workedThisFrame) ms.pass.working = false;
-    if (machineId === 'driven') this.current = currentOp;
+    }
+    ms.track = tracks;
+    ms.passes = passes;
+    if (driven) {
+      this.current = passes.keys().next().value ?? null;
+      if (swept > 0 && !counterChanged) {
+        this.counter.areaM2 += swept;
+        this.counter.distanceM += distance;
+        if (elapsed > 0 && this.counter.timeS !== null) this.counter.timeS += elapsed / 1000;
+      }
+    }
     this.flush(now);
   }
 
+  passReport() {
+    if (!this.counter) return null;
+    const { areaM2, distanceM, timeS } = this.counter;
+    return { areaM2, distanceM, timeS };
+  }
+
+  jobCoverage(save, job) {
+    const op = this.ops(save).get(job.op);
+    let view = this.jobView;
+    if (!view || view.id !== job.id || view.save !== save || view.source !== op) {
+      view = this.jobView = { id: job.id, save, source: op, cursor: 0, worked: new Operation(job.op, {}),
+        applied: null, distanceM: 0, timeS: null, sweptM2: 0 };
+    }
+    if (op) for (; view.cursor < op.frames.length; view.cursor++) {
+      const frame = op.frames[view.cursor];
+      if (frame.job !== job.id) continue;
+      view.worked.addFrame({ ...frame }, false);
+      view.sweptM2 += frame.q.reduce((area, q) => area + quadArea(q), 0);
+      view.distanceM += frame.dist || 0;
+      if (frame.dt !== undefined) view.timeS = (view.timeS || 0) + frame.dt / 1000;
+      if (frame.application) {
+        if (!view.applied) view.applied = new Operation(job.op, {});
+        view.applied.addFrame({ ...frame }, false);
+      }
+    }
+    return view;
+  }
+
   flush(now = Date.now(), force = false) {
-    if (!this.persist || (!force && now - this.lastFlush < FLUSH_MS)) return;
+    if (!this.persist || (!force && now - this.lastFlush < FLUSH_MS)) return true;
     this.lastFlush = now;
+    let saved = true;
     for (const [save, m] of this.saves) {
       for (const op of m.values()) {
         if (!op.pending.length) continue;
@@ -398,9 +488,10 @@ class CoverageStore {
           fs.mkdirSync(dir, { recursive: true });
           fs.appendFileSync(path.join(dir, slug(op.id) + '.ndjson'), op.pending.join('\n') + '\n');
           op.pending = [];
-        } catch (e) { /* retried on the next flush */ }
+        } catch (e) { saved = false; /* retried on the next flush */ }
       }
     }
+    return saved;
   }
 
   clear(opId) {
@@ -432,4 +523,4 @@ class CoverageStore {
   }
 }
 
-module.exports = { CoverageStore, VALUE_KEYS, TILL_NAMES, quadArea, CELL };
+module.exports = { CoverageStore, VALUE_KEYS, TILL_NAMES, quadArea, CELL, TILE, operationId };

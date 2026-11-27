@@ -42,14 +42,18 @@ const pages = [...document.querySelectorAll('.page[data-name]')];
 const pageNames = pages.map(p => p.dataset.name);
 const runPageModel = window.G5RunPageModel;
 settings.runPages = runPageModel.normalize(settings.runPages);
-const hasSeeder = d => (d.implements || []).some(i => i.seeder);
+const hasSeeder = d => (d.implements || []).some(i => i.seeder || i.operation === 'seeding');
 const PAGE_RULES = {
   'Guidance': () => true,
   'Tractor': d => !d.combine,
   'Harvesting': d => !!d.combine,
   'Harvest Automation': d => !!d.combine,
+  'Harvest Logistics': d => !!d.combine,
   'Tillage': d => (d.implements || []).some(i => i.tillage),
   'Planter': d => hasSeeder(d),
+  'Section Control': d => hasSeeder(d),
+  'Spraying': d => !!d.rate || (d.implements || []).some(i => i.sprayer),
+  'Boom & Sections': d => !!d.rate || (d.implements || []).some(i => i.sprayer),
   'Work Monitor': d => (d.implements || []).length > 0 || !!d.combine,
   'Implement Details': d => (d.implements || []).length > 0,
   'Machine Monitor': () => true,
@@ -58,16 +62,23 @@ const PAGE_RULES = {
 let supportedStock = pageNames.slice();
 let pageType = null;
 let available = supportedStock.slice();
-if (typeof settings.page === 'number') { settings.pageName = pageNames[settings.page]; delete settings.page; }
+if (typeof settings.page === 'number') {
+  const originalOrder = ['Guidance', 'Tractor', 'Work Monitor', 'Implement Details', 'Machine Monitor', 'Harvesting', 'Harvest Automation', 'Tillage', 'Planter', 'Field'];
+  settings.pageName = originalOrder[settings.page];
+  delete settings.page;
+}
+const startupPage = settings.pageName;
 const customPage = id => settings.runPages.pages.find(p => p.id === id);
-const pageLabel = id => customPage(id)?.name || id;
+const pageLabel = id => customPage(id)?.name || (id === 'Planter' ? 'Planter Overview' : id);
 function showPage(target) {
   let name = typeof target === 'string' ? target : available[target];
   if (!supportedStock.includes(name) && !customPage(name)) name = available[0] || 'Guidance';
   settings.pageName = name;
   if (pageType) settings.runPages.lastPage[pageType] = name;
   pages.forEach(p => p.classList.toggle('active', p.dataset.name === name));
-  window.G5RunPages?.mount(customPage(name), data);
+  window.G5RunPages?.mount(customPage(name), data, name);
+  window.G5MachinePages?.mount(name);
+  window.G5MachinePages?.render(data);
   $('pageName').textContent = pageLabel(name);
   const other = [...supportedStock, ...settings.runPages.pages.map(p => p.id)].filter(id => !available.includes(id));
   const entries = (ids, inSet) => ids.map((id, index) =>
@@ -82,19 +93,21 @@ function showPage(target) {
 }
 // What the machine is, for everything that follows it: run pages, Menu apps, unit rows, Work Setup.
 // operation is what Work Setup records: harvest, seeding, application, tillage or none.
-let MACHINE = { combine: false, seeder: false, tillage: false, sprayer: false, lifts: false, cart: false, operation: 'none' };
+let MACHINE = { combine: false, seeder: false, tillage: false, sprayer: false, rate: false, lifts: false, cart: false, operation: 'none' };
 function machineOf(d) {
   const imps = d.implements || [];
   const m = {
-    combine: !!d.combine, seeder: imps.some(i => i.seeder), tillage: imps.some(i => i.tillage),
-    sprayer: !!d.rate, lifts: imps.some(i => i.canLower),
+    combine: !!d.combine, seeder: hasSeeder(d), tillage: imps.some(i => i.tillage),
+    sprayer: !!d.rate || imps.some(i => i.sprayer), rate: !!d.rate, lifts: imps.some(i => i.canLower),
     cart: !!(d.grainCart && (d.grainCart.carts > 0 || d.grainCart.inCart)),
   };
-  m.operation = m.combine ? 'harvest' : m.seeder ? 'seeding' : m.sprayer ? 'application' : m.tillage ? 'tillage' : 'none';
+  const active = d.map?.current?.split(':')[0];
+  const operations = { harvest: m.combine, seeding: m.seeder, application: m.sprayer, tillage: m.tillage };
+  m.operation = active && operations[active] ? active : Object.keys(operations).find(op => operations[op]) || 'none';
   return m;
 }
 // Menu apps that open a window show only on machines that can use them (page apps follow their pages)
-const APP_RULES = { appGrainCart: m => m.combine || m.cart, appHeadland: m => m.lifts, appRate: m => m.sprayer };
+const APP_RULES = { appGrainCart: m => m.combine || m.cart, appHeadland: m => m.lifts, appRate: m => m.rate };
 function updateMachine(d) {
   const m = machineOf(d), key = JSON.stringify(m);
   if (key === JSON.stringify(MACHINE)) return;
@@ -108,7 +121,7 @@ function updateAvailablePages(d) {
   const type = { harvest: 'combine', seeding: 'seeder', application: 'sprayer', tillage: 'tillage' }[MACHINE.operation] || 'tractor';
   const supported = pageNames.filter(n => !PAGE_RULES[n] || PAGE_RULES[n](d));
   if (type === pageType && supported.join('|') === supportedStock.join('|')) return;
-  const target = type === pageType ? settings.pageName : settings.runPages.lastPage[type] || (pageType === null ? settings.pageName : null);
+  const target = type === pageType ? settings.pageName : settings.runPages.lastPage[type] || (pageType === null ? startupPage : null);
   pageType = type;
   supportedStock = supported;
   applyRunPageSet(target);
@@ -298,9 +311,11 @@ $('shade').onclick = () => $('shade').classList.remove('show');
 
 // ------------------------------------------------------------ commands
 const pendingCmds = new Map();
-async function send(name, value = 0, index = 0, el = null, arg = '') {
+const MACHINE_COMMANDS = new Set(['tillageDepth', 'tillageLevel', 'tillageDepthAdjust', 'section', 'sectionOverlap', 'harvestAuto', 'harvestAutoMax', 'rateAuto', 'rateStep']);
+const commandTarget = d => d.session && d.vehicle?.id != null ? { session: d.session, save: d.game?.save || 'unsaved', vehicle: d.vehicle.id } : undefined;
+async function send(name, value = 0, index = 0, el = null, arg = '', target = MACHINE_COMMANDS.has(name) ? commandTarget(data) : undefined) {
   try {
-    const r = await fetch('/api/cmd', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, value, index, arg }) });
+    const r = await fetch('/api/cmd', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, value, index, arg, target }) });
     const j = await r.json();
     if (!j.ok) {
       // the bridge answered but refused it: say why (an older bridge doesn't know newer commands)
@@ -435,7 +450,7 @@ function render() {
   if (window.G5Rate) G5Rate.render();
 
   const r = rates(w);
-  renderWorkMonitor(v, w, imps, r);
+  renderWorkMonitor(v, w, imps, r, d.passReport);
   renderImplements(imps);
   renderMachine(v, fuelPct, defPct, r);
   renderHarvest(d, v);
@@ -445,6 +460,7 @@ function render() {
   renderPlanter(d);
   if (window.onTelemetry) window.onTelemetry(d);
   window.G5RunPages?.render(d);
+  window.G5MachinePages?.render(d);
 }
 
 function sectionBar(imp) {
@@ -452,18 +468,21 @@ function sectionBar(imp) {
   return imp.areas.map(on => `<i class="${on ? 'on' : ''}"></i>`).join('');
 }
 
-function renderWorkMonitor(v, w, imps, r) {
-  const hours = (w.time || 0) / 3600;
-  const ha = (w.area || 0) / 10000;
+function renderWorkMonitor(v, w, imps, r, report) {
+  const time = report && report.timeS !== null ? report.timeS : w.time;
+  const area = report ? report.areaM2 : w.area || 0;
+  const distance = report ? report.distanceM : w.distance || 0;
+  const hours = (time || 0) / 3600;
+  const ha = area / 10000;
   const width = imps.reduce((m, i) => Math.max(m, i.width || 0), 0);
   const instHa = v && w.recording ? (v.speed || 0) * width / 10 : 0;
   setHtml($('wmTiles'), [
-    tile('Area Worked', fmt(U.area(w.area || 0), 2), U.areaUnit(), { on: w.recording }),
-    tile('Time Worked', hms(w.time), 'h:mm', { on: w.recording }),
+    tile(report ? 'Swept Area' : 'Estimated Area', fmt(U.area(area), 2), U.areaUnit(), { on: w.recording }),
+    tile('Time Worked', hms(time), 'h:mm', { on: w.recording }),
     tile('Productivity', fmt(U.areaFromHa(instHa), 1), U.areaUnit() + '/h', { on: w.recording, sub: 'Instant' }),
-    tile('Productivity', hours > 0.005 ? fmt(U.area(w.area) / hours, 1) : '---', U.areaUnit() + '/h', { sub: 'Average' }),
-    tile('Working Speed', hours > 0.005 ? fmt(U.speed((w.distance / 1000) / hours), 1) : '---', U.speedUnit(), { sub: 'Average' }),
-    tile('Distance', U.dist(w.distance || 0), '', { sub: 'While working' }),
+    tile('Productivity', hours > 0.005 ? fmt(U.area(area) / hours, 1) : '---', U.areaUnit() + '/h', { sub: 'Average' }),
+    tile('Working Speed', hours > 0.005 ? fmt(U.speed((distance / 1000) / hours), 1) : '---', U.speedUnit(), { sub: 'Average' }),
+    tile('Distance', U.dist(distance), '', { sub: 'While working' }),
     tile('Fuel Used', fmt(U.vol(w.fuelUsed || 0), 1), U.volUnit(), { sub: 'While working' }),
     tile('Fuel per Area', ha > 0.01 ? fmt(U.vol(w.fuelUsed) / U.areaFromHa(ha), 2) : '---', U.volUnit() + '/' + U.areaUnit()),
     tile('Fuel per Hour', r.fuelPerHour !== null ? fmt(U.vol(r.fuelPerHour), 1) : '---', U.volUnit() + '/h'),
@@ -732,17 +751,41 @@ const TL_LEVEL_NUM = { shallow: 2, normal: 3, deep: 4 };
 const TL = Object.assign({ presets: [{ name: 'Seedbed', cm: 8 }, { name: 'Secondary', cm: 15 }, { name: 'Primary', cm: 28 }], setpoint: null }, settings.truset || {});
 settings.truset = TL;
 let tlEditing = false;
+let tlPending = null;
 const tlUnit = () => metric('distance') ? 'cm' : 'in';
 const tlConv = cm => metric('distance') ? cm : cm / 2.54;
 const tlTxt = cm => typeof cm === 'number' ? `${fmt(tlConv(cm), metric('distance') ? 0 : 1)} ${tlUnit()}` : '---';
 const tlLevelOf = cm => cm <= 10 ? 2 : cm <= 22 ? 3 : 4;
-function tlSend(cm) {
+async function tlSend(cm, action = 'tillageDepth') {
+  if (tlPending || data.link !== 'live' || data.state !== 'vehicle') return;
   cm = Math.max(2, Math.min(38, Math.round(cm * 2) / 2));
-  TL.setpoint = cm; saveSettings();
-  send('tillageDepth', cm);
+  const target = commandTarget(data);
+  const req = { cm, action, target, vehicle: data.vehicle?.name, id: null };
+  tlPending = req;
+  $('tlCommand').textContent = 'Waiting for the implement to report the change.';
+  req.id = await send(action, action === 'tillageLevel' ? tlLevelOf(cm) : cm, 0, null, '', target);
+  if (tlPending !== req) return;
+  if (req.id === null) { tlPending = null; $('tlCommand').textContent = 'Change could not be sent.'; return; }
+  setTimeout(() => {
+    if (tlPending !== req) return;
+    tlPending = null;
+    $('tlCommand').textContent = 'No confirmation from the implement.';
+  }, 3500);
 }
 function renderTillage(d, v, w, r) {
   const tools = d.state === 'vehicle' ? (d.implements || []).filter(i => i.tillage) : [];
+  if (tlPending) {
+    const current = commandTarget(d);
+    const same = JSON.stringify(current) === JSON.stringify(tlPending.target) && v?.name === tlPending.vehicle;
+    if (!same) { tlPending = null; $('tlCommand').textContent = 'Machine or save changed.'; }
+    else if (tlPending.id !== null && d.lastCmd >= tlPending.id) {
+      const level = { 2: 'shallow', 3: 'normal', 4: 'deep' }[tlLevelOf(tlPending.cm)];
+      const readback = tools.some(i => tlPending.action === 'tillageDepth' && Number.isFinite(i.tillage.target)
+        ? Math.abs(i.tillage.target - tlPending.cm) < 0.6 : i.tillage.level === level);
+      $('tlCommand').textContent = readback ? 'Change confirmed by the implement.' : 'Implement did not confirm the requested value.';
+      tlPending = null;
+    }
+  }
   if (!tools.length) return;
   const page = document.querySelector('.page.active[data-name="Tillage"]');
   const main = tools[0], t = main.tillage;
@@ -750,21 +793,22 @@ function renderTillage(d, v, w, r) {
   const leveled = tools.filter(i => i.tillage.levels);
   // the set point follows the tool when it was changed in the game (or on first sight)
   if (rt && typeof rt.tillage.target === 'number') TL.setpoint = rt.tillage.target;
-  else if (TL.setpoint === null && t.level) TL.setpoint = { shallow: 8, normal: 15, deep: 28 }[t.level];
-  const working = !!(w && w.recording);
+  else if (t.level) TL.setpoint = { shallow: 8, normal: 15, deep: 28 }[t.level];
+  const working = d.link === 'live' && tools.some(i => i.processing?.includes(true));
   edge('tlLimited', !!(rt && rt.tillage.limited && working), 'Tractor cannot pull this depth. Slow down or raise the set point.', 'warn');
   if (!page) return;
 
   $('tlTitle').textContent = `Tillage - ${main.name}`;
   const ha = v && main.width ? main.width * (v.speed || 0) / 10 : 0;
-  const hours = (w.time || 0) / 3600;
+  const workArea = d.passReport?.areaM2;
+  const hours = (d.passReport?.timeS || 0) / 3600;
   const perArea = w.area > 0 && w.fuelUsed > 0 ? U.vol(w.fuelUsed) / U.area(w.area) : null;
   const depthNow = rt ? rt.tillage.depth : null;
   setHtml($('tlTiles'), [
     tile('Ground Speed', v ? fmt(U.speed(v.speed || 0), 1) : '---', U.speedUnit(), { on: working }),
     tile('Work Rate', working ? fmt(U.areaFromHa(ha), 1) : '---', U.areaUnit() + '/h', { on: working,
-      sub: hours > 0.005 ? 'Avg ' + fmt(U.area(w.area) / hours, 1) : '' }),
-    tile('Area Worked', fmt(U.area(w.area || 0), 2), U.areaUnit()),
+      sub: hours > 0.005 ? 'Avg ' + fmt(U.area(workArea) / hours, 1) : '' }),
+    tile('Swept Area', typeof workArea === 'number' ? fmt(U.area(workArea), 2) : '---', U.areaUnit()),
     tile('Engine Load', v ? fmt(v.load, 0) : '---', '%', { on: v && v.motorOn, alert: !!(rt && rt.tillage.limited) }),
     tile('Working Depth', depthNow !== null ? fmt(tlConv(depthNow), metric('distance') ? 0 : 1) : t.level ? TL_LEVEL[t.level] : '---',
       depthNow !== null ? tlUnit() : '', { on: working, sub: rt ? 'Target ' + tlTxt(rt.tillage.target) : t.subsoil ? 'Subsoiling' : '' }),
@@ -778,7 +822,7 @@ function renderTillage(d, v, w, r) {
   $('tlSetVal').textContent = tlTxt(sp);
   const src = rt ? 'DEPTH' : leveled.length ? 'LEVELS' : 'FIXED';
   $('tlSrc').textContent = src; $('tlSrc').classList.toggle('auto', src !== 'FIXED');
-  const canSet = !!rt || leveled.some(i => !i.tillage.locked);
+  const canSet = d.link === 'live' && !tlPending && (!!rt || leveled.some(i => !i.tillage.locked));
   ['tlMinus', 'tlPlus', 'tlSetpoint'].forEach(id => { $(id).disabled = !canSet; });
   $('tlPresets').classList.toggle('editing', tlEditing);
   setHtml($('tlPresets'), TL.presets.map((p, k) =>
@@ -788,7 +832,7 @@ function renderTillage(d, v, w, r) {
   const curLevel = (leveled[0] || main).tillage.level;
   $('tlLevels').querySelectorAll('button').forEach(b => {
     const name = { 2: 'shallow', 3: 'normal', 4: 'deep' }[b.dataset.l];
-    b.disabled = !avail.has(name) && !(name === 'deep' && avail.has('normal'));
+    b.disabled = d.link !== 'live' || !!tlPending || !avail.has(name) && !(name === 'deep' && avail.has('normal'));
     b.classList.toggle('on', curLevel === name);
   });
   const lockedTool = leveled.find(i => i.tillage.locked);
@@ -804,12 +848,6 @@ function renderTillage(d, v, w, r) {
       <span style="text-align:left">${esc(TL_NAMES[k.type] || k.type)}${lvl ? ' · ' + lvl : ''}${k.locked ? ' (fixed)' : ''}</span><span>${depth}</span></div>`;
   }).join(''));
 
-  // depth gauge, 0 to 38 cm
-  const pctOf = cm => Math.max(0, Math.min(100, cm / 38 * 100)).toFixed(1) + '%';
-  const shown = depthNow ?? (t.level ? { shallow: 8, normal: 15, deep: 28 }[t.level] : 0);
-  $('tlGaugeAct').style.height = pctOf(shown);
-  $('tlGaugeTgt').style.top = pctOf(sp ?? shown);
-  $('tlGaugeTxt').textContent = depthNow !== null ? tlTxt(depthNow) : t.level ? TL_LEVEL[t.level] : '---';
   $('tlHasCs').textContent = tools.some(i => i.tillage.modeSource === 'cultivatorSettings') ? 'Found' : leveled.length ? 'Game modes' : 'Not found';
   $('tlHasRt').textContent = rt ? 'Found' : 'Not found';
 }
@@ -828,8 +866,7 @@ $('tlPresets').onclick = e => {
 };
 $('tlLevels').onclick = e => {
   const b = e.target.closest('button'); if (!b || b.disabled) return;
-  send('tillageLevel', Number(b.dataset.l));
-  TL.setpoint = { 2: 8, 3: 15, 4: 28 }[b.dataset.l]; saveSettings();
+  tlSend({ 2: 8, 3: 15, 4: 28 }[b.dataset.l], 'tillageLevel');
 };
 
 // ------------------------------------------------------------ Planter page (Realistic Seeder Placement API)
@@ -839,11 +876,23 @@ const SR = {
   conv: (sd, v) => typeof v !== 'number' ? null : sd.unit === 'poundsPerAcre' ? (metric('rate') ? v * 1.12085 : v) : (metric('rate') ? v * 2.47105 : v),
 };
 function renderPlanter(d) {
-  const imp = (d.implements || []).find(i => i.seeder);
+  const imp = (d.implements || []).find(i => i.seeder || i.operation === 'seeding');
   const sd = imp && imp.seeder;
   const sing = sd && typeof sd.skips === 'number' && typeof sd.doubles === 'number' ? 100 - sd.skips - sd.doubles : null;
   edge('plSing', sing !== null && sd.fresh && sing < 92, 'Singulation below 92%.', 'warn');
-  if (!sd) return;
+  if (!sd) {
+    if (!imp) return;
+    const status = d.workState?.state;
+    $('plTitle').textContent = `${imp.name}${imp.stockCrop ? ' · ' + imp.stockCrop : ''}`;
+    setHtml($('plTiles'), [tile('Working Width', imp.width > 0 ? U.width(imp.width) : '—'),
+      tile('Ground Work', status === 'active' ? 'Active' : status === 'ready' ? 'Ready' : status === 'paused' ? 'Paused' : '—', '', { on: status === 'active' }),
+      tile('Seed Used', '—'), tile('Seed Rate', '—')].join(''));
+    setHtml($('plRows'), '<p class="pl-none">Row measurements require a supported seed monitor.</p>');
+    setHtml($('plSection'), '<p class="hint">Section controls require a supported seeder.</p>');
+    setHtml($('plMonitor'), '<p class="hint">Stock FS25 seeder</p>');
+    setHtml($('plSoil'), '');
+    return;
+  }
   const drill = sd.kind === 'drill';
   const CROPS = { MAIZE: 'Corn', SOYBEAN: 'Soybeans', WV_SPRINGWHEAT: 'Spring Wheat', WV_WINTERWHEAT: 'Winter Wheat' };
   const cropName = sd.crop ? CROPS[String(sd.crop).toUpperCase()] || String(sd.crop).toLowerCase().replace(/(^|_)([a-z])/g, (m, a, b) => (a ? ' ' : '') + b.toUpperCase()) : '';
@@ -876,7 +925,7 @@ function renderPlanter(d) {
       const dev = Math.abs(ratio - 1), cls = auto ? 'auto' : !r.on ? 'off' : dev <= 0.05 ? 'ok' : dev <= 0.1 ? 'mid' : 'bad';
       const h = r.on ? Math.min(100, ratio * 80) : auto ? 80 : 6;
       const val = r.on ? (typeof r.actual === 'number' ? rateTxt(r.actual) : 'on') : auto ? 'auto' : 'off';
-      return `<div class="pl-row"><div class="pl-bar"><i class="${cls}" style="height:${h.toFixed(0)}%"></i></div><b>${fmt(r.r, 0)}</b><span>${val}</span></div>`;
+      return `<button type="button" class="pl-row" data-pl-inspect="${i}" aria-label="Inspect ${laneWord.toLowerCase()} ${i + 1}"><div class="pl-bar"><i class="${cls}" style="height:${h.toFixed(0)}%"></i></div><b>${fmt(r.r, 0)}</b><span>${val}</span></button>`;
     }).join(''));
 
   const g = d.section;

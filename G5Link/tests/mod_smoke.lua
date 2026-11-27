@@ -1763,6 +1763,49 @@ do
 end
 
 ---------------------------------------------------------------------------
+-- Work observations, including a self-propelled stock sprayer.
+---------------------------------------------------------------------------
+do
+    local dir = newScenario("work_observations", {})
+    local sprayer, state = makeImplement(12, 2)
+    local root = makeVehicle({name = "Stock Sprayer", speed = 12})
+    root.uniqueId = "test-stock-sprayer"
+    root.children = {root}
+    root.spec_workArea = sprayer.spec_workArea
+    root.getIsWorkAreaActive = sprayer.getIsWorkAreaActive
+    root.getAIWorkAreaWidth = sprayer.getAIWorkAreaWidth
+    root.getIsTurnedOn = function() return state.on end
+    root.getSprayerFillUnitIndex = function() return 2 end
+    root.getFillUnitFillLevel = function() return 70 end
+    root.getFillUnitCapacity = function() return 100 end
+    root.getAreEffectsVisible = function() return true end
+    root.getIsWorkAreaProcessing = function(self, wa) return self.spec_workArea.workAreas[2] == wa end
+    root.spec_sprayer = {workAreaParameters = {isActive = true, lastTotalArea = 16}}
+    for _, wa in ipairs(root.spec_workArea.workAreas) do wa.lastProcessingTime = 400 end
+    g_localPlayer = {getCurrentVehicle = function() return root end}
+    g_currentMission.missionInfo = {savegameIndex = 2}
+    g_currentMission.vehicleSystem = {vehicles = {root}}
+    mod:loadMap("test")
+    local session = mod.session
+    tick(4)
+    local t = telemetry(dir)
+    local k = "g5.implements.implement(0)"
+    eq(t["g5#session"], session, "load identity in driven telemetry")
+    eq(XMLFile.saved[dir .. "fleet.xml"].values["fleet#session"], session, "fleet has the same load identity")
+    eq(t[k .. "#operation"], "application", "stock self-propelled sprayer supplies an operation")
+    eq(t[k .. "#processing"], "01", "observed processing and tool readiness are separate")
+    eq(t[k .. ".sprayer#tank"], "2", "stock sprayer active tank index")
+    eq(t[k .. ".sprayer#applying"], "true", "stock sprayer applying with processed area")
+    root.spec_sprayer.workAreaParameters.isActive = false
+    tick(1)
+    eq(telemetry(dir)[k .. ".sprayer#applying"], "false", "armed stock sprayer can stop applying")
+    mod:deleteMap()
+    mod:loadMap("test")
+    check(mod.session ~= session, "reloading a save produces a new load identity")
+    mod:deleteMap()
+end
+
+---------------------------------------------------------------------------
 -- JSON encoder samples for check_output.js
 ---------------------------------------------------------------------------
 do

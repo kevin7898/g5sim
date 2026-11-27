@@ -8,6 +8,7 @@
   const mapHome = document.createComment('Guidance map');
   map.before(mapHome);
   let mounted;
+  let mountedHost;
   let view = 'sets';
   let selected;
   let machine;
@@ -29,11 +30,11 @@
 
   const readouts = {
     location: () => [['Field', $('locName').textContent], ['Context', $('locSub').textContent]],
-    workState: d => [['Recording', d.work ? (d.work.recording ? 'On' : 'Off') : '—'],
-      ['Work areas', d.implements?.some(i => i.areas?.some(Boolean)) ? 'Active' : d.implements?.some(i => i.areas?.length) ? 'Inactive' : '—'],
+    workState: d => [['Work Job', { active: 'Active', ready: 'Ready', requested: 'Requested', paused: 'Paused' }[d.workJob?.active?.state] || 'Idle'],
+      ['Ground work', { active: 'Active', ready: 'Ready', paused: 'Paused', unavailable: 'Unavailable' }[d.workState?.state] || '—'],
       ['Speed', count(d.vehicle?.speed, n => `${fmt(U.speed(n), 1)} ${U.speedUnit()}`)]],
-    counters: d => [['Area', count(d.work?.area, n => `${fmt(U.area(n), 2)} ${U.areaUnit()}`)],
-      ['Time', count(d.work?.time, hms)], ['Distance', count(d.work?.distance, U.dist)]],
+    counters: d => [['Swept area', count(d.passReport?.areaM2, n => `${fmt(U.area(n), 2)} ${U.areaUnit()}`)],
+      ['Time', count(d.passReport?.timeS, hms)], ['Distance', count(d.passReport?.distanceM, U.dist)]],
     implement: d => (d.implements?.length ? d.implements.slice(0, 3).map(i => [i.name, i.width > 0 ? U.width(i.width) : '—']) : [['Equipment', 'None']]),
     track: () => [['Track', $('trkName').textContent], ['Spacing', $('trkSpacing').textContent]],
   };
@@ -42,14 +43,17 @@
     track: [['setTrackBtn', 'Set Track'], ['spacingBtn', 'Track Spacing'], ['shift-left', '◀', 'Shift left'], ['shift-center', '●', 'Center track'], ['shift-right', '▶', 'Shift right']],
   };
 
-  function mount(page, data) {
-    if (mounted === page) return;
-    if (map.parentElement === modules) {
+  function mount(page, data, name) {
+    const position = page?.modules.find(item => item.module === 'map');
+    const host = position ? modules : pages.find(stock => stock.dataset.name === name)?.querySelector('[data-shared-map]');
+    if (mounted === page && host === mountedHost) return;
+    if (map.parentElement !== mapHome.parentElement) {
       mapHome.after(map);
       map.style.removeProperty('grid-column');
       map.style.removeProperty('grid-row');
     }
     mounted = page;
+    mountedHost = host;
     $('customRunPage').classList.toggle('active', !!page);
     setHtml(modules, page ? page.modules.filter(item => item.module !== 'map').map(item => {
       const buttons = (Object.hasOwn(tools, item.module) ? tools[item.module] : []).map(([id, label, name]) =>
@@ -57,12 +61,11 @@
       return `<section class="module run-module" style="${area(item)}"><h2 class="mod-title">${title(item)}</h2>
         <div class="run-values" data-run-module="${item.module}"></div>${buttons ? `<div class="run-tools ${item.module === 'track' ? 'run-track-tools' : ''}">${buttons}</div>` : ''}</section>`;
     }).join('') : '');
-    const position = page?.modules.find(item => item.module === 'map');
     if (position) {
       map.style.gridColumn = `${position.x + 1}/span ${position.w}`;
       map.style.gridRow = `${position.y + 1}/span ${position.h}`;
       modules.prepend(map);
-    }
+    } else if (host) host.append(map);
     render(data);
   }
 
@@ -324,7 +327,7 @@
     place(block, { x, y });
   });
 
-  window.G5RunPages = { open, close, mount, render, tabs, hasMap: () => map.parentElement === modules,
+  window.G5RunPages = { open, close, mount, render, tabs, hasMap: () => map.parentElement !== mapHome.parentElement,
     shortcutBar: () => model.activeSet(settings.runPages, pageType || 'tractor').bar };
   showPage(settings.pageName);
 })();

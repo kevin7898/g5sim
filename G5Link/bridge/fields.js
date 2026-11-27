@@ -11,7 +11,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const { quadArea } = require('./coverage.js');
+const { randomUUID } = require('node:crypto');
+const { quadArea, CELL, TILE } = require('./coverage.js');
 
 const slug = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'x';
 
@@ -142,7 +143,7 @@ class FieldStore {
     }
     return this.saves.get(save);
   }
-  write(save, next = null) {
+  write(save, next = null, change = 'boundary') {
     if (this.persist) {
       const f = this.file(save);
       try {
@@ -150,7 +151,7 @@ class FieldStore {
         fs.writeFileSync(f + '.tmp', JSON.stringify(next || this.db(save)));
         fs.renameSync(f + '.tmp', f);
       } catch (e) {
-        if (next) throw new Error(`Could not save boundary: ${e.message}`);
+        if (next) throw new Error(`Could not save ${change}: ${e.message}`);
         console.warn('Could not save fields:', e.message);
       }
     }
@@ -278,19 +279,26 @@ class FieldStore {
   // ---------------------------------------------------------------- work records
   // Unique covered and overlapped area of one operation inside a polygon, on the coverage grid.
   coveredIn(op, poly) {
-    const cell = 1, bb = bbox(poly);
+    const bb = bbox(poly);
+    const ranges = new Map();
     let covered = 0, overlap = 0;
-    for (let cz = Math.floor(bb.z0); cz <= Math.ceil(bb.z1); cz++) {
-      for (const [xa, xb] of scanline(poly, (cz + 0.5) * cell)) {
-        for (let cx = Math.ceil(xa - 0.5); cx + 0.5 <= xb; cx++) {
-          const c = op.cell(cx, cz, false);
-          if (!c) { cx = (Math.floor(cx / 64) + 1) * 64 - 1; continue; }      // skip an empty tile
-          const n = c.t.cnt[c.i];
-          if (n) { covered++; if (n > 1) overlap++; }
+    for (const tile of op.tiles.values()) {
+      const x0 = tile.tx * TILE, z0 = tile.tz * TILE;
+      if (x0 * CELL > bb.x1 || (x0 + TILE) * CELL < bb.x0 || z0 * CELL > bb.z1 || (z0 + TILE) * CELL < bb.z0) continue;
+      for (let row = 0; row < TILE; row++) {
+        const z = z0 + row;
+        if (!ranges.has(z)) ranges.set(z, scanline(poly, (z + 0.5) * CELL));
+        for (const [xa, xb] of ranges.get(z)) {
+          const start = Math.max(x0, Math.ceil(xa / CELL - 0.5));
+          const end = Math.min(x0 + TILE - 1, Math.floor(xb / CELL - 0.5));
+          for (let x = start; x <= end; x++) {
+            const n = tile.cnt[row * TILE + x - x0];
+            if (n) { covered++; if (n > 1) overlap++; }
+          }
         }
       }
     }
-    return { coveredHa: covered / 10000, overlapHa: overlap / 10000 };
+    return { coveredHa: covered * CELL * CELL / 10000, overlapHa: overlap * CELL * CELL / 10000 };
   }
   records(save, fieldId) {
     const fields = this.list(save);
@@ -398,16 +406,77 @@ class FieldStore {
     d.workSetup = Object.assign({ client: null, farm: null, fieldMode: 'auto', fieldId: null, crop: null, variety: null, product: null }, d.workSetup || {});
     return d.workSetup;
   }
-  setWorkSetup(save, w) {
-    const ws = this.workSetup(save);
+  prepareWorkSetup(save, w) {
+    const ws = { ...this.workSetup(save) };
     const str = v => (v === null || v === '' ? null : typeof v === 'string' ? v.trim().slice(0, 60) || null : undefined);
     for (const k of ['client', 'farm', 'variety', 'product', 'crop']) if (k in w && str(w[k]) !== undefined) ws[k] = str(w[k]);
     if (ws.crop) ws.crop = ws.crop.toUpperCase();
     if (w.fieldMode === 'auto' || w.fieldMode === 'fixed') ws.fieldMode = w.fieldMode;
     if ('fieldId' in w) ws.fieldId = w.fieldId === null || w.fieldId === '' ? null : String(w.fieldId);
-    if (typeof w.client === 'string' && w.client.trim()) this.db(save).settings.client = w.client.trim().slice(0, 60);
-    this.write(save);
     return ws;
+  }
+  setWorkSetup(save, w) {
+    const ws = this.prepareWorkSetup(save, w);
+    const db = this.db(save);
+    const settings = ws.client ? { ...db.settings, client: ws.client } : db.settings;
+    this.write(save, { ...db, workSetup: ws, settings }, 'work setup');
+    return ws;
+  }
+
+  activeJob(save) {
+    const db = this.db(save);
+    return (db.jobs || []).find(job => job.id === db.activeJob) || null;
+  }
+
+  startJob(save, context, setup) {
+    if (this.activeJob(save)) throw new Error('Finish the active work before starting another job.');
+    if (!context.op || !context.kind) throw new Error('Choose a working implement first.');
+    const db = this.db(save);
+    const field = context.fieldId === null ? null : db.fields[context.fieldId];
+    const boundary = this.active(field);
+    if (context.fieldId !== null && !boundary) throw new Error('Choose a field with a boundary.');
+    const job = { id: randomUUID(), ...context, started: Date.now(), finished: null, fieldName: field?.name || null,
+      boundary: boundary ? { v: boundary.v, polygon: boundary.polygon, areaHa: boundary.areaHa } : null };
+    const settings = setup?.client ? { ...db.settings, client: setup.client } : db.settings;
+    this.write(save, { ...db, ...(setup ? { workSetup: setup, settings } : {}), jobs: [...(db.jobs || []), job], activeJob: job.id }, 'work job');
+    return job;
+  }
+
+  finishJob(save, id) {
+    const db = this.db(save);
+    const active = this.activeJob(save);
+    if (!active || active.id !== id) throw new Error('The active work has changed.');
+    if (this.coverage?.flush(Date.now(), true) === false) throw new Error('Could not save the work map. Try Finish Work again.');
+    const job = { ...active, finished: Date.now(), totals: this.jobTotals(save, active) };
+    this.write(save, { ...db, activeJob: null, jobs: db.jobs.map(old => old.id === id ? job : old) }, 'work job');
+    return job;
+  }
+
+  jobTotals(save, job) {
+    if (job.totals) return job.totals;
+    if (!this.coverage) return null;
+    const view = this.coverage.jobCoverage(save, job);
+    const poly = job.boundary?.polygon;
+    const cached = this.jobTotalsCache;
+    if (cached?.view === view && cached.seq === view.worked.seq) return cached.totals;
+    const summary = view.worked.summary();
+    const inside = poly ? this.coveredIn(view.worked, poly) : null;
+    const applied = view.applied ? (poly ? this.coveredIn(view.applied, poly).coveredHa : view.applied.summary().areaHa) : null;
+    const workedHa = inside?.coveredHa ?? summary.areaHa;
+    const fieldHa = poly ? polygonArea(poly) / 10000 : null;
+    const totals = { sweptM2: view.sweptM2, distanceM: view.distanceM, timeS: view.timeS,
+      workedHa, overlapHa: inside?.overlapHa ?? summary.overlapHa, fieldHa,
+      outsideHa: inside ? Math.max(0, view.worked.coveredCells * CELL * CELL / 10000 - inside.coveredHa) : null,
+      remainingHa: inside ? Math.max(0, fieldHa - inside.coveredHa) : null,
+      appliedHa: applied, appliedPercent: applied !== null && workedHa > 0 ? 100 * applied / workedHa : null,
+      productUsed: null };
+    this.jobTotalsCache = { view, seq: view.worked.seq, totals };
+    return totals;
+  }
+
+  jobs(save, id = null) {
+    return (this.db(save).jobs || []).filter(job => id === null || job.id === id).map(({ boundary, ...job }) => ({ ...job, boundaryVersion: boundary?.v ?? null,
+      totals: job.totals || this.jobTotals(save, { ...job, boundary }) }));
   }
 
   // ---------------------------------------------------------------- Headland management (G5 headland automation)

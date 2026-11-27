@@ -518,6 +518,20 @@ end
 -- Telemetry file
 ---------------------------------------------------------------------------
 
+function G5Link:saveKey()
+    local info = g_currentMission and g_currentMission.missionInfo
+    if info == nil then return nil end
+    local index = info.savegameIndex
+    -- FS25 swaps savegameDirectory to its temporary write directory during a save.
+    if type(index) == "number" and index > 0 and index % 1 == 0 then
+        return "savegame" .. index
+    end
+    local dir = info.savegameDirectory
+    local key = type(dir) == "string" and string.match(dir, "([^/\\]+)[/\\]*$") or nil
+    if key ~= nil and string.lower(key) ~= "tempsavegame" then return key end
+    return nil
+end
+
 function G5Link:writeGame(xml)
     local env = g_currentMission.environment
     if env ~= nil then
@@ -525,12 +539,8 @@ function G5Link:writeGame(xml)
         xml:setInt("g5.game#hour", env.currentHour or 0)
         xml:setInt("g5.game#minute", env.currentMinute or 0)
     end
-    -- Savegame identity for the display's saved maps (nil on a new game until its first save).
-    local info = g_currentMission.missionInfo
-    local dir = info and info.savegameDirectory
-    if type(dir) == "string" and dir ~= "" then
-        xml:setString("g5.game#save", string.match(dir, "([^/\\]+)[/\\]*$") or dir)
-    end
+    local key = self:saveKey()
+    if key ~= nil then xml:setString("g5.game#save", key) end
 end
 
 function G5Link:writeIdle(reason)

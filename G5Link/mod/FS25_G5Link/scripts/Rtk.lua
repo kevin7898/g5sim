@@ -110,12 +110,7 @@ G5LinkRtk:reset()
 ---------------------------------------------------------------------------
 
 function G5LinkRtk:saveKey()
-    local info = g_currentMission and g_currentMission.missionInfo
-    local dir = info and info.savegameDirectory
-    if type(dir) == "string" and dir ~= "" then
-        return string.match(dir, "([^/\\]+)[/\\]*$") or "unsaved"
-    end
-    return "unsaved"
+    return G5Link:saveKey() or "unsaved"
 end
 
 function G5LinkRtk:newData()

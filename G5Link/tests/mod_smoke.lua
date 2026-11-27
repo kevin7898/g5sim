@@ -627,6 +627,14 @@ do
     check(called("motorToggle") == nil, "old command id 5 ignored")
     local t0 = telemetry(dir)
     eq(t0["g5.game#save"], "savegame9", "savegame key from savegameDirectory")
+    local info = g_currentMission.missionInfo
+    local originalDirectory = info.savegameDirectory
+    info.savegameIndex, info.savegameDirectory = 9, "C:/profile/tempsavegame"
+    local saveFrame = {}
+    mod:writeGame({setInt = function() end, setString = function(_, key, value) saveFrame[key] = value end})
+    eq(saveFrame["g5.game#save"], "savegame9", "the native save write uses the same slot key")
+    eq(G5LinkRtk:saveKey(), "savegame9", "RTK uses the same key during the native save")
+    info.savegameIndex, info.savegameDirectory = nil, originalDirectory
     eq(t0["g5.implements.implement(0).area(0)#sx"], "92.500000", "area 0 start x")
     near(tonumber(t0["g5.implements.implement(0).area(15)#wz"]), 200 + 12.19 / 2, 0.01, "area 15 width z")
     eq(t0["g5.implements.implement(0).area(16)#sx"], nil, "auxiliary and ridge-marker areas not written")

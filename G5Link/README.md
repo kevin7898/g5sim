@@ -48,15 +48,17 @@ As in the G5 Field Guide, keys that switch something on or off have the status s
 (Setup, Guidance, Quick Line, Swap Track, Rate, Grain Cart, Help) have none. **Quick Line** makes a straight track along
 the current heading; **Auto Turn** switches Turn Automation (its LED lights when on).
 
-**Layout Manager** (Menu > Layout Manager): make your own shortcut bars. Duplicate the Automatic bar or start a new one,
-Add Shortcut from each app (every key once, up to 12 plus MENU), move keys left or right, remove, rename, delete, and
-choose which bar tractors and combines use. Extra keys there: Resume, Guidance, Swap Track, StarFire, Layout and Help
-(what each key on the bar does).
+**Layout Manager** is under Menu → Applications. In **All Run Pages**, duplicate a stock page or start a blank one.
+Select a module in the library to add it. Drag modules on the grid, select a module and tap an empty cell, or use the
+arrow keys. Save the page when the modules are in place. The Guidance Map shares its camera, overlays and track with
+the stock Guidance page. **Run Page Sets** controls the order, machine assignment and optional shortcut bar.
+**Shortcut Bars** lets you duplicate Automatic or create a new bar with up to 12 keys plus Menu.
 
 **The map pans and zooms.** Drag to pan (it switches to overhead), pinch or use the mouse wheel to zoom, double-tap to
 zoom in. **Whole Field** fits the field north-up; **Recenter** (shown while panned) goes back to the machine. Tap the
 compass to switch between heading-up and north-up. Overhead coverage is drawn from cached 64 m tiles, so a whole
-1500 ac field stays at 60 fps. A drag on the map never flips run pages; a swipe from the screen edge still does.
+1500 ac field stays at 60 fps. Swipe on the surrounding page to switch run pages. Gestures inside the map pan or zoom it.
+A working-width change on the selected track offers **Match Width**, **Keep Spacing**, and **Custom**.
 
 **Apps and settings follow the machine too.** Grain Cart shows in a combine (or with a cart), Headland with an
 implement that lifts, Rate Controller with a rate controller. Units show Yield only in a combine and Seeding Rate only

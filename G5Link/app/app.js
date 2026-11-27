@@ -38,8 +38,10 @@ function tile(title, value, unit = '', opts = {}) {
 // ------------------------------------------------------------ pages
 // Run pages are offered only when the machine in use supports them (like the G5, which only
 // shows the run pages and applications of the detected machine and implements).
-const pages = [...document.querySelectorAll('.page')];
+const pages = [...document.querySelectorAll('.page[data-name]')];
 const pageNames = pages.map(p => p.dataset.name);
+const runPageModel = window.G5RunPageModel;
+settings.runPages = runPageModel.normalize(settings.runPages);
 const hasSeeder = d => (d.implements || []).some(i => i.seeder);
 const PAGE_RULES = {
   'Guidance': () => true,
@@ -53,21 +55,30 @@ const PAGE_RULES = {
   'Machine Monitor': () => true,
   'Field': d => { const p = d.providers || {}; return !!(p['soil-fertilizer'] || p['mud-system-physics'] || p.courseplay || p.autodrive); },
 };
-let available = pageNames.slice();                     // all pages until the first vehicle frame
+let supportedStock = pageNames.slice();
+let pageType = null;
+let available = supportedStock.slice();
 if (typeof settings.page === 'number') { settings.pageName = pageNames[settings.page]; delete settings.page; }
-const curIndex = () => Math.max(0, available.indexOf(settings.pageName));
+const customPage = id => settings.runPages.pages.find(p => p.id === id);
+const pageLabel = id => customPage(id)?.name || id;
 function showPage(target) {
-  // target: a page name, or an index into the available pages (wraps)
-  let name = typeof target === 'string' ? target : available[((target % available.length) + available.length) % available.length];
-  if (!available.includes(name)) name = available[0];
+  let name = typeof target === 'string' ? target : available[target];
+  if (!supportedStock.includes(name) && !customPage(name)) name = available[0] || 'Guidance';
   settings.pageName = name;
+  if (pageType) settings.runPages.lastPage[pageType] = name;
   pages.forEach(p => p.classList.toggle('active', p.dataset.name === name));
-  $('pageName').textContent = name;
-  setHtml($('menuPages'), available.map((n, k) =>
-    `<button class="app ${n === name ? 'on' : ''}" data-page="${esc(n)}"><span class="app-ico num">${k + 1}</span><b>${esc(n)}</b></button>`).join(''));
-  document.querySelectorAll('#tab-apps [data-goto]').forEach(b => { b.hidden = !available.includes(b.dataset.goto); });
+  window.G5RunPages?.mount(customPage(name), data);
+  $('pageName').textContent = pageLabel(name);
+  const other = [...supportedStock, ...settings.runPages.pages.map(p => p.id)].filter(id => !available.includes(id));
+  const entries = (ids, inSet) => ids.map((id, index) =>
+    `<button class="app ${id === name ? 'on' : ''}" data-page="${esc(id)}"><span class="app-ico num">${inSet ? index + 1 : '<svg><use href="#i-layout"/></svg>'}</span><b>${esc(pageLabel(id))}</b></button>`).join('');
+  setHtml($('menuPages'), entries(available, true));
+  setHtml($('menuOtherPages'), entries(other, false));
+  $('menuOtherHeading').hidden = !other.length;
+  document.querySelectorAll('#tab-apps [data-goto]').forEach(b => { b.hidden = !supportedStock.includes(b.dataset.goto); });
   saveSettings();
   window.G5Bounds?.render();
+  window.G5Keys?.render(data);
 }
 // What the machine is, for everything that follows it: run pages, Menu apps, unit rows, Work Setup.
 // operation is what Work Setup records: harvest, seeding, application, tillage or none.
@@ -94,26 +105,37 @@ function updateMachine(d) {
 function updateAvailablePages(d) {
   if (d.state !== 'vehicle' || !d.vehicle) return;      // keep the last machine's pages while on foot or paused
   updateMachine(d);
-  const next = pageNames.filter(n => (PAGE_RULES[n] || (() => true))(d));
-  if (next.join('|') === available.join('|')) return;
-  available = next;
-  showPage(available.includes(settings.pageName) ? settings.pageName : available[0]);
+  const type = { harvest: 'combine', seeding: 'seeder', application: 'sprayer', tillage: 'tillage' }[MACHINE.operation] || 'tractor';
+  const supported = pageNames.filter(n => !PAGE_RULES[n] || PAGE_RULES[n](d));
+  if (type === pageType && supported.join('|') === supportedStock.join('|')) return;
+  const target = type === pageType ? settings.pageName : settings.runPages.lastPage[type] || (pageType === null ? settings.pageName : null);
+  pageType = type;
+  supportedStock = supported;
+  applyRunPageSet(target);
 }
-$('prevPage').onclick = () => showPage(curIndex() - 1);
-$('nextPage').onclick = () => showPage(curIndex() + 1);
-$('menuPages').onclick = e => { const b = e.target.closest('[data-page]'); if (b) { showPage(b.dataset.page); closeWin('menu'); } };
+function applyRunPageSet(target) {
+  available = runPageModel.order(settings.runPages, pageType || 'tractor', supportedStock);
+  showPage(target || available[0]);
+}
+function stepPage(direction) {
+  const index = available.indexOf(settings.pageName);
+  const next = index === -1 ? (direction > 0 ? 0 : available.length - 1) : (index + direction + available.length) % available.length;
+  showPage(next);
+}
+$('prevPage').onclick = () => stepPage(-1);
+$('nextPage').onclick = () => stepPage(1);
+$('tab-pages').onclick = e => { const b = e.target.closest('[data-page]'); if (b) { showPage(b.dataset.page); closeWin('menu'); } };
 
 let touchX = null;
 $('pages').addEventListener('touchstart', e => {
-  const x = e.touches[0].clientX, edge = x < 30 || x > window.innerWidth - 30;
-  // dragging the map pans it; a swipe that starts at the screen edge still flips pages (as on the G5)
-  touchX = e.target.closest && e.target.closest('#map') && !edge ? null : x;
+  touchX = e.touches.length === 1 && !e.target.closest?.('.map-mod, button, input, select') ? e.touches[0].clientX : null;
 }, { passive: true });
+$('pages').addEventListener('touchcancel', () => { touchX = null; }, { passive: true });
 $('pages').addEventListener('touchend', e => {
   if (touchX === null) return;
   const dx = e.changedTouches[0].clientX - touchX;
   touchX = null;
-  if (Math.abs(dx) > 80) showPage(curIndex() + (dx < 0 ? 1 : -1));
+  if (Math.abs(dx) > 80) stepPage(dx < 0 ? 1 : -1);
 });
 
 // ------------------------------------------------------------ windows
@@ -125,9 +147,12 @@ document.addEventListener('click', e => {
   if (e.target.classList && e.target.classList.contains('window-wrap')) closeWin(e.target.id);
 });
 document.addEventListener('keydown', e => {
+  if (e.defaultPrevented) return;
+  if (e.key === 'Escape' && !$('runLayoutWin').hidden) { window.G5RunPages?.close(); return; }
   if (e.key === 'Escape') ['menu', 'scPanel', 'confirm', 'numpad', 'trackWin', 'unitsWin', 'layerWin'].forEach(closeWin);
-  if (e.key === 'ArrowRight') showPage(curIndex() + 1);
-  if (e.key === 'ArrowLeft') showPage(curIndex() - 1);
+  if (e.target.closest?.('input, textarea, select, [contenteditable], .map-mod') || document.querySelector('.window-wrap:not([hidden]), #menu:not([hidden])')) return;
+  if (e.key === 'ArrowRight') stepPage(1);
+  if (e.key === 'ArrowLeft') stepPage(-1);
 });
 $('menuBtn').onclick = () => { selectTab('pages'); openWin('menu'); };
 $('tab-apps').onclick = e => { const b = e.target.closest('[data-goto]'); if (b) { showPage(b.dataset.goto); closeWin('menu'); } };
@@ -419,6 +444,7 @@ function render() {
   renderField(d);
   renderPlanter(d);
   if (window.onTelemetry) window.onTelemetry(d);
+  window.G5RunPages?.render(d);
 }
 
 function sectionBar(imp) {

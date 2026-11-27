@@ -43,7 +43,7 @@
     if (window.G5AutoTrac) G5AutoTrac.onTelemetry(d);
     if (d.ops && d.ops.fields !== T.version) loadTracks();
     const v = d.vehicle;
-    if (d.state !== 'vehicle' || !v || v.x === undefined) { pose.ok = false; return; }
+    if (d.state !== 'vehicle' || !v || v.x === undefined) { pose.ok = false; $('trackWidthNotice').hidden = true; return; }
     const imps = d.implements || [];
     pose.ok = true;
     pose.x = v.x; pose.z = v.z; pose.h = v.heading || 0;
@@ -88,13 +88,55 @@
   }
 
   // ---------------------------------------------------------------- guidance math
-  const spacing = () => G.spacingMode === 'rows' && G.rows > 0 && G.rowWidth > 0 ? G.rows * G.rowWidth : G.spacing || pose.width || 12;
+  const spacing = () => G.spacingMode === 'rows' && G.rows > 0 && G.rowWidth > 0 ? G.rows * G.rowWidth
+    : G.spacing || (currentTrack()?.id === G.widthTrack?.id && G.widthTrack?.defaultSpacing) || pose.width || 12;
   // While AutoTrac steers, the G5 keeps the track: no track change and no shift over 0.3 m (12 in)
   const engaged = () => !!(data.autotrac && (data.autotrac.state === 'engaged' || data.autotrac.state === 'turning'));
   const MAX_SHIFT_ENGAGED = 0.3;
   // Tracks live in the bridge (Data Sync), shared with every display and the Ops Center.
   const T = { list: [], version: -1, loading: false, field: undefined };
   const currentTrack = () => T.list.find(t => t.id === G.currentId) || null;
+  let widthChoice = null;
+  function checkTrackWidth() {
+    const track = currentTrack();
+    const width = pose.width;
+    const notice = $('trackWidthNotice');
+    widthChoice = null;
+    if (track && pose.ok) {
+      if (G.widthTrack?.id !== track.id) {
+        G.widthTrack = { id: track.id, width, defaultSpacing: width || 12 };
+        save();
+      } else if (width > 0 && Math.abs(width - G.widthTrack.width) > 0.1) {
+        if (Math.abs(spacing() - width) <= 0.1) {
+          G.widthTrack.width = width;
+          save();
+        } else {
+          widthChoice = { id: track.id, width };
+          $('trackWidthMessage').textContent = `Implement ${U.width(width)} · ${track.name} spacing ${U.width(spacing())}`;
+        }
+      }
+    }
+    notice.hidden = !widthChoice;
+    $('trackWidthMatch').disabled = $('trackWidthCustom').disabled = engaged();
+  }
+
+  function useTrackWidth(choice, nextSpacing) {
+    if (!choice || currentTrack()?.id !== choice.id || !pose.ok || Math.abs(pose.width - choice.width) > 0.1) return;
+    if (nextSpacing !== undefined) {
+      if (engaged() || !Number.isFinite(nextSpacing) || nextSpacing <= 0) return;
+      G.spacingMode = 'distance';
+      G.spacing = nextSpacing;
+    }
+    G.widthTrack.width = choice.width;
+    save();
+    renderSide();
+  }
+  $('trackWidthKeep').onclick = () => useTrackWidth(widthChoice);
+  $('trackWidthMatch').onclick = () => useTrackWidth(widthChoice, widthChoice?.width);
+  $('trackWidthCustom').onclick = () => {
+    const choice = widthChoice;
+    openNumpad(`Track Spacing (${metric('distance') ? 'm' : 'ft'})`, value => useTrackWidth(choice, metric('distance') ? value : value / 3.28084));
+  };
   const workField = () => {
     const ws = data.workSetup || {};
     return ws.fieldMode === 'fixed' && ws.fieldId ? String(ws.fieldId) : pose.field !== null && pose.field !== undefined ? String(pose.field) : null;
@@ -225,6 +267,7 @@
     shade(`Quick Line: new track along ${cardinal(p.h)} ${Math.round(p.h)}°.`, 'info', 2500);
   }
   function renderSide() {
+    checkTrackWidth();
     sendGuidance();
     const t = currentTrack();
     $('trkName').textContent = t ? t.name : '---';

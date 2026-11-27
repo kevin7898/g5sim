@@ -201,8 +201,9 @@
 
   function render() {
     const st = B.status;
+    const hasMap = settings.pageName === 'Guidance' || window.G5RunPages?.hasMap();
     for (const panel of [$('mapRec'), $('pageRec')]) {
-      panel.hidden = !st.active || (settings.pageName === 'Guidance') !== (panel.id === 'mapRec');
+      panel.hidden = !st.active || !!hasMap !== (panel.id === 'mapRec');
       if (panel.hidden) continue;
       const reviewing = st.mode === 'review';
       const label = reviewing ? 'Boundary in review' : st.paused ? 'Boundary paused' : 'Recording boundary';

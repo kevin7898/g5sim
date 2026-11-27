@@ -97,7 +97,7 @@
     { id: 'display', app: 'System', label: 'DISPLAY', icon: 'display', help: 'Display settings: brightness, day/night, run pages.', nostrip: true,
       avail: () => true, state: () => ({}), tap: () => { openWin('menu'); selectTab('display'); } },
     { id: 'layout', app: 'System', label: 'LAYOUT', icon: 'layout', help: 'Layout Manager: shortcut bars.', nostrip: true,
-      avail: () => true, state: () => ({}), tap: () => openManager() },
+      avail: () => true, state: () => ({}), tap: () => window.G5RunPages ? G5RunPages.open() : openManager() },
     { id: 'help', app: 'System', label: 'HELP', icon: 'help', help: 'What each key on this bar does.', nostrip: true,
       avail: () => true, state: () => ({}), tap: () => openHelp() },
   ];
@@ -114,7 +114,10 @@
   const saveBars = () => { settings.skBars = B; saveSettings(); };
   const machineType = d => d.combine ? 'combine' : 'tractor';
   const barById = id => B.bars.find(b => b.id === id) || null;
-  const activeBar = d => barById(B.byType[machineType(d)]) || null;      // null = Automatic
+  const activeBar = d => {
+    const assigned = window.G5RunPages?.shortcutBar();
+    return assigned === 'auto' ? null : barById(assigned) || barById(B.byType[machineType(d)]);
+  };
   const safe = (fn, d, fb) => { try { return fn(d); } catch (e) { return fb; } };
   function autoKeys(d) {
     if (d.state !== 'vehicle') return [...FIXED, 'display'];
@@ -190,8 +193,9 @@
   const M = { sel: 'auto', key: null, adding: false, app: 'Tractor' };
   function openManager() {
     closeWin('menu');
+    closeWin('runLayoutWin');
     kmMode = 'manager';
-    M.sel = B.byType[machineType(data)] || 'auto'; M.key = null; M.adding = false;
+    M.sel = G5Keys.currentBar() || 'auto'; M.key = null; M.adding = false;
     if (M.sel !== 'auto' && !barById(M.sel)) M.sel = 'auto';
     $('kmTitle').textContent = 'Layout Manager: Shortcut Bars';
     openWin('keysWin'); renderManager();
@@ -216,7 +220,7 @@
           keyHtml(k, 'mini' + (keys.includes(k.id) ? ' used' : ''))).join('')}</div>
         <p class="hint">Tap a shortcut to add it. Each shortcut can be on a bar once. ${keys.length}/${MAX_KEYS} shortcuts.</p></div>` : '';
     const i = keys.indexOf(M.key);
-    setHtml($('kmBody'), `<div class="km-cols">
+    setHtml($('kmBody'), `${window.G5RunPages?.tabs('bars') || ''}<div class="km-cols">
       <div class="km-side">
         <div class="km-list">${list}</div>
         <button class="km-addnew" data-kmact="new"><i class="ysq"><svg><use href="#i-plus"/></svg></i><b>Add New</b></button>
@@ -239,6 +243,8 @@
   $('kmBody').onclick = e => {
     if (kmMode !== 'manager') return;
     const t = e.target;
+    const layout = t.closest('[data-layout-tab]');
+    if (layout && layout.dataset.layoutTab !== 'bars') return window.G5RunPages?.open(layout.dataset.layoutTab);
     const act = t.closest('[data-kmact]');
     if (act) return barAction(act.dataset.kmact);
     const barBtn = t.closest('[data-bar]');
@@ -288,7 +294,8 @@
     }
   }
 
-  window.G5Keys = { render, openManager, openHelp, keys: KEYS };
-  $('appLayout').onclick = openManager;
+  window.G5Keys = { render, openManager, openHelp, keys: KEYS,
+    bars: () => B.bars.map(({ id, name }) => ({ id, name })), currentBar: () => activeBar(data)?.id };
+  $('appLayout').onclick = () => window.G5RunPages ? G5RunPages.open() : openManager();
   $('appHelp').onclick = () => { closeWin('menu'); openHelp(); };
 })();

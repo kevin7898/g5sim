@@ -44,7 +44,13 @@ function getUserProfileAppPath() return PROFILE end
 -- receiver error stays at 0 unless a scenario swaps math.random.
 local realRandom = math.random
 math.random = function() return 0.25 end
-function createFolder(path) os.execute('mkdir -p "' .. path .. '"') end
+function createFolder(path)
+    if string.sub(package.config, 1, 1) == "\\" then
+        os.execute('mkdir "' .. string.gsub(path, '/', '\\') .. '" >NUL 2>&1')
+    else
+        os.execute('mkdir -p "' .. path .. '"')
+    end
+end
 function fileExists(path)
     local f = io.open(path, "r")
     if f then f:close() return true end
@@ -528,7 +534,7 @@ end
 
 local function newScenario(name, mods)
     PROFILE = OUT .. "/" .. name .. "/"
-    os.execute('rm -rf "' .. PROFILE .. '" && mkdir -p "' .. PROFILE .. '"')
+    createFolder(PROFILE)
     calls = {}
     logLines = {}
     g_time = 0
@@ -563,7 +569,7 @@ end
 ---------------------------------------------------------------------------
 do
     local dir = newScenario("vanilla_tractor", {})
-    os.execute('mkdir -p "' .. dir .. '"')
+    createFolder(dir)
     -- a command left over from a previous session must not run
     writeFile(dir .. "commands.xml", '<?xml version="1.0"?>\n<commands>\n    <cmd id="5" name="motorToggle" value="0" index="0"/>\n</commands>\n')
     local tractor, ts = makeVehicle({name = "Test Tractor", speed = 10})
@@ -637,6 +643,7 @@ do
     eq(t0["g5.implements.implement(0).seeder#cv"], nil, "no CV on a planter")
     check(seederCalls <= 2, "seeder snapshot read at most once per second (" .. seederCalls .. " calls in 1 s)")
     eq(t0["g5.vehicle#name"] ~= nil, true, "tractor not treated as a seeder")
+    eq(t0["g5.vehicle#id"], "veh-1", "driven vehicle identity")
     local fj = readFile(dir .. "fields.json") or ""
     check(string.find(fj, '"id":7', 1, true) ~= nil, "fields.json lists map field 7")
     check(string.find(fj, '"owner":1', 1, true) ~= nil, "fields.json has the owner")
@@ -1003,7 +1010,7 @@ do
     mod:loadMap("test")
     tick(1)
     G5LinkRtk.data.gates = false      -- gates are tested in the RTK scenario
-    os.execute('mkdir -p "' .. dir .. '"')
+    createFolder(dir)
     local function writeHeadland(v, extra, pts)
         writeFile(dir .. "headland.xml", '<?xml version="1.0"?>\n<headland v="' .. v .. '" armed="true" field="23" width="20" raiseLead="0.6" lowerLead="1.0" '
             .. extra .. '>\n' .. (pts or '') .. '</headland>\n')
@@ -1446,7 +1453,7 @@ do
     InputDevice = {CATEGORY = {KEYBOARD_MOUSE = 1, GAMEPAD = 2, WHEEL = 3}}
     mod:loadMap("test")
     g_currentMission.vehicleSystem = {vehicles = {tractor}}
-    os.execute('mkdir -p "' .. dir .. '"')
+    createFolder(dir)
     local function guidance(v, shift, turn, extra)
         writeFile(dir .. "guidance.xml", string.format('<?xml version="1.0"?>\n<guidance v="%d" spacing="10" shift="%s" %s>\n  <track id="tr1" name="East" ax="0" az="0" h="90"/>\n  %s\n</guidance>\n',
             v, tostring(shift), extra or "", turn or '<turn on="false"/>'))
@@ -1622,7 +1629,7 @@ do
     sprayer.setSprayAmountAutoMode = function(self, on) self.spec_pfExtendedSprayer.sprayAmountAutoMode = on end
     sprayer.setSprayAmountManualValue = function(self, v) local s = self.spec_pfExtendedSprayer s.sprayAmountManual = math.max(s.sprayAmountManualMin, math.min(s.sprayAmountManualMax, v)) end
     mod:loadMap("test")
-    os.execute('mkdir -p "' .. dir .. '"')
+    createFolder(dir)
     tick(4)
     local t = telemetry(dir)
     eq(t["g5.rate#system"], "pf", "Precision Farming sprayer found")
@@ -1660,7 +1667,7 @@ do
     g_SoilFertilityManager = {sprayerRateManager = rm}
     SoilConstants = {SPRAYER_RATE = {STEPS = {0.5, 0.75, 1.0, 1.25, 1.5, 2.0}, DEFAULT_INDEX = 3}}
     mod:loadMap("test")
-    os.execute('mkdir -p "' .. dir .. '"')
+    createFolder(dir)
     writeFile(dir .. "rx.xml", '<?xml version="1.0"?>\n<rx v="1" id="rx2" name="P" field="23" cell="10" ox="0" oz="150" cols="10" active="true">\n'
         .. table.concat(rows, "\n"):gsub("0%.5\"", "1.3\"") .. '\n</rx>\n')
     tick(10)

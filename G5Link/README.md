@@ -83,8 +83,7 @@ Ops Center on the display). Laid out like the real Operations Center:
 - **Map:** fields colored by last work type (tillage, seeding, application, harvest), with Fields and Equipment tabs.
 - **Land:** Client > Farm > Field with totals. Each field page has its boundaries (one active), work records and
   coverage layers. **+ Add Boundary:** From Map (draw it), From a previous operation (trace it from coverage, e.g.
-  after working new ground), or drive the edge with the display's Boundary app (Menu > Applications > Boundary: left
-  edge, center or right edge with an offset, any vehicle). Game-map import can be switched off per savegame.
+  after working new ground), or drive the edge with the display's Boundary app. Game-map import can be switched off per savegame.
 - **Analyze:** work records across fields; coverage outside every field can become a new field.
 - **Harvest Profit** (after harvestprofit.com): P&L per field and for the operation. Revenue is harvested tonnes
   (Realistic Harvesting yield x covered area) x the game's crop price, or your own price per crop. Expenses are seed
@@ -125,6 +124,14 @@ a paused game, or when you're on foot.
 "Sections" are the implement's work areas, so their count depends on how the vehicle mod is
 built. Work totals are counted by G5Link itself while any work area is active, and reset
 when you tap Reset Counter.
+
+## Record a driven boundary
+
+Open **Menu → Applications → Boundary**. Choose the current field or New Field. You can record the vehicle center, enter a left/right offset, or select the left/right edge of an attached implement. The implement edge uses half the selected working width from the vehicle position. The setup diagram shows the side and distance before recording.
+
+During recording, you can close the panel and use the boundary card on the run page. Use Pause to make a detour, Resume to reconnect to the track, and Undo or Redo to correct the last stretch. A long connector asks for confirmation. Review shows the closing gap, perimeter, and area, and flags crossed or incomplete outlines. Save creates an active boundary version in the field library. Use the Outline/Boundary view in Guidance or Operations Center to see it again.
+
+Refresh or reopen the display to resume viewing the current draft. A bridge restart clears an unsaved draft. A saved boundary remains in the bridge data for that FS25 savegame.
 
 ## RTK package (StarFire)
 

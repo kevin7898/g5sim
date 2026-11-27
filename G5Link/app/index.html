@@ -102,6 +102,7 @@
     <div class="shade" id="shade"><div class="shade-icon" id="shadeIcon"><svg><use href="#i-bang"/></svg></div><div class="shade-body"><b class="shade-title" id="shadeTitle"></b><div class="shade-text" id="shadeText"></div></div><button class="shade-x" aria-label="Close"><svg><use href="#i-x"/></svg></button></div>
 
     <main class="pages" id="pages">
+      <section class="map-rec" id="pageRec" aria-label="Boundary recording controls" hidden></section>
 
       <!-- Run page: Guidance -->
       <section class="page" data-name="Guidance">
@@ -141,7 +142,7 @@
                 <div class="mgc-row"><button class="g5btn" data-gc="left" aria-label="Nudge left">◀</button><button class="g5btn" data-gc="forward" aria-label="Nudge forward">▲</button><button class="g5btn" data-gc="back" aria-label="Nudge back">▼</button><button class="g5btn" data-gc="right" aria-label="Nudge right">▶</button><button class="g5btn" data-gc="more">More</button></div>
               </div>
             </div>
-            <div class="map-rec" id="mapRec" hidden></div>
+            <section class="map-rec" id="mapRec" aria-label="Boundary recording controls" hidden></section>
             <div class="map-hl" id="mapHl" hidden></div>
             <button class="map-at" id="mapAt" hidden aria-label="AutoTrac"><i class="map-at-pie" id="mapAtPie"></i><span><b>AutoTrac</b><em id="mapAtTxt">---</em></span></button>
             <div class="map-ai" id="mapAi" hidden><b id="mapAiName">---</b><span id="mapAiTxt"></span></div>
@@ -586,7 +587,7 @@
 
     <!-- App window: Boundary (record a field edge by driving) -->
     <div class="window-wrap" id="boundaryWin" hidden>
-      <div class="window narrow bd-win">
+      <div class="window bd-win">
         <div class="win-head"><b>Boundary</b><button class="win-close" data-close="boundaryWin" aria-label="Close"><svg><use href="#i-x"/></svg></button></div>
         <div class="win-body" id="bdBody"></div>
       </div>

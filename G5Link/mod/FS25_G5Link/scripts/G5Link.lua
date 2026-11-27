@@ -567,6 +567,8 @@ function G5Link:writeTelemetry(vehicle)
         xml:setString("g5#state", "vehicle")
         local k = "g5.vehicle"
         xml:setString(k .. "#name", call(vehicle, "getFullName") or "Vehicle")
+        local id = vehicle.uniqueId or vehicle.id
+        if id ~= nil then xml:setString(k .. "#id", tostring(id)) end
         xml:setFloat(k .. "#speed", round(call(vehicle, "getLastSpeed") or 0, 1))
         xml:setBool(k .. "#motorOn", bool(call(vehicle, "getIsMotorStarted")))
         xml:setBool(k .. "#ai", bool(call(vehicle, "getIsAIActive")))
@@ -778,6 +780,8 @@ function G5Link:writeImplementsTo(xml, base, vehicle, ox, oz)
         local s = self:getImplementState(impl)
         local ik = string.format("%s.implement(%d)", base, i - 1)
         xml:setString(ik .. "#name", s.name)
+        local id = impl.uniqueId or impl.id
+        if id ~= nil then xml:setString(ik .. "#id", tostring(id)) end
         xml:setBool(ik .. "#canLower", s.canLower)
         xml:setBool(ik .. "#lowered", s.lowered)
         xml:setBool(ik .. "#canTurnOn", s.canTurnOn)

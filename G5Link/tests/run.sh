@@ -8,8 +8,11 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 MOD="$HERE/../mod/FS25_G5Link"
 LUA="${LUA:-lua5.1}"
 LUAC="${LUAC:-luac5.1}"
-OUT="${OUT:-${TMPDIR:-/tmp}/g5link-test}"
-rm -rf "$OUT"; mkdir -p "$OUT"
+if [ -z "$OUT" ]; then
+  OUT=$(mktemp -d "${TMPDIR:-/tmp}/g5link-test.XXXXXX")
+else
+  mkdir "$OUT"
+fi
 
 echo "== syntax (luac -p, Lua 5.1)"
 find "$MOD/scripts" -name '*.lua' | while read -r f; do "$LUAC" -p "$f"; echo "ok  ${f#$MOD/}"; done
@@ -31,6 +34,8 @@ node "$HERE/coverage_test.js"
 
 echo "== Ops Center field store"
 node "$HERE/fields_test.js"
+echo "== driven boundary recorder"
+node "$HERE/boundary_test.js"
 echo "== headland link"
 node "$HERE/headland_test.js"
 echo "== prescriptions"

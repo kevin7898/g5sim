@@ -605,7 +605,16 @@
         }
       }
       const rp = G5Bounds.path();
-      if (rp.length > 1) { polyline(rp.map(q => P(q[0], q[1])), '#ff3b30', 4); }
+      if (rp.length) {
+        if (rp.length > 1) polyline(rp.map(([x, z]) => P(x, z)), '#ff6158', 4);
+        const connector = G5Bounds.connector();
+        if (connector) polyline(connector.map(([x, z]) => P(x, z)), '#ffd172', 3, [9, 7]);
+        const start = P(rp[0][0], rp[0][1]);
+        if (start) {
+          ctx.fillStyle = '#fff7dc'; ctx.strokeStyle = '#702b22'; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.arc(start.x, start.y, 6, 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
+        }
+      }
     }
 
     // Courseplay field boundary and course (only points near the machine)

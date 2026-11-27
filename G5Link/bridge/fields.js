@@ -142,12 +142,20 @@ class FieldStore {
     }
     return this.saves.get(save);
   }
-  write(save) {
+  write(save, next = null) {
+    if (this.persist) {
+      const f = this.file(save);
+      try {
+        fs.mkdirSync(path.dirname(f), { recursive: true });
+        fs.writeFileSync(f + '.tmp', JSON.stringify(next || this.db(save)));
+        fs.renameSync(f + '.tmp', f);
+      } catch (e) {
+        if (next) throw new Error(`Could not save boundary: ${e.message}`);
+        console.warn('Could not save fields:', e.message);
+      }
+    }
+    if (next) this.saves.set(save, next);
     this.version++;
-    if (!this.persist) return;
-    const f = this.file(save);
-    try { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f + '.tmp', JSON.stringify(this.db(save))); fs.renameSync(f + '.tmp', f); }
-    catch (e) { console.warn('Could not save fields:', e.message); }
   }
 
   // fields.json from the mod: {farmId, fields: [{id, name, areaHa, farmland, owner, x, z, polygon}]}
@@ -196,24 +204,33 @@ class FieldStore {
     if (!g) return null;
     return g.fields.find(f => Array.isArray(f.polygon) && f.polygon.length > 2 && inPolygon(f.polygon, x, z)) || null;
   }
-  addBoundary(save, { fieldId = null, name = null, source, polygon, note = null, newField = false }) {
+  addBoundary(save, { fieldId = null, name = null, source, polygon, note = null, newField = false, recording = null }) {
     if (!Array.isArray(polygon) || polygon.length < 3) throw new Error('a boundary needs at least 3 points');
     if (!['driven', 'coverage', 'drawn', 'game'].includes(source)) throw new Error('unknown boundary source');
     const d = this.db(save);
     const poly = round1(polygon);
     let f = fieldId ? d.fields[String(fieldId)] : null;
+    let nextCustom = d.nextCustom;
     if (!f) {
       const c = centroid(poly);
       const gf = fieldId || newField ? null : this.gameFieldAt(save, c.x, c.z);
-      const id = fieldId ? String(fieldId) : gf ? String(gf.id) : 'u' + (d.nextCustom++);
-      f = d.fields[id] || (d.fields[id] = { id, name: name || (gf && gf.name) || (gf ? `Field ${gf.id}` : `New Field ${id.slice(1)}`), boundaries: [] });
+      const id = fieldId ? String(fieldId) : gf ? String(gf.id) : 'u' + (nextCustom++);
+      f = d.fields[id] || { id, name: name || (gf && gf.name) || (gf ? `Field ${gf.id}` : `New Field ${id.slice(1)}`), boundaries: [] };
     }
-    if (name) f.name = name;
     const b = { v: (f.boundaries.reduce((m, x) => Math.max(m, x.v), 0)) + 1, source, polygon: poly, areaHa: +(polygonArea(poly) / 10000).toFixed(3), at: Date.now(), note };
-    f.boundaries.push(b);
-    delete f.activeV;                                  // the new boundary becomes active
-    this.write(save);
+    if (recording) b.recording = recording;
+    const updated = { ...f, name: name || f.name, boundaries: [...f.boundaries, b] };
+    delete updated.activeV;                            // the new boundary becomes active
+    this.write(save, { ...d, fields: { ...d.fields, [f.id]: updated }, nextCustom });
     return { field: f.id, v: b.v };
+  }
+  recordedBoundary(save, draft, review) {
+    if (typeof draft !== 'string' || typeof review !== 'string') return null;
+    for (const field of Object.values(this.db(save).fields)) {
+      const boundary = field.boundaries.find(item => item.recording?.draft === draft && item.recording.review === review);
+      if (boundary) return { field: field.id, v: boundary.v };
+    }
+    return null;
   }
   setActive(save, fieldId, v) {
     const f = this.db(save).fields[String(fieldId)];
@@ -701,4 +718,4 @@ class FieldStore {
   }
 }
 
-module.exports = { FieldStore, polygonArea, inPolygon, simplifyRing, traceOutline, centroid };
+module.exports = { FieldStore, polygonArea, inPolygon, simplify, simplifyRing, round1, traceOutline, centroid };

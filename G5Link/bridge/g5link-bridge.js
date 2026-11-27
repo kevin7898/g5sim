@@ -52,7 +52,8 @@ const PROVIDER_STALE_MS = 6000;
 const APP_DIR = path.resolve(__dirname, '..', 'app');
 const STALE_MS = 3000; // no new seq for this long => game considered paused/closed
 const { CoverageStore } = require('./coverage.js');
-const { FieldStore, simplifyRing } = require('./fields.js');
+const { FieldStore } = require('./fields.js');
+const { BoundaryRecorder } = require('./boundary-recorder.js');
 const { HeadlandLink } = require('./headland.js');
 let headlandLink = null;
 const headland = () => headlandLink || (headlandLink = new HeadlandLink({ dir: DIR, write: !DEMO }));
@@ -275,44 +276,9 @@ function importGameFields() {
   fieldStore().importGame(gameFieldsSave, gameFields);
 }
 
-// Driven boundary: positions of the vehicle (or offset to the implement edge) while recording.
-let rec = { active: false };
-function boundaryFrame(t) {
-  if (!rec.active || rec.paused || !t.vehicle || typeof t.vehicle.x !== 'number') return;
-  const h = (t.vehicle.heading || 0) * Math.PI / 180, r = { x: Math.cos(h), z: Math.sin(h) };
-  const side = rec.side === 'left' ? -1 : rec.side === 'right' ? 1 : 0;
-  const x = t.vehicle.x + r.x * rec.offset * side, z = t.vehicle.z + r.z * rec.offset * side;
-  const last = rec.points[rec.points.length - 1];
-  if (last && Math.hypot(x - last[0], z - last[1]) < 1) return;
-  if (last) rec.length += Math.hypot(x - last[0], z - last[1]);
-  if (rec.points.length < 20000) rec.points.push([+x.toFixed(2), +z.toFixed(2)]);
-}
-function boundaryStatus() {
-  if (!rec.active) return { active: false, saved: rec.saved || null };
-  const first = rec.points[0], last = rec.points[rec.points.length - 1];
-  return { active: true, paused: !!rec.paused, points: rec.points.length, length: Math.round(rec.length), side: rec.side, offset: rec.offset,
-    fieldId: rec.fieldId, name: rec.name, gap: first && last ? Math.round(Math.hypot(first[0] - last[0], first[1] - last[1])) : null };
-}
-function boundaryCommand(c) {
-  const a = c.action;
-  if (a === 'start') {
-    rec = { active: true, paused: false, points: [], length: 0, side: ['left', 'right'].includes(c.side) ? c.side : 'center',
-      offset: Math.max(0, Math.min(30, Number(c.offset) || 0)), fieldId: c.fieldId ? String(c.fieldId) : null, name: c.name ? String(c.name).slice(0, 60) : null,
-      newField: !c.fieldId };
-    return boundaryStatus();
-  }
-  if (!rec.active) throw new Error('not recording');
-  if (a === 'pause') rec.paused = true;
-  else if (a === 'resume') rec.paused = false;
-  else if (a === 'cancel') rec = { active: false };
-  else if (a === 'finish') {
-    if (rec.points.length < 3 || rec.length < 30) throw new Error('drive at least 30 m around the field before saving');
-    const polygon = simplifyRing(rec.points, 0.5);
-    const r = fieldStore().addBoundary(currentSave(), { fieldId: rec.fieldId, name: rec.name, source: 'driven', polygon, newField: rec.newField });
-    rec = { active: false, saved: r };
-    return { active: false, saved: r };
-  } else throw new Error('unknown action');
-  return boundaryStatus();
+const boundaryRecorder = new BoundaryRecorder();
+function updateOpsTelemetry() {
+  latest.ops = { fields: fieldStore().version, boundary: boundaryRecorder.status(currentSave(), latest) };
 }
 
 function setTelemetry(t) {
@@ -325,7 +291,7 @@ function setTelemetry(t) {
   try { latest.workSetup = fieldStore().workSetup(currentSave()); } catch (e) { latest.workSetup = null; }
   if (fresh) {
     try { mapStore().onFrame(latest); } catch (e) { console.warn('Map recording failed:', e.message); }
-    try { boundaryFrame(latest); importGameFields(); } catch (e) { console.warn('Field update failed:', e.message); }
+    try { boundaryRecorder.onFrame(currentSave(), latest); importGameFields(); } catch (e) { console.warn('Field update failed:', e.message); }
     try { headland().update(latest, fieldStore(), currentSave(), mapStore()); } catch (e) { console.warn('Headland update failed:', e.message); }
   }
   latest.headlandLink = headland().status;
@@ -334,7 +300,7 @@ function setTelemetry(t) {
   latest.rtkInfo = DEMO ? demoRtkSummary() : rtkState ? { day: rtkState.day, payer: rtkState.payer || null, gates: rtkState.gates, bases: (rtkState.bases || []).length } : null;
   if (DEMO) latest.headland = demoHeadland(latest);
   latest.map = mapStore().status();
-  latest.ops = { fields: fieldStore().version, boundary: boundaryStatus() };
+  updateOpsTelemetry();
   broadcast();
 }
 
@@ -345,6 +311,8 @@ function heartbeat() {
   const link = !lastSeqAt ? 'waiting' : stale ? 'stale' : 'live';
   if (link !== latest.link) {
     latest = { ...latest, link };
+    boundaryRecorder.onFrame(currentSave(), latest);
+    updateOpsTelemetry();
     broadcast();
   }
   for (const res of clients) res.write(': ping\n\n');
@@ -1116,11 +1084,16 @@ const server = http.createServer((req, res) => {
         return json(200, { prescriptions: fid === null ? store.prescriptions(save) : store.prescriptions(save, fid), active: a ? a.id : null });
       }
       if (u.pathname === '/api/ops/finance') return json(200, { farmFinance: economy && economy.farmFinance || null, equipment: equipment.vehicles });
-      if (u.pathname === '/api/boundary') return json(200, { ...boundaryStatus(), path: rec.active ? rec.points : [] });
+      if (u.pathname === '/api/boundary') return json(200, boundaryRecorder.snapshot(save, latest));
       return json(404, { error: 'unknown route' });
     }
     if (req.method === 'POST') {
-      if (u.pathname === '/api/boundary') return post(c => boundaryCommand(c));
+      if (u.pathname === '/api/boundary') return post(c => {
+        const result = boundaryRecorder.command(c, currentSave(), latest, store);
+        updateOpsTelemetry();
+        broadcast();
+        return result;
+      });
       if (u.pathname === '/api/ops/settings') return post(c => ({ settings: store.setSettings(save, c) }));
       if (u.pathname === '/api/ops/tracks') return post(c => {
         if (c.action === 'add') return { track: store.addTrack(save, c.track || {}) };

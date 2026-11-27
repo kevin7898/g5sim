@@ -503,18 +503,34 @@ svg { display: block; }
 #unitsWin, #confirm, #numpad { z-index: 50; }   /* can open on top of the full-screen Menu */
 
 /* ---------------------------------------------------------------- Boundary app */
-.map-rec { position: absolute; left: 50%; top: 134px; transform: translateX(-50%); z-index: 3; background: rgba(150, 12, 12, .9); color: #fff;
-  padding: 4px 14px 6px; border-radius: 4px; display: flex; flex-direction: column; align-items: center; cursor: pointer; }
+.map-rec { position: absolute; left: 50%; top: 134px; transform: translateX(-50%); z-index: 3; width: 500px;
+  background: rgba(30, 30, 27, .94); color: #fff; padding: 0 8px 8px; border-radius: 6px; border-left: 4px solid #ff6b61; }
+#pageRec { top: auto; bottom: 12px; }
 .map-rec[hidden] { display: none; }
-.map-rec b { font-size: var(--fs-sm); } .map-rec span { font-size: var(--fs-md); font-weight: 700; }
+.map-rec.paused { border-left-color: var(--warn); }
+.bd-map-status { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; min-height: var(--h-sm);
+  border: 0; background: transparent; padding: 0 4px; font-size: var(--fs-sm); }
+.bd-map-status i { background: #ff6b61; width: 10px; height: 10px; border-radius: 50%; }
+.map-rec.paused .bd-map-status i { background: var(--warn); }
+.bd-map-status span { margin-left: auto; color: #e2e1d5; }
+.bd-map-actions { display: flex; gap: 5px; }
+.bd-map-actions .g5btn { flex: 1; height: var(--h-sm); padding: 0 8px; font-size: var(--fs-sm); }
+.bd-win { width: 780px; }
 .bd-win .win-body { padding: 10px 20px 18px; }
-.bd-win .set-row .seg { width: 380px; }
+.bd-setup { display: grid; grid-template-columns: 1fr 176px; gap: 16px; align-items: start; }
+.bd-win .set-row .seg, .bd-win .set-row input, .bd-win .set-row select { width: 320px; }
+.bd-win .set-row input, .bd-win .set-row select { height: var(--h-sm); font: inherit; color: var(--ink);
+  background: var(--cream); border: 1px solid var(--rule); border-radius: 4px; padding: 0 8px; }
+.bd-reference { display: grid; justify-items: center; color: #eef1e4; background: #30382f; border-radius: 5px;
+  padding: 8px 4px; font-size: var(--fs-sm); }
+.bd-reference-diagram { width: 100%; }
 .bd-win .seg button { font-size: var(--fs-md); }
 .bd-win .seg button:disabled { opacity: .45; }
 .bd-win .hint { font-size: var(--fs-sm); font-weight: 600; color: var(--muted); margin: 10px 0; }
 .bd-actions { display: flex; justify-content: flex-end; gap: 10px; }
 .bd-actions .g5btn { min-width: 140px; height: var(--h-md); font-size: var(--fs-md); display: flex; align-items: center; justify-content: center; gap: 8px; }
-.bd-actions .g5btn svg { width: 20px; height: 20px; }
+.bd-edit { display: flex; justify-content: space-between; gap: 10px; margin-top: 10px; }
+.bd-edit .g5btn { min-width: 104px; }
 .bd-state { display: flex; align-items: center; gap: 10px; font-size: var(--fs-lg); margin: 6px 0 12px; }
 .bd-state i { width: 16px; height: 16px; border-radius: 50%; background: #d2262c; }
 .bd-state.rec i { animation: bdblink 1s steps(2) infinite; } .bd-state.paused i { background: var(--warn); }
@@ -523,6 +539,18 @@ svg { display: block; }
 .bd-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; background: var(--rule); }
 .bd-grid div { background: var(--cream); padding: 8px 10px; } .bd-grid small { display: block; font-size: var(--fs-xs); font-weight: 700; color: var(--muted); }
 .bd-grid b { font-size: var(--fs-lg); }
+.bd-outline, .bd-empty-map { width: 100%; height: 220px; border-radius: 5px; border: 1px solid #777b6d;
+  margin-bottom: 10px; color: #f1f2e4; background-color: #30382f;
+  background-image: linear-gradient(#ffffff11 1px, transparent 1px), linear-gradient(90deg, #ffffff11 1px, transparent 1px);
+  background-size: 20px 20px; }
+.bd-empty-map { display: grid; place-items: center; }
+.bd-outline polygon { fill: #5db96f40; }
+.bd-outline polyline, .bd-outline line { fill: none; stroke: #90e29f; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.bd-outline.invalid polyline { stroke: #ff9289; }
+.bd-outline.invalid .bd-problem { stroke: #ffcb55; stroke-width: 5; }
+.bd-outline line { stroke: #ffd172; stroke-dasharray: 7 6; }
+.bd-outline circle { fill: #f4f2df; stroke: #252c24; stroke-width: 2; }
+.bd-issues { margin: 10px 0; padding-left: 24px; color: var(--ink); font-size: var(--fs-sm); }
 a.app { text-decoration: none; color: inherit; }
 #boundaryWin { z-index: 50; }
 .g5btn:disabled { opacity: .45; }

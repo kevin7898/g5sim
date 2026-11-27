@@ -67,6 +67,7 @@ function showPage(target) {
     `<button class="app ${n === name ? 'on' : ''}" data-page="${esc(n)}"><span class="app-ico num">${k + 1}</span><b>${esc(n)}</b></button>`).join(''));
   document.querySelectorAll('#tab-apps [data-goto]').forEach(b => { b.hidden = !available.includes(b.dataset.goto); });
   saveSettings();
+  window.G5Bounds?.render();
 }
 // What the machine is, for everything that follows it: run pages, Menu apps, unit rows, Work Setup.
 // operation is what Work Setup records: harvest, seeding, application, tillage or none.

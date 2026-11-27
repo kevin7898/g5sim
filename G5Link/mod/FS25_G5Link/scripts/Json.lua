@@ -38,7 +38,7 @@ local function encode(v, out, depth)
         if v ~= v or v == math.huge or v == -math.huge then
             out[#out + 1] = "null"
         elseif math.floor(v) == v and math.abs(v) < 1e15 then
-            out[#out + 1] = string.format("%d", v)
+            out[#out + 1] = string.format("%.0f", v == 0 and 0 or v)
         else
             out[#out + 1] = string.format("%.7g", v)
         end

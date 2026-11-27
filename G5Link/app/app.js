@@ -837,15 +837,32 @@ function renderPlanter(d) {
     pctTile('Yield Potential', sd.yieldPotential, { sub: 'Placement model' }),
   ].join(''));
 
-  const rows = sd.rows || [];
+  // live lane states from Section Control (1 on, 0 off, a = shut off automatically); row readings from the seed monitor
+  const sc = imp.section, states = (sc && sc.states) || [];
+  const rows = (sd.rows || []).length ? sd.rows : states.map((c, i) => ({ r: i + 1, on: c === '1' && live, target: null }));
+  const laneWord = sc && sc.kind === 'section' ? 'Section' : 'Row';
   setHtml($('plRows'), !rows.length
-    ? `<p class="pl-none">${sd.monitor ? 'No row drive fitted: row readings are not available.' : 'Row readings need a seed monitor and row drive.'}</p>`
-    : rows.map(r => {
-      const ratio = r.on && r.target ? (r.actual || 0) / r.target : 0;
-      const dev = Math.abs(ratio - 1), cls = !r.on ? 'off' : dev <= 0.05 ? 'ok' : dev <= 0.1 ? 'mid' : 'bad';
-      const h = r.on ? Math.min(100, ratio * 80) : 6;
-      return `<div class="pl-row"><div class="pl-bar"><i class="${cls}" style="height:${h.toFixed(0)}%"></i></div><b>${fmt(r.r, 0)}</b><span>${r.on && typeof r.actual === 'number' ? rateTxt(r.actual) : 'off'}</span></div>`;
+    ? `<p class="pl-none">${sd.monitor ? 'No row clutches or row drives fitted: row readings are not available.' : 'Row readings need a seed monitor and row clutches or drives.'}</p>`
+    : rows.map((r, i) => {
+      const auto = states[i] === 'a';
+      const ratio = r.on && r.target ? (r.actual || 0) / r.target : r.on ? 1 : 0;
+      const dev = Math.abs(ratio - 1), cls = auto ? 'auto' : !r.on ? 'off' : dev <= 0.05 ? 'ok' : dev <= 0.1 ? 'mid' : 'bad';
+      const h = r.on ? Math.min(100, ratio * 80) : auto ? 80 : 6;
+      const val = r.on ? (typeof r.actual === 'number' ? rateTxt(r.actual) : 'on') : auto ? 'auto' : 'off';
+      return `<div class="pl-row"><div class="pl-bar"><i class="${cls}" style="height:${h.toFixed(0)}%"></i></div><b>${fmt(r.r, 0)}</b><span>${val}</span></div>`;
     }).join(''));
+
+  const g = d.section;
+  const need = g && !g.allowed ? (g.need === 'receiver' ? 'No GPS receiver' : 'Activation needed (StarFire)') : null;
+  const autoOff = states.filter(c => c === 'a').length;
+  const ctl = sc && sc.controller;
+  const status = !sc ? 'Not fitted' : need ? need : ctl === 'G5Link' ? (sc.auto ? 'On' : 'Off') : ctl === 'monitor' ? (sc.auto ? 'On (implement monitor)' : 'Off (implement monitor)') : g ? 'Waiting' : 'Off';
+  const ready = !!(sc && g && g.allowed);
+  setHtml($('plSection'), [
+    `<div class="kv"><span>${sc ? 'Status' : 'Needs row clutches or sections'}</span><b>${esc(status)}${sc && sc.auto && autoOff ? ` · ${autoOff}/${fmt(sc.lanes, 0)} off` : sc ? ` · ${fmt(sc.lanes, 0)} ${laneWord.toLowerCase()}s` : ''}</b></div>`,
+    `<div class="pl-sec"><div class="seg sm" id="plSecMaster"><button data-v="1" class="${g && g.on ? 'on' : ''}" ${ready ? '' : 'disabled'}>On</button><button data-v="0" class="${g && !g.on ? 'on' : ''}" ${ready ? '' : 'disabled'}>Off</button></div>`,
+    `<button class="g5btn pl-overlap" id="plSecOverlap" data-v="${((Number(g && g.overlap) || 0) + 1) % 3}" ${ready ? '' : 'disabled'}>${['Minimize Skips', '50% Covered', 'Minimize Overlap'][Number(g && g.overlap) || 0]}</button></div>`,
+  ].join(''));
 
   const kv = (k, val) => `<div class="kv"><span>${k}</span><b>${val}</b></div>`;
   setHtml($('plMonitor'), [
@@ -857,9 +874,15 @@ function renderPlanter(d) {
   setHtml($('plSoil'), [
     kv('Soil Moisture', typeof sd.moisture === 'number' ? fmt(sd.moisture * 100, 0) + ' %' : '---'),
     kv('Compaction', typeof sd.compaction === 'number' ? fmt(sd.compaction * 100, 0) + ' %' : '---'),
-    kv('Source', esc(src)),
   ].join(''));
+  $('plSoilTitle').title = 'Source: ' + src;
 }
+
+$('plSection').onclick = e => {
+  const b = e.target.closest('button'); if (!b || b.disabled) return;
+  if (b.closest('#plSecMaster')) return send('section', Number(b.dataset.v), 0, b);
+  if (b.id === 'plSecOverlap') return send('sectionOverlap', Number(b.dataset.v), 0, b);
+};
 
 // ------------------------------------------------------------ Field page (other mods)
 const STATUS_TAG = { Good: 'on', Fair: '', Poor: 'alert' };

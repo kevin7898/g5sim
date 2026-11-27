@@ -26,7 +26,7 @@ files in `Documents\My Games\FarmingSimulator2025\modSettings\FS25_G5Link\`.
 | **Harvesting** | For combines: grain tank level. With the [Realistic Harvesting](https://github.com/exekx/FS25_RealisticHarvesting) mod also yield, moisture and its limit, throughput, productivity, grain loss (total and by cause, with an A to D grade), engine load against target, RH's recommended speed, fuel rate, the harvest settings against RH's optimum band, and field totals |
 | **Harvest Automation** | For combines: Speed Automation (the mod steps cruise speed toward Realistic Harvesting's recommended speed, 0.5 km/h per second, up to a max speed you set; without RH it holds about 95 % engine load), its state, RH's harvest-settings mode and efficiency, 5/15/30-minute trends of ground speed against target, engine load against target, throughput and grain loss (green bands show when automation was on), the grain tank with time to full and an auger key, and averages for the field |
 | **Tillage** | For plows, cultivators, discs, rippers, power harrows, mulchers, rollers and weeders: speed, work rate, area, engine load, working depth, fuel rate and fuel per area. **TruSet-style depth**: a depth set point with − / + keys, a keypad and three editable presets (Seedbed, Secondary, Primary), plus Shallow / Normal / Deep. Cultivators with [Cultivator Settings](https://github.com/jason0611/FS25_CultivatorSettings) or the game's own work modes switch level by depth (up to 10 cm shallow, up to 22 cm normal, deeper is deep). With FieldPath Realistic Tillage the tool takes the exact depth, and the page warns when the tractor cannot pull it |
-| **Planter** | With FieldPath Realistic Seeder: target and actual rate, singulation, skips, doubles (or distribution CV on drills), seed depth, established population, yield potential, a row-by-row rate chart, downforce and closing, soil moisture and compaction |
+| **Planter** | With FieldPath Realistic Seeder: target and actual rate, singulation, skips, doubles (or distribution CV on drills), seed depth, established population, yield potential, a row-by-row rate chart, downforce and closing, soil moisture and compaction, and **Section Control** (master On/Off, coverage overlap) for row clutches and drill sections |
 | **Field** | Soil under the machine from [Realistic Soil & Fertilizer](https://github.com/Realistic-Farming/FS25_SoilFertilizer): N, P and K with Good/Fair/Poor, pH, organic matter, compaction, yield potential, last crop, weed, pest and disease pressure, rotation. Ground from Mud System Physics: wheel slip, mud, tire pressure. AI driver from Courseplay or AutoDrive: state, progress, distance and turns left |
 
 **Headland Management** (Menu > Headland, the HEADLAND key, or the chip on the Guidance map). When armed, the
@@ -150,6 +150,15 @@ month under "GPS corrections". Other mods can read all of it and take over the b
 API: see `mod/FS25_G5Link/API.md`. With **Farm Finance** installed, it pays them for you: on the input
 account or the operating line (or cash, your choice in Farm Finance), and machines you sell or return
 from a lease stop billing.
+
+## Section Control (part of the RTK package)
+
+With the **Section Control activation** (StarFire, $1,500 by default) the G5 runs automatic row and section shutoff on
+planters and drills that have row clutches, electric row drives or section shutoff fitted in the shop (FieldPath
+Realistic Seeder 2.6 or later). Rows turn off just before ground already planted, at headlands, point rows and
+overlaps. The Planter page shows each row (striped = shut off automatically), the master **On/Off** switch and the
+coverage overlap (**Minimize Skips**, **50% Covered**, **Minimize Overlap**). Coverage maps record only the rows that
+are planting. Without the activation the implement's own monitor can still do it (its GPS shutoff unlock in the shop).
 
 ## AutoTrac, Resume and Turn Automation (part of the RTK package)
 

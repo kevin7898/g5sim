@@ -103,6 +103,9 @@ function G5Link:loadMap(name)
     if G5LinkRate ~= nil then
         G5LinkRate:reset()
     end
+    if G5LinkSection ~= nil then
+        G5LinkSection:reset()
+    end
     if G5LinkRtk ~= nil then
         G5LinkRtk:reset(true)
         if g_messageCenter ~= nil and MessageType ~= nil and MessageType.PERIOD_CHANGED ~= nil then
@@ -194,6 +197,13 @@ function G5Link:update(dt)
         if not ok and not self.rateErrorLogged then
             self.rateErrorLogged = true
             print("G5Link: rate control failed: " .. tostring(err))
+        end
+    end
+    if G5LinkSection ~= nil then
+        local ok, err = pcall(G5LinkSection.update, G5LinkSection, vehicle, dt, self)
+        if not ok and not self.sectionErrorLogged then
+            self.sectionErrorLogged = true
+            print("G5Link: section control failed: " .. tostring(err))
         end
     end
     if G5LinkControls ~= nil then
@@ -382,6 +392,37 @@ function G5Link:getImplementState(impl)
         end
     end
     s.seeder = self:getSeeder(impl)
+    -- Row clutches / electric drives / drill sections (Realistic Seeder 2.6+): one section per lane,
+    -- on only while the implement works and the lane is not shut off, so coverage skips shut-off rows.
+    if G5LinkSection ~= nil then
+        local ok, sc = pcall(G5LinkSection.lanesOf, G5LinkSection, impl)
+        if ok and sc ~= nil then
+            local working = false
+            for _, on in ipairs(s.areas) do
+                if on then working = true end
+            end
+            local areas, geometry = {}, {}
+            for i = 1, sc.lanes do
+                local r = sc.rows[i]
+                local g = type(r) == "table" and r.geometry or nil
+                local fine = type(g) == "table"
+                for _, key in ipairs({ "sx", "sz", "wx", "wz", "hx", "hz" }) do
+                    local v = fine and g[key] or nil
+                    if type(v) ~= "number" or v ~= v or v == math.huge or v == -math.huge then fine = false end
+                end
+                if not fine then
+                    areas = nil
+                    break
+                end
+                table.insert(areas, working and r.active == true)
+                table.insert(geometry, { g.sx, g.sz, g.wx, g.wz, g.hx, g.hz })
+            end
+            if areas ~= nil and #areas > 0 then
+                s.areas, s.geometry = areas, geometry
+            end
+            s.section = sc
+        end
+    end
     if G5LinkControls ~= nil then
         local ok, t = pcall(G5LinkControls.getTillage, G5LinkControls, impl)
         if ok then
@@ -608,6 +649,9 @@ function G5Link:writeTelemetry(vehicle)
         if G5LinkRate ~= nil then
             pcall(G5LinkRate.write, G5LinkRate, xml)
         end
+        if G5LinkSection ~= nil then
+            pcall(G5LinkSection.write, G5LinkSection, xml)
+        end
         if G5LinkRtk ~= nil then
             local ok, err = pcall(G5LinkRtk.write_telemetry, G5LinkRtk, xml, vehicle)
             if not ok and not self.gnssErrorLogged then
@@ -762,6 +806,23 @@ function G5Link:writeImplementsTo(xml, base, vehicle, ox, oz)
                 self.seederErrorLogged = true
                 print("G5Link: Realistic Seeder read failed: " .. tostring(err))
             end
+        end
+        if s.section ~= nil then
+            local sk = ik .. ".section"
+            local sc = s.section
+            xml:setString(sk .. "#kind", tostring(sc.laneKind or "row"))
+            xml:setInt(sk .. "#lanes", sc.lanes)
+            xml:setInt(sk .. "#rowsPerLane", tonumber(sc.rowsPerLane) or 1)
+            xml:setString(sk .. "#controller", tostring(sc.controller or ""))
+            xml:setBool(sk .. "#auto", sc.enabled == true)
+            xml:setBool(sk .. "#perRowRate", sc.perRowRate == true)
+            -- per lane: 1 on, 0 switched off, a = shut off automatically (ground already planted)
+            local states = {}
+            for i = 1, sc.lanes do
+                local r = sc.rows[i] or {}
+                states[i] = r.active and "1" or (r.reason == "covered" and "a" or "0")
+            end
+            xml:setString(sk .. "#rows", table.concat(states))
         end
         if s.tillage ~= nil then
             pcall(G5LinkControls.writeTillage, G5LinkControls, xml, ik .. ".tillage", s.tillage)
@@ -1419,6 +1480,12 @@ function G5Link:runCommand(vehicle, cmd)
     end
     if G5LinkRate ~= nil then
         local ok, handled = pcall(G5LinkRate.run, G5LinkRate, vehicle, cmd, self)
+        if ok and handled then
+            return
+        end
+    end
+    if G5LinkSection ~= nil then
+        local ok, handled = pcall(G5LinkSection.run, G5LinkSection, vehicle, cmd, self)
         if ok and handled then
             return
         end

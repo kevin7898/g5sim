@@ -224,5 +224,20 @@ if (fs.existsSync(live)) {
   }
 }
 
+{
+  const f = path.join(OUT, 'section_control', 'telemetry_live.xml');
+  check(fs.existsSync(f), 'section control live telemetry copy exists');
+  if (fs.existsSync(f)) {
+    const t = telemetryFromXml(fs.readFileSync(f, 'utf8'));
+    const imp = t.implements[0] || {};
+    eq(t.section && t.section.allowed, true, 'live: section control allowed');
+    eq(t.section && t.section.overlap, 2, 'live: overlap');
+    eq(imp.section && imp.section.states.join(''), '1a10', 'live: lane states');
+    eq(imp.section && imp.section.controller, 'G5Link', 'live: controller');
+    eq(imp.areas && imp.areas.map(Number).join(''), '1010', 'live: lanes as sections');
+    eq(imp.geometry && imp.geometry.length, 4, 'live: lane geometry');
+  }
+}
+
 console.log(`node checks: ${checks}, failures: ${failures}`);
 process.exit(failures ? 1 : 0);

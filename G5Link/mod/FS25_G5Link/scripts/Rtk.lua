@@ -41,7 +41,7 @@ G5LinkRtk.SUBSCRIPTIONS = { "SF2", "SF3", "MRTK", "SFRTK" }       -- monthly, pe
 G5LinkRtk.SUB_NAMES = { SF2 = "SF2", SF3 = "SF3", MRTK = "Mobile RTK", SFRTK = "SF-RTK" }
 G5LinkRtk.DEFAULT_PRICES = {
     SF2 = 70, SF3 = 120, MRTK = 130, SFRTK = 170,                  -- per month
-    RTK = 2500, SF7000 = 9000, AUTOTRAC = 1500,                    -- one time
+    RTK = 2500, SF7000 = 9000, AUTOTRAC = 1500, SECTION = 1500,    -- one time
     SF3000 = 4000, SF6000 = 7000,                                  -- GPS shop options on machines (with SF7000 and RTK)
     SHOP_GPS = 1,                                                  -- 1 = price GPS shop options from this list, 0 = the mods' own
     BASE = 15000, BASE_UPKEEP = 10,                                -- shop price and daily upkeep set on RTK station placeables (0 = the mod's own)
@@ -54,7 +54,7 @@ G5LinkRtk.RTK_FIX = 10
 G5LinkRtk.BASE_RANGE = 3000          -- m radio range of a base station
 G5LinkRtk.BASE_SURVEY_MIN = 120      -- game minutes of self-survey after placing a base
 -- Feature gates (minimum level), like Deere activations.
-G5LinkRtk.GATES = { headland = "SF2", grainCart = "SF3", autotrac = "SF1" }   -- autotrac also needs its activation
+G5LinkRtk.GATES = { headland = "SF2", grainCart = "SF3", autotrac = "SF1", section = "SF1" }   -- autotrac and section also need their activation
 G5LinkRtk.MONEY_STAT = "g5linkRtk"
 G5LinkRtk.TICK = 250
 
@@ -153,6 +153,7 @@ function G5LinkRtk:load(dir)
                     local e = { receiver = xml:getString(vk .. "#receiver", G5LinkRtk.DEFAULT_RECEIVER),
                         rtk = xml:getString(vk .. "#rtk", "false") == "true", name = xml:getString(vk .. "#name", ""),
                         autotrac = xml:getString(vk .. "#autotrac", "false") == "true",
+                        section = xml:getString(vk .. "#section", "false") == "true",
                         farmId = xml:getInt(vk .. "#farm", 1), subs = {} }
                     if G5LinkRtk.RECEIVERS[e.receiver] == nil then e.receiver = G5LinkRtk.DEFAULT_RECEIVER end
                     for s in string.gmatch(xml:getString(vk .. "#subs", ""), "[%w]+") do e.subs[s] = true end
@@ -198,6 +199,7 @@ function G5LinkRtk:write(dir)
         xml:setString(k .. "#receiver", e.receiver)
         xml:setString(k .. "#rtk", e.rtk and "true" or "false")
         xml:setString(k .. "#autotrac", e.autotrac and "true" or "false")
+        xml:setString(k .. "#section", e.section and "true" or "false")
         xml:setString(k .. "#subs", table.concat(subs, ","))
         i = i + 1
     end
@@ -435,7 +437,7 @@ function G5LinkRtk:setSubscription(uid, sub, on, vehicle, dir)
     return true
 end
 
--- One-time purchases: "SF7000" receiver upgrade, "RTK" radio activation.
+-- One-time purchases: "SF7000" receiver upgrade, "RTK" radio activation, "AUTOTRAC" and "SECTION" (Section Control) activations.
 function G5LinkRtk:buy(uid, item, vehicle, dir)
     if not isServer() then return false, "notServer" end
     local e = self:entry(uid, vehicle)
@@ -447,14 +449,16 @@ function G5LinkRtk:buy(uid, item, vehicle, dir)
         if e.hwReceiver == "NONE" then return false, "needsReceiver" end
     elseif item == "AUTOTRAC" then
         if e.autotrac then return true end
+    elseif item == "SECTION" then
+        if e.section then return true end
     else
         return false, "unknownItem"
     end
     local price = self.data.prices[item] or 0
-    local text = ({ RTK = "RTK activation", AUTOTRAC = "AutoTrac activation", SF7000 = "StarFire 7000 receiver" })[item] .. (e.name ~= "" and (" - " .. e.name) or "")
+    local text = ({ RTK = "RTK activation", AUTOTRAC = "AutoTrac activation", SECTION = "Section Control activation", SF7000 = "StarFire 7000 receiver" })[item] .. (e.name ~= "" and (" - " .. e.name) or "")
     local ok, paidBy = self:charge(e.farmId, price, { kind = "purchase", item = item, vehicleUid = uid, description = text }, dir)
     if not ok then return false, paidBy end
-    if item == "SF7000" then e.receiver = "SF7000" elseif item == "AUTOTRAC" then e.autotrac = true else e.rtk = true end
+    if item == "SF7000" then e.receiver = "SF7000" elseif item == "AUTOTRAC" then e.autotrac = true elseif item == "SECTION" then e.section = true else e.rtk = true end
     self:write(dir)
     self:fire("purchased", e.farmId, uid, item, price, paidBy)
     return true, paidBy
@@ -673,12 +677,13 @@ end
 function G5LinkRtk:allows(vehicle, feature)
     local need = G5LinkRtk.GATES[feature]
     if need == nil or self.data == nil then return true end
-    if feature == "autotrac" then
-        -- AutoTrac steers on any correction (SF1 drifts more) but needs a receiver, and its activation when
-        -- requirements are on
+    if feature == "autotrac" or feature == "section" then
+        -- AutoTrac and Section Control run on any correction (SF1 drifts more) but need a receiver, and
+        -- their activation when requirements are on
         local e = self.data.vehicles[vehicleUid(vehicle) or ""]
         if e ~= nil and recv(e) == "NONE" then return false, "receiver" end
-        if self.data.gates and not (e ~= nil and e.autotrac) then return false, "activation" end
+        local active = e ~= nil and (feature == "autotrac" and e.autotrac or feature == "section" and e.section)
+        if self.data.gates and not active then return false, "activation" end
         return true, need
     end
     if not self.data.gates then return true end
@@ -838,7 +843,7 @@ function G5LinkRtk:writeJson(host)
             if e ~= nil then for _, s in ipairs(G5LinkRtk.SUBSCRIPTIONS) do if e.subs[s] then table.insert(subs, s) end end end
             local g = self.live[uid]
             table.insert(out.vehicles, { id = uid, name = call(v, "getFullName") or "Vehicle", farmId = call(v, "getOwnerFarmId") or 1,
-                receiver = recv(e), rtk = hasRtk(e), autotrac = e.autotrac == true, hwSource = e.hwReceiver ~= nil and "shop" or "g5link", hwOption = e.hwOption,
+                receiver = recv(e), rtk = hasRtk(e), autotrac = e.autotrac == true, section = e.section == true, hwSource = e.hwReceiver ~= nil and "shop" or "g5link", hwOption = e.hwOption,
                 receiverName = (G5LinkRtk.RECEIVERS[recv(e)] or G5LinkRtk.RECEIVERS.SF6000).name, subs = subs,
                 monthly = e and self:monthlyCost(e) or 0, level = g and g.level or nil, src = g and g.src or nil })
             if #out.vehicles >= 120 then break end

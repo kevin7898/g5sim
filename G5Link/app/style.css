@@ -485,6 +485,11 @@ svg { display: block; }
 .pl-legend i { width: 13px; height: 13px; margin-left: 8px; border: 1px solid rgba(0,0,0,.4); }
 .pl-legend i.ok, .pl-bar i.ok { background: var(--tile-on); } .pl-legend i.mid, .pl-bar i.mid { background: var(--yellow); }
 .pl-legend i.bad, .pl-bar i.bad { background: var(--stop); } .pl-legend i.off, .pl-bar i.off { background: #9a9a92; }
+.pl-legend i.auto, .pl-bar i.auto { background: repeating-linear-gradient(135deg, #9a9a92 0 4px, var(--cream) 4px 8px); }
+.seg.sm { height: var(--h-sm); } .seg.sm button { font-size: var(--fs-md); min-width: 0; flex: auto; padding: 0 6px; }
+.pl-sec { display: flex; flex-direction: column; gap: 6px; padding-top: 4px; }
+.pl-overlap { height: var(--h-sm); font-size: var(--fs-md); width: 100%; }
+.page[data-name="Planter"] .side-mod { flex: 0 0 auto; } .page[data-name="Planter"] .side-mod.grow { flex: 1 1 auto; }
 .pl-rows { flex: 1; display: flex; gap: 4px; align-items: stretch; min-height: 0; }
 .pl-row { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; }
 .pl-bar { flex: 1; width: 100%; position: relative; background: var(--cream); border: 1px solid var(--frame); }

@@ -123,6 +123,7 @@ function telemetryFromXml(text) {
       fills: children(n, 'fill').map(f => f.attrs),
       geometry: children(n, 'area').map(a => a.attrs),
       seeder: seederFromNode(child(n, 'seeder')),
+      section: sectionFromNode(child(n, 'section')),
       tillage: (child(n, 'tillage') || {}).attrs || null,
     })),
     combine: (child(g5, 'combine') || {}).attrs || null,
@@ -133,6 +134,7 @@ function telemetryFromXml(text) {
     gnss: gnssFromNode(child(g5, 'gnss')),
     autotrac: (child(g5, 'autotrac') || {}).attrs || null,
     rate: (child(g5, 'rate') || {}).attrs || null,
+    section: (child(g5, 'section') || {}).attrs || null,
     harvestAuto: (child(g5, 'harvestAuto') || {}).attrs || null,
   };
 }
@@ -156,6 +158,7 @@ function fleetFromXml(text) {
       fills: children(m, 'fill').map(f => f.attrs),
       geometry: children(m, 'area').map(a => a.attrs),
       seeder: seederFromNode(child(m, 'seeder')),
+      section: sectionFromNode(child(m, 'section')),
       tillage: (child(m, 'tillage') || {}).attrs || null,
     })),
     combine: (child(n, 'combine') || {}).attrs || null,
@@ -197,6 +200,12 @@ function controlsFromNode(n) {
 function seederFromNode(n) {
   if (!n) return null;
   return { ...n.attrs, rows: children(n, 'row').map(r => r.attrs) };
+}
+
+// Row/section shutoff of one implement (Realistic Seeder 2.6+): lane states 1 on, 0 off, a = shut off automatically.
+function sectionFromNode(n) {
+  if (!n) return null;
+  return { ...n.attrs, states: String(n.attrs.rows ?? '').split('') };
 }
 
 // Realistic Harvesting block: attributes plus settings and the trip odometer.
@@ -436,7 +445,7 @@ function setGuidance(g) {
 const ALLOWED = new Set(['motorToggle', 'cruiseToggle', 'cruiseSet', 'cruiseAdjust',
   'lowerAll', 'turnOnAll', 'implTurnOn', 'resetWork',
   'pipeToggle', 'foldToggle', 'lightsToggle', 'workLightsToggle', 'beaconToggle', 'hazardToggle',
-  'harvestAuto', 'harvestAutoMax', 'tillageDepth', 'tillageDepthAdjust', 'tillageLevel', 'grainCart', 'grainCartNext', 'rtk', 'autotrac', 'rateAuto', 'rateStep']);
+  'harvestAuto', 'harvestAutoMax', 'tillageDepth', 'tillageDepthAdjust', 'tillageLevel', 'grainCart', 'grainCartNext', 'rtk', 'autotrac', 'rateAuto', 'rateStep', 'section', 'sectionOverlap']);
 let cmdQueue = [];
 let nextCmdId = 1;
 
@@ -524,6 +533,8 @@ function demoCommand(c) {
       break;
     }
     case 'rtk': demoRtkCommand(c); break;
+    case 'section': demo.section.on = c.value === 1 ? true : c.value === 0 ? false : !demo.section.on; break;
+    case 'sectionOverlap': if ([0, 1, 2].includes(c.value)) demo.section.overlap = c.value; break;
     case 'grainCartNext': break;
     case 'harvestAutoMax': demo.auto.max = Math.max(1, Math.min(40, c.value)); break;
   }
@@ -533,7 +544,7 @@ if (DEMO_COMBINE) { demo.ccSpeed = 6.2; demo.target = 6.2; }
 
 // RTK package, simulated like Rtk.lua: SF1 free, subscriptions, an own base, pull-in, and the GNSS error.
 const RTK_LEVELS = { NONE: [0.8, 600, 1.5], SF1: [0.086, 1800, 0.15], SF2: [0.029, 1800, 0.05], SF3: [0.017, 1800, 0.03], RTK: [0.012, 3600, 0.025] };
-const RTK_PRICES = { SF2: 70, SF3: 120, MRTK: 130, SFRTK: 170, RTK: 2500, AUTOTRAC: 1500, SF3000: 4000, SF6000: 7000, SF7000: 9000, SHOP_GPS: 1, BASE: 15000, BASE_UPKEEP: 10 };
+const RTK_PRICES = { SF2: 70, SF3: 120, MRTK: 130, SFRTK: 170, RTK: 2500, AUTOTRAC: 1500, SECTION: 1500, SF3000: 4000, SF6000: 7000, SF7000: 9000, SHOP_GPS: 1, BASE: 15000, BASE_UPKEEP: 10 };
 // the demo farm has an RTK station built next to field 23 (already surveyed)
 demo.rtkState = { receiver: 'SF6000', rtk: false, subs: [], bases: [{ id: 'placeable12', name: 'John Deere RTK Station', x: DEMO_BIG ? 0 : -40, z: DEMO_BIG ? -1600 : 250, farmId: 1, placedAt: -1e9 }],
   ledger: [], gates: true, prices: { ...RTK_PRICES }, nextBase: 1,
@@ -543,7 +554,7 @@ function demoRtkState() {
   const r = demo.rtkState;
   return { save: 'demo', gates: r.gates, prices: r.prices, payer: null, baseRange: 3000, surveyMin: 120, gateLevels: { headland: 'SF2', grainCart: 'SF3' },
     vehicles: [{ id: 'demo1', name: DEMO_COMBINE ? 'Demo S7 Combine' : 'Demo 8R Tractor', farmId: 1, receiver: r.receiver,
-      receiverName: r.receiver === 'SF7000' ? 'StarFire 7000' : 'StarFire 6000', hwSource: 'g5link', rtk: r.rtk, autotrac: !!r.autotrac, subs: r.subs,
+      receiverName: r.receiver === 'SF7000' ? 'StarFire 7000' : 'StarFire 6000', hwSource: 'g5link', rtk: r.rtk, autotrac: !!r.autotrac, section: !!r.section, subs: r.subs,
       monthly: r.subs.reduce((a, k) => a + (r.prices[k] || 0), 0), level: r.level, src: r.src },
     { id: 'demo2', name: 'Demo 9RX Tractor', farmId: 1, receiver: 'SF3000', receiverName: 'StarFire 3000', hwSource: 'shop', hwOption: 'StarFire 3000', rtk: false, subs: [], monthly: 0, level: null, src: null },
     { id: 'demo3', name: 'Demo R4045 Sprayer', farmId: 1, receiver: 'SF7000', receiverName: 'StarFire 7000', hwSource: 'shop', hwOption: 'StarFire 7000 RTK', rtk: true, subs: ['SFRTK'], monthly: 170, level: null, src: null },
@@ -565,6 +576,7 @@ function demoRtkCommand(c) {
     if (a.item === 'SF7000' && r.receiver !== 'SF7000') { r.receiver = 'SF7000'; charge(r.prices.SF7000, 'purchase', 'SF7000', 'StarFire 7000 receiver'); }
     else if (a.item === 'RTK' && !r.rtk) { r.rtk = true; charge(r.prices.RTK, 'purchase', 'RTK', 'RTK activation'); }
     else if (a.item === 'AUTOTRAC' && !r.autotrac) { r.autotrac = true; charge(r.prices.AUTOTRAC, 'purchase', 'AUTOTRAC', 'AutoTrac activation'); }
+    else if (a.item === 'SECTION' && !r.section) { r.section = true; charge(r.prices.SECTION, 'purchase', 'SECTION', 'Section Control activation'); }
   } else if (a.action === 'gates') r.gates = a.on === '1';
   else if (a.action === 'price' && r.prices[a.item] !== undefined && Number(a.value) >= 0) r.prices[a.item] = Number(a.value);
   r.result = { id: c.id, ok, action: a.action, error };
@@ -777,8 +789,9 @@ function demoTick(dt) {
     },
     implements: [{
       name: 'Demo 1775NT Planter', canLower: true, lowered: demo.lowered && !demo.turning, canTurnOn: true, turnedOn: demo.turnedOn,
-      width: 12.19, areas: Array.from({ length: 16 }, (_, i) => working && !(i === 5 && Math.sin(demo.t / 5000) > 0.6)),
+      width: 12.19, areas: demoRowStates(working).map(c => working && c === '1'),
       geometry: demoAreas(16, 12.19, -7.5),
+      section: demoSectionBlock(working),
       fills: [{ title: 'Seeds', type: 'SEEDS', level: +demo.seed.toFixed(1), cap: 2800 }, { title: 'Liquid Fertilizer', type: 'LIQUIDFERTILIZER', level: 1600, cap: 2271 }],
       seeder: demoSeeder(working),
     }],
@@ -811,6 +824,11 @@ function demoTick(dt) {
   if (!DEMO_COMBINE && !DEMO_TILLAGE) frame.rate = { system: 'sf', auto: arx ? false : demo.rate.auto, value: steps[demo.rate.idx - 1], steps: steps.join(','),
     rx: arx ? arx.id : undefined, rxName: arx ? arx.name : undefined, rxActive: !!arx && working,
     rxRate: arx && working ? arx.rates[Math.floor(demo.t / 20000) % arx.zones] : undefined };
+  if (!DEMO_COMBINE && !DEMO_TILLAGE) {
+    const r = demo.rtkState;
+    frame.section = { allowed: !!r.section || !r.gates, need: r.section || !r.gates ? undefined : 'activation', on: demo.section.on, overlap: demo.section.overlap,
+      overlapName: ['Minimize Skips', '50% Covered', 'Minimize Overlap'][demo.section.overlap], implements: 1 };
+  }
   const gs = guidanceState;
   if (demo.at && gs && !gs.steerOn) { demo.at = false; demo.atExit = 'steerOff'; }
   const hasTrack = !!(gs && gs.track), steerOn = !gs || gs.steerOn !== false;
@@ -822,21 +840,37 @@ function demoTick(dt) {
   setTelemetry(demoGnss(DEMO_COMBINE ? demoCombine(frame, dt, working, meters) : DEMO_TILLAGE ? demoTillage(frame, dt, working) : frame, dt));
 }
 
+// Demo planter row clutches: row 6 switched off now and then; with Section Control on (activation bought,
+// master on) rows 15-16 shut off over ground already planted at a point row.
+demo.section = { on: true, overlap: 0 };
+function demoSectionActive() { return !!(demo.rtkState && demo.rtkState.section) && demo.section.on; }
+function demoRowStates(working) {
+  return Array.from({ length: 16 }, (_, i) => {
+    if (i === 5 && Math.sin(demo.t / 5000) > 0.6) return '0';
+    if (working && demoSectionActive() && i >= 14 && Math.sin(demo.t / 7000) > 0.7) return 'a';
+    return '1';
+  });
+}
+function demoSectionBlock(working) {
+  const rows = demoRowStates(working);
+  return { kind: 'row', lanes: 16, rowsPerLane: 1, controller: demo.rtkState && demo.rtkState.section ? 'G5Link' : '', auto: demoSectionActive(), perRowRate: true, rows: rows.join(''), states: rows };
+}
+
 // Realistic Seeder snapshot as G5Link writes it (seed monitor fitted, row drive, no depth sensor).
 function demoSeeder(working) {
   const s = demo.t / 1000;
   const skips = +(1.1 + 0.9 * Math.max(0, Math.sin(demo.x / 37 + s / 50))).toFixed(2);
   const doubles = +(0.5 + 0.5 * Math.max(0, Math.sin(demo.z / 29 + 1))).toFixed(2);
   const rate = 34000, actual = Math.round(rate * (1 - skips / 100 + doubles / 100));
-  const rowOff = !working ? -1 : Math.sin(demo.t / 5000) > 0.6 ? 6 : -1;
+  const states = demoRowStates(working);
   return {
     kind: 'planter', crop: 'MAIZE', unit: 'seedsPerAcre', monitor: true, depthSensor: false, fresh: working,
     rate, actual, skips, doubles, depthSet: 50, pressure: 55, closing: 50,
     moisture: +(0.24 + 0.07 * Math.sin(demo.x / 53) * Math.cos(demo.z / 41)).toFixed(3), compaction: 0.22, soilSource: 'SeasonalCropStress',
     popTarget: rate, popEstablished: Math.round(actual * 0.97), yieldPotential: +(97.5 - skips * 0.8).toFixed(1),
     lph: 39.2,                                       // ~34,000 seeds/ac of corn at ~3,000 seeds/kg, 0.72 kg/L
-    rows: Array.from({ length: 16 }, (_, i) => ({ r: i + 1, on: working && i + 1 !== rowOff, target: rate,
-      actual: working && i + 1 !== rowOff ? Math.round(actual * (1 + 0.012 * Math.sin(i * 1.7 + s / 7))) : 0, skips, doubles })),
+    rows: Array.from({ length: 16 }, (_, i) => ({ r: i + 1, on: working && states[i] === '1', target: rate,
+      actual: working && states[i] === '1' ? Math.round(actual * (1 + 0.012 * Math.sin(i * 1.7 + s / 7))) : 0, skips, doubles })),
   };
 }
 

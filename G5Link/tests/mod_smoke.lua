@@ -1674,6 +1674,80 @@ do
 end
 
 ---------------------------------------------------------------------------
+-- Section Control: Realistic Seeder 2.6 row clutches run by the G5 (activation, master, overlap)
+---------------------------------------------------------------------------
+do
+    local dir = newScenario("section_control", {})
+    local oldServer = g_server
+    g_server = g_server or {}
+    local tractor = makeVehicle({name = "Section Tractor", speed = 9})
+    tractor.spec_motorized = {}
+    tractor.uniqueId = "veh-sec"
+    tractor.getOwnerFarmId = function(self) return 1 end
+    local planter, ps = makeImplement(12, 1)
+    tractor.children = {tractor, planter}
+    local current = tractor
+    g_localPlayer = {getCurrentVehicle = function(self) return current end}
+    g_currentMission.vehicleSystem = {vehicles = {tractor, planter}}
+    local held = {calls = 0}
+    local api = seederApi(planter)
+    api.getSectionControl = function(v, geometry)
+        if v ~= planter then return nil, "unsupportedVehicle" end
+        local rows = {}
+        for i = 1, 4 do
+            rows[i] = {row = i, active = i ~= 2 and i ~= 4, reason = (i == 2 and "covered") or (i == 4 and "manual") or nil}
+            if geometry then rows[i].geometry = {sx = 92.5, sz = 194 + 3 * (i - 1), wx = 92.5, wz = 194 + 3 * i, hx = 91.5, hz = 194 + 3 * (i - 1)} end
+        end
+        return {hardware = true, laneKind = "row", lanes = 4, rowsPerLane = 1, perRowRate = false,
+            controller = held.opts and "G5Link" or nil, enabled = held.opts ~= nil and held.opts.enabled == true, rows = rows}
+    end
+    api.setSectionController = function(v, opts)
+        held.calls = held.calls + 1
+        held.opts = opts
+        return true
+    end
+    g_currentMission.realisticSeederAPI = api
+    local paid = {}
+    g_currentMission.addMoney = function(self, amount, farmId) paid[#paid + 1] = amount end
+    local function command(id, name, value, arg)
+        writeFile(dir .. "commands.xml", string.format('<?xml version="1.0"?>\n<commands>\n    <cmd id="%d" name="%s" value="%s" index="0" arg="%s"/>\n</commands>\n', id, name, value, arg or ""))
+        tick(2)
+        return telemetry(dir)
+    end
+    mod:loadMap("test")
+    tick(4)
+    local t = telemetry(dir)
+    eq(t["g5.section#allowed"], "false", "section control needs its activation")
+    eq(t["g5.section#need"], "activation", "section control: missing activation named")
+    eq(held.calls, 0, "no check-in without the activation")
+    eq(t["g5.implements.implement(0)#areas"], "1010", "lanes as sections: covered and switched-off rows not recorded")
+    near(tonumber(t["g5.implements.implement(0).area(3)#wz"]), 206, 0.01, "lane 4 geometry written")
+    eq(t["g5.implements.implement(0).section#rows"], "1a10", "lane states: on, auto off, on, off")
+    eq(t["g5.implements.implement(0).section#lanes"], "4", "lane count")
+    t = command(1, "rtk", "0", "action=buy;vehicle=current;item=SECTION")
+    eq(t["g5.section#allowed"], "true", "activation bought")
+    eq(paid[1], -1500, "Section Control activation charged once")
+    check(held.opts ~= nil and held.opts.name == "G5Link" and held.opts.enabled == true and held.opts.overlap == 0, "G5 checks in as the controller, master on")
+    eq(t["g5.implements.implement(0).section#controller"], "G5Link", "controller shown")
+    t = command(2, "section", "0")
+    check(held.opts ~= nil and held.opts.enabled == false, "master off reaches the seeder")
+    eq(t["g5.section#on"], "false", "master off in telemetry")
+    command(3, "sectionOverlap", "2")
+    eq(held.opts and held.opts.overlap, 2, "overlap setting reaches the seeder")
+    check((readFile(dir .. "section.xml") or ""):find('overlap="2"', 1, true) ~= nil, "section.xml keeps the overlap")
+    keepLive(dir)
+    ps.on = false
+    tick(2)
+    eq(telemetry(dir)["g5.implements.implement(0)#areas"], "0000", "no lane recorded while the planter is off")
+    current = nil
+    tick(2)
+    eq(held.opts, nil, "leaving the tractor hands control back to the implement")
+    mod:deleteMap()
+    g_currentMission.realisticSeederAPI = nil
+    g_server = oldServer
+end
+
+---------------------------------------------------------------------------
 -- JSON encoder samples for check_output.js
 ---------------------------------------------------------------------------
 do

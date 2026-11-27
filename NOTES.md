@@ -263,7 +263,14 @@ from `FieldPathPrivateIntegration.lua`:
   The offset is added to telemetry vehicle x/z, work-area geometry and Headland.lua's points, so coverage,
   boundaries, guidance and lift points all see it. The vehicle itself is never moved.
 - Receivers SF6000 (default) / SF7000 (upgrade, SF-RTK). Subscriptions monthly per machine: SF2, SF3 (covers
-  SF2), MRTK, SFRTK. One-time: RTK activation, SF7000. RTK-X 14 game days.
+  SF2), MRTK, SFRTK. One-time: RTK activation, SF7000, AutoTrac and Section Control (SECTION) activations. RTK-X 14 game days.
+- Section Control (scripts/SectionControl.lua): needs Realistic Seeder 2.6+ (api.getSectionControl / setSectionController)
+  and shutoff hardware on the implement. Gate G5LinkRtk.allows(v, "section"): receiver + SECTION activation when
+  requirements are on. Every 250 ms G5Link checks in as controller {name="G5Link", enabled=master, overlap}; the seeder
+  holds it 3 s, then falls back to its own monitor. Master/overlap in modSettings/FS25_G5Link/section.xml.
+  Implements with lanes write one area per lane (live lane geometry from the seeder, on = working and lane not shut
+  off) so coverage skips shut-off rows; telemetry implement.section#rows = 1 on / 0 off / a auto off; g5.section
+  #allowed/#need/#on/#overlap. Commands "section" (1/0/toggle) and "sectionOverlap" (0-2). Not run in FS25 yet.
 - Base stations = placeables with "rtk" / "base station" in getName() or configFileName (placeableSystem.placeables),
   scanned every 5 s; first scan marks existing ones surveyed, later ones survey 120 game min; range 3 km.
   Survey times saved by placeable unique id. Shop price override: g_storeManager:getItems(), species PLACEABLE,

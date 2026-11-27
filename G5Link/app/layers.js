@@ -71,7 +71,7 @@
   }
   function resetOp(op) {
     S.op = op; S.seq = 0; S.frames = []; S.ovVer = -1; S.overlap = { runs: [], cell: 1 }; S.range = null; S.meta = {}; S.version++;
-    G.tiles.clear(); G.painted = 0; G.runs = null; G.key = '';
+    G.tiles.clear(); G.painted = 0; G.runs = null; G.key = ''; G.byTile.clear(); G.smooth = null;
   }
 
   // ---------------------------------------------------------------- coverage grid
@@ -79,7 +79,7 @@
   // 16 quads). Instead each frame is painted once into a 1 m grid that keeps the latest frame per cell
   // (like the bridge's overlap grid), and the map draws that grid as runs per row and color.
   const CELL = 1, TILE = 64;
-  const G = { tiles: new Map(), painted: 0, runs: null, key: '', builtAt: 0 };
+  const G = { tiles: new Map(), painted: 0, runs: null, key: '', builtAt: 0, byTile: new Map(), smooth: null };
   const side = (ax, az, bx, bz, px, pz) => (bx - ax) * (pz - az) - (bz - az) * (px - ax);
   function inQuad(q, x, z) {
     let pos = false, neg = false;
@@ -113,7 +113,49 @@
     for (; G.painted < stop; G.painted++) {
       const f = S.frames[G.painted];
       for (const q of f.q || []) paint(q, G.painted + 1);
+      // index the frame by the tile of its first quad's centre, for the smooth drawing near the view
+      const q0 = f.q && f.q[0];
+      if (q0) {
+        const key = Math.floor((q0[0] + q0[2] + q0[4] + q0[6]) / 4 / (TILE * CELL)) + ',' +
+          Math.floor((q0[1] + q0[3] + q0[5] + q0[7]) / 4 / (TILE * CELL));
+        let list = G.byTile.get(key);
+        if (!list) { list = []; G.byTile.set(key, list); }
+        list.push(G.painted + 1);
+      }
     }
+  }
+  // Near the view the map draws the recorded swath quads themselves (smooth edges, as before the grid), in the
+  // (2 * SMOOTH + 1)^2 tiles around the view centre; the grid (runs, tile images) draws everything else.
+  // Returns { tx, tz, k, batches: [[color, [quad...]]] } in recording order, so the newest pass is on top.
+  // Rebuilt only when the view moves to another tile, new frames arrive, or the layer, legend or units change.
+  const SMOOTH = 2;
+  const ccw = q => ((q[2] - q[0]) * (q[5] - q[1]) - (q[3] - q[1]) * (q[4] - q[0])) >= 0
+    ? q : [q[6], q[7], q[4], q[5], q[2], q[3], q[0], q[1]];   // one winding, so overlapping quads never cancel
+  function smoothQuads(cx, cz) {
+    paintNew();
+    const T = TILE * CELL, tx = Math.floor(cx / T), tz = Math.floor(cz / T);
+    const L = layer(), styleKey = L.id + '|' + JSON.stringify(range().r || null) + '|' + JSON.stringify(settings.units);
+    const m = G.smooth;
+    if (m && m.tx === tx && m.tz === tz && m.key === styleKey && m.painted === G.painted) return m;
+    const ids = [];
+    for (let dz = -SMOOTH; dz <= SMOOTH; dz++) {
+      for (let dx = -SMOOTH; dx <= SMOOTH; dx++) {
+        const list = G.byTile.get((tx + dx) + ',' + (tz + dz));
+        if (list) for (const id of list) ids.push(id);
+      }
+    }
+    ids.sort((a, b) => a - b);
+    const batches = [], colorCache = new Map();
+    let cur = null;
+    for (const id of ids) {
+      if (!colorCache.has(id)) colorCache.set(id, colorOf(S.frames[id - 1]) || null);
+      const color = colorCache.get(id);
+      if (!color) continue;
+      if (!cur || cur[0] !== color) { cur = [color, []]; batches.push(cur); }
+      for (const q of S.frames[id - 1].q || []) cur[1].push(ccw(q));
+    }
+    G.smooth = { tx, tz, k: SMOOTH, key: styleKey, painted: G.painted, batches };
+    return G.smooth;
   }
   // Runs for the map: Map(color -> [[x0, x1, z0]]) in metres. Rebuilt when the layer, legend or units change,
   // and at most once a second while new coverage arrives.
@@ -370,7 +412,7 @@
 
   window.G5Layers = {
     onTelemetry, colorOf, layer, renderLegend,
-    frames: () => S.frames, overlap: () => S.overlap, version: () => S.version, coverageRuns, tileImages, TILE, CELL,
+    frames: () => S.frames, overlap: () => S.overlap, version: () => S.version, coverageRuns, tileImages, smoothQuads, TILE, CELL,
     COVER, OVER,
   };
   renderLegend();

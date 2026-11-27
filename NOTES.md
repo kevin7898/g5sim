@@ -350,6 +350,11 @@ from `FieldPathPrivateIntegration.lua`:
 - Performance: the Guidance map drew every recorded frame each animation frame (a long session = 100k+ frames,
   ~1.7 M quads) and froze. Coverage is now painted once into a 1 m grid (latest frame per cell, layers.js
   coverageRuns) and drawn as runs per row and color: 60 fps with 107k frames.
+- Smooth coverage (2026-11-26, after the first in-game run): the 1 m grid looked blocky. The 5×5 tiles (320 m) around
+  the view centre now draw the recorded quads themselves (layers.js smoothQuads, frames indexed by tile, newest on
+  top, one winding); the grid draws only the tiles outside that.
+- Guidance map: the track number sits beside the heading chip (top centre) and the AutoTrac status pill is in the
+  bottom-right corner, so nothing covers the line ahead of the machine.
 - Screen Fit (Menu > System): Fixed 16:9 or Fill Screen (app.js fit(): width 1280 and height up to 1024 on taller
   screens, or height 720 and width up to 1706 on wider ones). Tile units centre beside the value so stretched tiles
   read right. Full Screen button: Fullscreen API (webkit prefix for iPadOS Safari), else a tip to Add to Home Screen

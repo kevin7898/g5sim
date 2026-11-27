@@ -517,6 +517,16 @@
       ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(c.x, c.y); ctx.lineTo(e.x, e.y); ctx.closePath();
     };
     ctx.globalAlpha = 0.88;
+    // the tiles around the view draw the recorded quads (smooth edges); the grid draws only the rest
+    const sm = window.G5Layers && G5Layers.smoothQuads ? G5Layers.smoothQuads(C.x, C.z) : null;
+    const TM = window.G5Layers ? G5Layers.TILE * G5Layers.CELL : 64;
+    const inSmooth = (tx, tz) => !!sm && Math.abs(tx - sm.tx) <= sm.k && Math.abs(tz - sm.tz) <= sm.k;
+    if (sm) {
+      for (const [color, list] of sm.batches) {
+        ctx.fillStyle = color; ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+        ctx.beginPath(); list.forEach(quadPath); ctx.fill(); ctx.stroke();   // stroke closes hairline seams
+      }
+    }
     if (flat) {
       const o = P(0, 0), ex = P(1, 0), ez = P(0, 1), T = G5Layers.TILE * G5Layers.CELL;
       ctx.save();
@@ -524,7 +534,7 @@
       ctx.imageSmoothingEnabled = false;
       for (const t of G5Layers.tileImages()) {
         const x = t.tx * T, z = t.tz * T;
-        if (!near(x + T / 2, z + T / 2)) continue;
+        if (!near(x + T / 2, z + T / 2) || inSmooth(t.tx, t.tz)) continue;
         ctx.drawImage(t.img, x, z, T, T);
       }
       ctx.restore();
@@ -535,6 +545,7 @@
       ctx.beginPath();
       for (const [x0, x1, z0] of list) {
         if (!near(x0, z0) && !near(x1, z0)) continue;
+        if (inSmooth(Math.floor(x0 / TM), Math.floor(z0 / TM))) continue;   // runs never cross a tile
         quadPath([x0, z0, x1, z0, x1, z0 + cellM, x0, z0 + cellM]);
       }
       ctx.fill(); ctx.stroke();   // stroke closes hairline seams

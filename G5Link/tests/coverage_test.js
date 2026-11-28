@@ -270,6 +270,27 @@ const eq = (a, b, label) => check(a === b, `${label}: expected ${b}, got ${a}`);
     fs.rmSync(dir, { recursive: true, force: true });
   }
 }
+// The same group edges keep their identity during native changes of working width.
+{
+  const store = new CoverageStore({ persist: false });
+  const edges = [-18, -13.5, -9, -4.5, -1.5, 1.5, 4.5, 9, 13.5, 18];
+  const sample = (x, left) => ({ state: 'vehicle', game: { save: 'savegame1' }, time: x * 250,
+    vehicle: { x, z: 0, heading: 90, speed: 14.4 }, implements: [{ id: 'boom', operation: 'application',
+      sprayer: { product: 'WATER', applying: true, boom: { left, right: 4, leftMax: 4, rightMax: 4 } },
+      input: { tank: 1, product: 'WATER', liters: 40 - x },
+      areas: edges.slice(1).map((_, i) => i >= 4 - left),
+      geometry: edges.slice(1).map((edge, i) => ({ i, sx: x, sz: edges[i], wx: x, wz: edge })),
+    }] });
+  for (const [x, left] of [[0, 4], [1, 4], [2, 2], [3, 2], [4, 4], [5, 4]]) store.onFrame(sample(x, left));
+  const strips = store.frames('application:water').frames;
+  check(strips.length === 5 && strips.every(f => f.q.length === 1), 'active neighboring groups merge into the same continuous width');
+  check(strips.slice(1, 4).every(f => quadArea(f.q[0]) === 27 && Math.min(f.q[0][1], f.q[0][3], f.q[0][5], f.q[0][7]) === -9),
+    'both disabled groups stay clear, including while switching widths');
+  check(quadArea(strips[0].q[0]) === 36 && quadArea(strips[4].q[0]) === 36, 'full width resumes once both endpoints confirm those groups');
+  check(!strips[1].inputUsed && strips[2].inputUsed?.liters === 1 && !strips[3].inputUsed,
+    'metering never attributes a full tank change to the common width across changes');
+}
+
 // Tillage: operation named by tool type, depth recorded per frame
 {
   const store = new CoverageStore({ persist: false });

@@ -3,6 +3,8 @@
 (() => {
   let selectedLane = null;
   let laneTarget = null;
+  let boomRequest = null;
+  let boomOwner = null;
   let job = { key: null, totals: null, next: 0 };
   const position = $('plSection');
   const unitsArea = n => Number.isFinite(n) ? `${fmt(U.areaFromHa(n), 2)} ${U.areaUnit()}` : '—';
@@ -71,8 +73,49 @@
       ['Grain cart', gc?.name || 'Unavailable'], ['Field harvested', unitsArea(job.totals?.workedHa)]]));
   }
 
+  function renderBoom(d, tool, index) {
+    const sprayer = tool?.sprayer;
+    const boom = sprayer?.boom;
+    const target = commandTarget(d);
+    const canSet = target && d.link === 'live' && !d.vehicle?.ai && boom?.canSet && tool.id != null;
+    const owner = boom && target ? JSON.stringify([target.session, target.save, target.vehicle, tool.id]) : null;
+    if (owner !== boomOwner) {
+      boomOwner = owner;
+      $('boomCommand').textContent = '';
+    }
+    if (boomRequest) {
+      const req = boomRequest;
+      if (!canSet || req.index !== index || req.target.implement !== tool.id || req.target.session !== target.session
+          || req.target.save !== target.save || req.target.vehicle !== target.vehicle) {
+        boomRequest = null;
+        $('boomCommand').textContent = 'Sprayer control changed.';
+      } else if (req.id !== null && d.lastCmd >= req.id) {
+        boomRequest = null;
+        $('boomCommand').textContent = boom[req.side] === req.count ? 'Width confirmed by the sprayer.' : 'Sprayer did not confirm the requested width.';
+      }
+    }
+    if (!boom) {
+      setHtml($('boomStrip'), sprayer ? `<div class="lane-mark broadcast ${sprayer.applying ? 'on' : ''}">Broadcast</div>` : '');
+      $('boomNote').textContent = sprayer ? 'Broadcast application.' : 'Boom sections are unavailable.';
+      return;
+    }
+    const group = (side, n) => {
+      const enabled = n <= boom[side];
+      const name = `${side === 'left' ? 'Left' : 'Right'} group ${n}`;
+      const label = `${name}, ${enabled ? 'enabled' : 'off'}`;
+      return `<button type="button" class="lane-mark ${enabled ? 'on' : ''}" data-boom-side="${side}" data-boom-group="${n}"
+        aria-label="${label}" aria-pressed="${enabled}" ${!canSet || boomRequest ? 'disabled' : ''}>${side === 'left' ? 'L' : 'R'}${n}</button>`;
+    };
+    const left = Array.from({ length: boom.leftMax }, (_, i) => group('left', boom.leftMax - i)).join('');
+    const right = Array.from({ length: boom.rightMax }, (_, i) => group('right', i + 1)).join('');
+    setHtml($('boomStrip'), `${left}<div class="lane-mark broadcast on" aria-label="Center group, enabled">C</div>${right}`);
+    $('boomNote').textContent = canSet ? 'Tap a wing group to change its outer edge.'
+      : d.vehicle?.ai ? 'The AI worker controls the boom width.' : 'Boom width controls are unavailable.';
+  }
+
   function renderSpray(d, boom) {
-    const tool = (d.implements || []).find(i => i.sprayer);
+    const index = (d.implements || []).findIndex(i => i.sprayer);
+    const tool = d.implements?.[index];
     const sprayer = tool?.sprayer;
     const rate = d.rate;
     const opState = sprayer?.applying === true ? 'Applying' : sprayer?.applying === false ? 'Idle' : 'Unavailable';
@@ -81,8 +124,7 @@
     if (boom) {
       setHtml($('boomReadings'), pairs([['Master', yes(sprayer?.master)], ['Application', opState], ['Work Job', d.workJob?.active ? 'Open' : 'Idle'],
         ['Working Width', width], ['Flow', flow], ['Pressure', '—']]));
-      setHtml($('boomStrip'), sprayer ? `<div class="lane-mark broadcast ${sprayer.applying ? 'on' : ''}">${esc(width || 'Broadcast')}</div>` : '');
-      $('boomNote').textContent = sprayer ? 'Broadcast application. Individual sections require a supported controller.' : 'Boom status is unavailable from this tool.';
+      renderBoom(d, tool, index);
       return;
     }
     $('sprayTitle').textContent = tool?.name || 'Spraying';
@@ -123,6 +165,36 @@
   $('logisticsCart').onclick = () => window.G5GrainCart?.open();
   $('spraySectionPage').onclick = () => showPage('Boom & Sections');
   $('sprayRates').onclick = () => window.G5Rate?.open();
+  $('boomStrip').onclick = async event => {
+    const button = event.target.closest('[data-boom-side]');
+    const target = commandTarget(data);
+    if (!button || button.disabled || boomRequest || !target || data.link !== 'live' || data.vehicle?.ai) return;
+    const index = (data.implements || []).findIndex(i => i.sprayer);
+    const tool = data.implements?.[index];
+    const boom = tool?.sprayer?.boom;
+    if (!boom?.canSet || tool.id == null) return;
+    const side = button.dataset.boomSide, group = Number(button.dataset.boomGroup);
+    const count = group <= boom[side] ? group - 1 : group;
+    const req = { target: { ...target, implement: tool.id }, index, side, count, id: null };
+    boomRequest = req;
+    $('boomCommand').textContent = 'Waiting for the sprayer.';
+    renderBoom(data, tool, index);
+    req.id = await send('boomWidth', count, index, null, side, req.target);
+    if (boomRequest !== req) return;
+    if (req.id === null) {
+      boomRequest = null;
+      $('boomCommand').textContent = 'Width change could not be sent.';
+      render(data);
+      return;
+    }
+    render(data);
+    setTimeout(() => {
+      if (boomRequest !== req) return;
+      boomRequest = null;
+      $('boomCommand').textContent = 'No confirmation from the sprayer.';
+      render(data);
+    }, 3500);
+  };
   window.G5MachinePages = { mount, render };
   mount(settings.pageName);
   render(data);

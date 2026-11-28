@@ -69,6 +69,11 @@ crop, variety and seed, application the product, tillage none of them.
 and Harvest Automation for a combine (instead of Tractor), Tillage with a tillage tool, Planter when a Realistic Seeder implement is attached, Implement
 Details and Work Monitor with an implement, Field when soil, ground or AI-driver data exists.
 
+On a compatible variable-width sprayer, **Boom & Sections** shows the enabled wing groups. Touch a group to set
+that wing's outer edge. The native controller enables or disables the groups between that edge and the boom tip.
+G5Link waits for the sprayer to confirm the new width. When the width changes during work, coverage keeps the
+groups confirmed on both sides of the change. Product use for that interval is unavailable.
+
 **Every machine is recorded.** AI workers, Courseplay and AutoDrive machines and anything else of your farm that is
 working are mapped too (G5Link writes them to fleet.xml twice a second), so yield maps, work records and Harvest
 Profit include the fields you didn't drive yourself.

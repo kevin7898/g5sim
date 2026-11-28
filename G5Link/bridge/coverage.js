@@ -557,7 +557,9 @@ class CoverageStore {
       const meta = this.operationOf(t, impl);
       const opId = operationId(meta);
       const key = `${id}|${impl.id ?? `${index}:${impl.name || ''}`}|${opId}`;
-      tracks.set(key, { spans, input: impl.input });
+      const boom = impl.sprayer?.boom;
+      const boomWidth = boom ? `${boom.left}:${boom.right}` : null;
+      tracks.set(key, { spans, input: impl.input, boomWidth });
       let pass = passes.get(opId);
       if (!pass) {
         pass = ms.passes.get(opId);
@@ -565,7 +567,7 @@ class CoverageStore {
         passes.set(opId, pass);
       }
       const previous = ms.track.get(key);
-      if (!previous) continue;
+      if (!previous || (previous.boomWidth === null) !== (boomWidth === null)) continue;
       const quads = this.sweepsBetween(previous.spans, spans);
       if (!quads.length) continue;
       const areaM2 = quads.reduce((sum, q) => sum + quadArea(q), 0);
@@ -576,7 +578,9 @@ class CoverageStore {
       if (!driven) frame.m = id.replace(/^m:/, '');
       if (meta.kind === 'application' && impl.sprayer?.applying === true) frame.application = true;
       if (frame.application || meta.kind === 'seeding') {
-        const inputUsed = observedUse(previous.input, impl.input, elapsed);
+        // Across a trim change the common sections are mapped, but the time spent at
+        // each width is unknown within this sample interval.
+        const inputUsed = previous.boomWidth === boomWidth ? observedUse(previous.input, impl.input, elapsed) : null;
         if (inputUsed && (meta.kind === 'seeding' || inputUsed.product === meta.product)) {
           frame.inputUsed = inputUsed;
           // Every proven depletion still contributes to the mapped job total.

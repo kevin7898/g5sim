@@ -115,16 +115,19 @@ function children(node, name) { return node ? node.children.filter(c => c.name =
 
 function implementFromNode(node) {
   const { areas, processing, ...attrs } = node.attrs;
+  const sprayer = child(node, 'sprayer');
+  const boom = child(sprayer, 'boom');
   return {
     ...attrs,
     areas: String(areas ?? '').split('').map(c => c === '1'),
     processing: typeof processing === 'string' ? [...processing].map(c => c === '1' ? true : c === '0' ? false : null) : null,
     fills: children(node, 'fill').map(f => f.attrs),
-    geometry: children(node, 'area').map(a => a.attrs),
+    // FS25 writes empty elements before the first populated slot in an indexed series.
+    geometry: children(node, 'area').map(a => a.attrs).filter(g => [g.sx, g.sz, g.wx, g.wz].every(Number.isFinite)),
     seeder: seederFromNode(child(node, 'seeder')),
     section: sectionFromNode(child(node, 'section')),
     tillage: child(node, 'tillage')?.attrs || null,
-    sprayer: child(node, 'sprayer')?.attrs || null,
+    sprayer: boom ? { ...sprayer.attrs, boom: boom.attrs } : sprayer?.attrs || null,
     input: child(node, 'input')?.attrs || null,
   };
 }
@@ -491,7 +494,7 @@ function setGuidance(g) {
 const ALLOWED = new Set(['motorToggle', 'cruiseToggle', 'cruiseSet', 'cruiseAdjust',
   'lowerAll', 'turnOnAll', 'implTurnOn', 'resetWork',
   'pipeToggle', 'foldToggle', 'lightsToggle', 'workLightsToggle', 'beaconToggle', 'hazardToggle',
-  'harvestAuto', 'harvestAutoMax', 'tillageDepth', 'tillageDepthAdjust', 'tillageLevel', 'grainCart', 'grainCartNext', 'rtk', 'autotrac', 'rateAuto', 'rateStep', 'section', 'sectionOverlap']);
+  'harvestAuto', 'harvestAutoMax', 'tillageDepth', 'tillageDepthAdjust', 'tillageLevel', 'grainCart', 'grainCartNext', 'rtk', 'autotrac', 'rateAuto', 'rateStep', 'section', 'sectionOverlap', 'boomWidth']);
 let cmdQueue = [];
 let nextCmdId = 1;
 
@@ -508,7 +511,7 @@ function escAttr(v) {
 
 function writeCommands() {
   const body = cmdQueue.map(c =>
-    `    <cmd id="${c.id}" name="${escAttr(c.name)}" value="${Number(c.value) || 0}" index="${c.index | 0}"${c.arg ? ` arg="${escAttr(c.arg)}"` : ''}${c.target ? ` session="${escAttr(c.target.session)}" save="${escAttr(c.target.save)}" vehicle="${escAttr(c.target.vehicle)}"` : ''}/>`
+    `    <cmd id="${c.id}" name="${escAttr(c.name)}" value="${Number(c.value) || 0}" index="${c.index | 0}"${c.arg ? ` arg="${escAttr(c.arg)}"` : ''}${c.target ? ` session="${escAttr(c.target.session)}" save="${escAttr(c.target.save)}" vehicle="${escAttr(c.target.vehicle)}"` : ''}${c.target?.implement ? ` implement="${escAttr(c.target.implement)}"` : ''}/>`
   ).join('\n');
   const xml = `<?xml version="1.0" encoding="utf-8" standalone="no"?>\n<commands>\n${body}\n</commands>\n`;
   const tmp = COMMANDS + '.tmp';
@@ -531,6 +534,16 @@ function queueCommand(cmd) {
     if (latest.link !== 'live' || latest.state !== 'vehicle' || !latest.session || session !== latest.session || save !== currentSave()
       || latest.vehicle?.id == null || String(vehicle) !== String(latest.vehicle.id)) throw new Error('Machine or save changed.');
     entry.target = { session, save, vehicle: String(vehicle) };
+  }
+  if (cmd.name === 'boomWidth') {
+    const tool = Number.isInteger(cmd.index) && latest.implements?.[cmd.index];
+    const boom = tool?.sprayer?.boom;
+    if (!entry.target || tool?.id == null || String(tool.id) !== String(cmd.target.implement)) throw new Error('Sprayer changed.');
+    if (latest.vehicle.ai || !boom?.canSet) throw new Error('Sprayer width control is unavailable.');
+    if ((arg !== 'left' && arg !== 'right') || !Number.isInteger(cmd.value) || !(cmd.value >= 0 && cmd.value <= boom[arg + 'Max'])) {
+      throw new Error('Invalid boom section request.');
+    }
+    entry.target.implement = String(tool.id);
   }
   if (DEMO) { demoCommand(entry); return entry; }
   cmdQueue.push(entry);

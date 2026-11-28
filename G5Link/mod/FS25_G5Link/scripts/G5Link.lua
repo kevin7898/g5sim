@@ -378,6 +378,67 @@ local function observedInputTank(impl, index)
     return {tank = index, product = product.name, liters = level}
 end
 
+-- The stock variable-width specialization interpolates the working edge along local X.
+local function boomEdges(nodes, edge, sections, direction)
+    if type(nodes) ~= "table" or type(sections) ~= "table" then return nil end
+    for _, node in ipairs(nodes) do
+        if node.node == edge and node.startTrans == nil and node.endTrans == nil
+            and type(node.startTransX) == "number" and type(node.endTransX) == "number" then
+            local range = node.endTransX - node.startTransX
+            if range * direction <= 0 then return nil end
+            local ends = {[0] = node.startTransX}
+            for i, section in ipairs(sections) do
+                local f = section.width
+                if type(f) ~= "number" or not (f > 0 and f <= 1) then return nil end
+                ends[i] = ends[0] + f * range
+                if (ends[i] - ends[i - 1]) * direction <= 0.01 then return nil end
+            end
+            return ends
+        end
+    end
+    return nil
+end
+
+local function splitSprayerBoom(impl, area, s)
+    local mode = impl.spec_variableWorkWidth
+    if mode == nil or mode.isActive ~= true or mode.hasCenter ~= true or #s.geometry ~= 1 or not s.geometry[1]
+        or type(mode.leftSide) ~= "number" or type(mode.rightSide) ~= "number" then return end
+    -- The two endpoints and the height anchor must share the same working plane.
+    local parent = getParent(area.start)
+    if parent ~= getParent(area.width) or parent ~= getParent(area.height) then return end
+    local left = boomEdges(mode.sectionNodesLeft, area.start, mode.sectionsLeft, 1)
+    local right = boomEdges(mode.sectionNodesRight, area.width, mode.sectionsRight, -1)
+    if left == nil or right == nil or #left == 0 or #right == 0 or left[0] <= right[0] then return end
+    local lx, _, lz = getTranslation(area.start)
+    local rx, _, rz = getTranslation(area.width)
+    local hx = getTranslation(area.height)
+    if left[mode.leftSide] == nil or right[mode.rightSide] == nil or not (lx > rx)
+        or math.abs(lz - rz) > 0.01 or math.abs(hx - lx) > 0.01
+        or math.abs(lx - left[mode.leftSide]) > 0.02 or math.abs(rx - right[mode.rightSide]) > 0.02 then return end
+
+    local g, active, processing = s.geometry[1], s.areas[1], s.processing[1]
+    local areas, geometry, observations = {}, {}, {}
+    local function section(from, to, enabled)
+        local i = #areas + 1
+        areas[i] = enabled and active
+        observations[i] = enabled and processing or "0"
+        geometry[i] = false
+        if enabled then
+            local a, b = (lx - from) / (lx - rx), (lx - to) / (lx - rx)
+            local dx, dz = g[3] - g[1], g[4] - g[2]
+            geometry[i] = {g[1] + a * dx, g[2] + a * dz, g[1] + b * dx, g[2] + b * dz,
+                g[5] + a * dx, g[6] + a * dz}
+        end
+    end
+    for i = #left, 1, -1 do section(left[i], left[i - 1], i <= mode.leftSide) end
+    section(left[0], right[0], true)
+    for i = 1, #right do section(right[i - 1], right[i], i <= mode.rightSide) end
+    s.areas, s.geometry, s.processing = areas, geometry, observations
+    s.width = lx - rx
+    s.sprayer.boom = {left = mode.leftSide, right = mode.rightSide, leftMax = #left, rightMax = #right,
+        canSet = impl.isServer == true and type(impl.setSectionsActive) == "function"}
+end
+
 function G5Link:getImplementState(impl)
     local s = {}
     s.name = call(impl, "getFullName") or "Implement"
@@ -392,10 +453,11 @@ function G5Link:getImplementState(impl)
     s.areas = {}
     s.geometry = {}
     s.processing = {}
-    local spec = impl.spec_workArea
+    local spec, mainArea = impl.spec_workArea, nil
     if spec ~= nil and spec.workAreas ~= nil and impl.getIsWorkAreaActive ~= nil then
         for _, wa in ipairs(spec.workAreas) do
             if isMainWorkArea(wa) then
+                mainArea = wa
                 local active = bool(call(impl, "getIsWorkAreaActive", wa))
                 table.insert(s.areas, active)
                 local changed = nil
@@ -507,6 +569,7 @@ function G5Link:getImplementState(impl)
         if applying and params.sprayVehicle == impl and params.lastIsExternallyFilled == false then
             s.input = observedInputTank(impl, params.sprayVehicleFillUnitIndex)
         end
+        if mainArea ~= nil then splitSprayerBoom(impl, mainArea, s) end
     elseif impl.spec_cutter ~= nil then
         s.operation = "harvest"
     elseif s.tillage ~= nil then
@@ -904,6 +967,13 @@ function G5Link:writeImplementsTo(xml, base, vehicle, ox, oz)
             if type(b.cap) == "number" then xml:setFloat(k .. "#cap", round(b.cap, 0)) end
             if b.product ~= nil then xml:setString(k .. "#product", b.product) end
             if type(b.productTitle) == "string" and b.productTitle ~= "" then xml:setString(k .. "#productTitle", b.productTitle) end
+            if b.boom ~= nil then
+                local bk = k .. ".boom"
+                for _, field in ipairs({"left", "right", "leftMax", "rightMax"}) do
+                    xml:setInt(bk .. "#" .. field, b.boom[field])
+                end
+                xml:setBool(bk .. "#canSet", b.boom.canSet)
+            end
         end
         if s.input ~= nil then
             local k, input = ik .. ".input", s.input
@@ -1610,7 +1680,8 @@ function G5Link:processCommands(vehicle)
                 arg = xml:getString(key .. "#arg", ""),
                 session = xml:getString(key .. "#session", ""),
                 save = xml:getString(key .. "#save", ""),
-                vehicle = xml:getString(key .. "#vehicle", "")
+                vehicle = xml:getString(key .. "#vehicle", ""),
+                implement = xml:getString(key .. "#implement", "")
             })
         end
     end)
@@ -1713,6 +1784,20 @@ function G5Link:runCommand(vehicle, cmd)
         if TurnOnVehicle ~= nil and TurnOnVehicle.actionEventTurnOnAll ~= nil then
             pcall(TurnOnVehicle.actionEventTurnOnAll, vehicle, "", 1, nil, false)
         end
+
+    elseif name == "boomWidth" then
+        if cmd.session == "" or vehicle.isServer ~= true or call(vehicle, "getIsAIActive") == true then return end
+        if cmd.arg ~= "left" and cmd.arg ~= "right" then return end
+        local impl = self:getImplements(vehicle)[cmd.index + 1]
+        local id = impl and (impl.uniqueId or impl.id)
+        if id == nil or tostring(id) ~= cmd.implement or call(impl, "getIsAIActive") == true then return end
+        local sprayer = self:getImplementState(impl).sprayer
+        local boom = sprayer and sprayer.boom
+        if boom == nil or not boom.canSet or not (cmd.value >= 0 and cmd.value <= boom[cmd.arg .. "Max"])
+            or cmd.value % 1 ~= 0 then return end
+        local left = cmd.arg == "left" and cmd.value or boom.left
+        local right = cmd.arg == "right" and cmd.value or boom.right
+        call(impl, "setSectionsActive", left, right)
 
     elseif name == "implTurnOn" then
         local impl = self:getImplements(vehicle)[cmd.index + 1]

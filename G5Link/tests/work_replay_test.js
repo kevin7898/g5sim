@@ -7,7 +7,16 @@ const path = require('node:path');
 const { CoverageStore } = require('../bridge/coverage');
 const captures = require('./fixtures/work-samples.json');
 
-for (const { name, kind, source, expected, samples, expectedRates, expectedLiters } of captures) {
+function contains(quad, x, z) {
+  let hit = false;
+  for (let i = 0, j = quad.length - 2; i < quad.length; j = i, i += 2) {
+    const [ax, az, bx, bz] = [quad[i], quad[i + 1], quad[j], quad[j + 1]];
+    if ((az > z) !== (bz > z) && x < (bx - ax) * (z - az) / (bz - az) + ax) hit = !hit;
+  }
+  return hit;
+}
+
+for (const { name, kind, source, expected, samples, expectedRates, expectedLiters, groundProbes } of captures) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'g5-work-replay-'));
   try {
     const coverage = new CoverageStore({ dir, persist: true });
@@ -34,7 +43,13 @@ for (const { name, kind, source, expected, samples, expectedRates, expectedLiter
       if (expectedRates) {
         assert.deepEqual(frames.flatMap(frame => frame.v.rate ?? []), expectedRates,
           'accelerating and empty frames do not publish an areal rate');
-        assert.equal(+liters.toFixed(3), expectedLiters, 'startup depletion is still included in the mapped quantity');
+      }
+      if (expectedLiters != null) assert.equal(+liters.toFixed(3), expectedLiters, 'the mapped quantity matches the native capture');
+      if (groundProbes) {
+        const quads = frames.flatMap(frame => frame.q);
+        for (const { x, z, treated } of groundProbes) {
+          assert.equal(quads.some(quad => contains(quad, x, z)), treated, `replayed swath agrees with FS25 ground at ${x},${z}`);
+        }
       }
     } else if (kind === 'harvest') {
       assert.ok(frames.every(frame => frame.v.yield === undefined && frame.v.moisture === undefined),

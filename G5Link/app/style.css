@@ -197,6 +197,8 @@ button.run-block { cursor: grab; }
 .lane-mark.auto { background: #866b21; }
 .lane-mark.is-selected { outline: 2px solid #e0bf47; outline-offset: -3px; }
 .lane-mark.broadcast { display: grid; place-items: center; }
+#boomStrip { flex-wrap: nowrap; overflow-x: auto; }
+#boomStrip .lane-mark { flex-basis: 44px; min-height: 44px; }
 .side { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
 .module { background: var(--cream-2); border: 1px solid var(--frame); border-radius: 3px; display: flex; flex-direction: column;
   min-height: 0; overflow: hidden; }

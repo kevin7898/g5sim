@@ -1844,6 +1844,51 @@ do
     eq(telemetry(dir)[k .. ".sprayer#applying"], "false", "armed stock sprayer can stop applying")
     eq(telemetry(dir)[k .. ".sprayer#flowLpm"], "0.000000", "stock sprayer reports known zero flow when idle")
     eq(telemetry(dir)[k .. ".sprayer#product"], "LIQUIDFERTILIZER", "empty equipment reports the last selected tank product")
+
+    local boomTool = makeImplement(36, 1)
+    root.spec_workArea = boomTool.spec_workArea
+    local area = root.spec_workArea.workAreas[1]
+    local mode = {isActive = true, hasCenter = true, leftSide = 4, rightSide = 4, sectionsLeft = {}, sectionsRight = {},
+        sectionNodesLeft = {{node = area.start, startTransX = 1.5, endTransX = 18}},
+        sectionNodesRight = {{node = area.width, startTransX = -1.5, endTransX = -18}}}
+    for _, width in ipairs({4.5, 9, 13.5, 18}) do
+        table.insert(mode.sectionsLeft, {width = (width - 1.5) / 16.5})
+        table.insert(mode.sectionsRight, {width = (width - 1.5) / 16.5})
+    end
+    root.spec_variableWorkWidth, root.isServer = mode, true
+    local oldParent, oldTranslation = getParent, getTranslation
+    getParent = function() return root.rootNode end
+    getTranslation = function(node) return 200 - nodes[node].z, 0, nodes[node].x end
+    local changes = 0
+    root.setSectionsActive = function(_, left, right)
+        mode.leftSide, mode.rightSide = left, right
+        nodes[area.start].z = 200 - (left == 0 and 1.5 or left * 4.5)
+        nodes[area.height].z = nodes[area.start].z
+        nodes[area.width].z = 200 + (right == 0 and 1.5 or right * 4.5)
+        changes = changes + 1
+    end
+    local function widthRequest(id, sessionId, target, n)
+        writeFile(dir .. "commands.xml", string.format('<commands>\n<cmd id="%d" name="boomWidth" value="%d" index="0" arg="left" session="%s" save="savegame2" vehicle="%s" implement="%s"/>\n</commands>',
+            id, n, sessionId, root.uniqueId, target))
+        tick(2)
+        return telemetry(dir)
+    end
+    tick(1)
+    eq(telemetry(dir)[k .. ".sprayer.boom#leftMax"], "4", "linked native boom is exposed")
+    eq(telemetry(dir)[k .. ".area(2)#sz"], "191.000000", "third group has a fixed inner-wing coordinate")
+    widthRequest(1, "old-session", root.uniqueId, 2)
+    widthRequest(2, session, "other-boom", 2)
+    widthRequest(3, session, root.uniqueId, 5)
+    eq(changes, 0, "stale target and invalid width do not change the native tool")
+    t = widthRequest(4, session, root.uniqueId, 2)
+    eq(changes, 1, "valid request calls the native width setter")
+    eq(t[k .. ".sprayer.boom#left"], "2", "native width change read back")
+    eq(t[k .. "#width"], "27.000000", "trimmed working width comes from the active edges")
+    eq(t[k .. ".area(0)#sz"], nil, "first disabled group contributes no geometry")
+    eq(t[k .. ".area(1)#sz"], nil, "second adjacent disabled group contributes no geometry")
+    eq(t[k .. ".area(2)#sz"], "191.000000", "the first retained group keeps its original identity and edge")
+    getParent, getTranslation = oldParent, oldTranslation
+    root.spec_variableWorkWidth = nil
     mod:deleteMap()
     mod:loadMap("test")
     check(mod.session ~= session, "reloading a save produces a new load identity")

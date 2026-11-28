@@ -11,6 +11,7 @@
 //   node g5link-bridge.js --demo          fake data, no game needed (tractor + planter)
 //   node g5link-bridge.js --demo combine  fake combine with Realistic Harvesting data
 //   node g5link-bridge.js --demo tillage  fake tractor + field cultivator (Cultivator Settings, Realistic Tillage depth)
+//   node g5link-bridge.js --demo hydraulics  fake 8R 410 + folding planter with Realistic Hydraulics SCVs and EPG
 //   node g5link-bridge.js --demo --demo-speed 8   run the demo 8x faster (to see maps fill quickly)
 //   node g5link-bridge.js --dir <folder>  custom modSettings/FS25_G5Link folder
 //   node g5link-bridge.js --port 8765
@@ -34,6 +35,7 @@ const DEMO = DEMO_OPT !== false;
 const DEMO_BIG = DEMO_OPT === 'bigfield';           // stress test: a 1500 ac odd-shaped field, 4 headland laps (demo-bigfield.js)
 const DEMO_COMBINE = DEMO_OPT === 'combine' || DEMO_BIG;
 const DEMO_TILLAGE = DEMO_OPT === 'tillage';
+const DEMO_HYD = DEMO_OPT === 'hydraulics';
 const DEMO_SPEED = Math.max(1, Math.min(60, Number(opt('demo-speed', 1)) || 1)); // demo time multiplier
 const PORT = Number(opt('port', 8765));
 const DEFAULT_DIR = path.join(os.homedir(), 'Documents', 'My Games', 'FarmingSimulator2025',
@@ -136,6 +138,7 @@ function telemetryFromXml(text) {
     rate: (child(g5, 'rate') || {}).attrs || null,
     section: (child(g5, 'section') || {}).attrs || null,
     harvestAuto: (child(g5, 'harvestAuto') || {}).attrs || null,
+    hyd: hydFromNode(child(g5, 'hyd')),
   };
 }
 
@@ -215,6 +218,21 @@ function rhFromNode(n) {
     ...n.attrs,
     settings: children(n, 'setting').map(c => c.attrs),
     trip: (child(n, 'trip') || {}).attrs || null,
+  };
+}
+
+// Realistic Hydraulics block: circuit attributes, SCVs, assignable functions, EPG with its consumers,
+// warnings and the result of the last SCV/EPG command.
+function hydFromNode(n) {
+  if (!n) return null;
+  const e = child(n, 'epg');
+  return {
+    ...n.attrs,
+    scvs: children(n, 'scv').map(c => c.attrs),
+    funcs: children(n, 'func').map(c => ({ ...c.attrs, id: String(c.attrs.id) })),
+    epg: e ? { ...e.attrs, uses: children(e, 'use').map(c => c.attrs) } : null,
+    warnings: children(n, 'warn').map(c => c.attrs),
+    result: (child(n, 'result') || {}).attrs || null,
   };
 }
 
@@ -445,7 +463,8 @@ function setGuidance(g) {
 const ALLOWED = new Set(['motorToggle', 'cruiseToggle', 'cruiseSet', 'cruiseAdjust',
   'lowerAll', 'turnOnAll', 'implTurnOn', 'resetWork',
   'pipeToggle', 'foldToggle', 'lightsToggle', 'workLightsToggle', 'beaconToggle', 'hazardToggle',
-  'harvestAuto', 'harvestAutoMax', 'tillageDepth', 'tillageDepthAdjust', 'tillageLevel', 'grainCart', 'grainCartNext', 'rtk', 'autotrac', 'rateAuto', 'rateStep', 'section', 'sectionOverlap']);
+  'harvestAuto', 'harvestAutoMax', 'tillageDepth', 'tillageDepthAdjust', 'tillageLevel', 'grainCart', 'grainCartNext', 'rtk', 'autotrac', 'rateAuto', 'rateStep', 'section', 'sectionOverlap',
+  'scvSet', 'scvAssign', 'scvFloat', 'epgMode']);
 let cmdQueue = [];
 let nextCmdId = 1;
 
@@ -477,8 +496,8 @@ function writeCommands() {
 
 function queueCommand(cmd) {
   if (!ALLOWED.has(cmd.name)) throw new Error('unknown command ' + cmd.name);
-  // arg: "key=value;key=value" text for commands that need more than a number (rtk)
-  const arg = typeof cmd.arg === 'string' ? cmd.arg.slice(0, 200).replace(/[^\w=;.\- ]/g, '') : '';
+  // arg: "key=value;key=value" text for commands that need more than a number (rtk, scvSet; ':' for function ids)
+  const arg = typeof cmd.arg === 'string' ? cmd.arg.slice(0, 200).replace(/[^\w=;.:\- ]/g, '') : '';
   const entry = { id: nextCmdId++, name: cmd.name, value: Number(cmd.value) || 0, index: cmd.index | 0, arg };
   if (DEMO) { demoCommand(entry); return entry; }
   cmdQueue.push(entry);
@@ -512,7 +531,7 @@ function demoCommand(c) {
     case 'beaconToggle': demo.beacon = !demo.beacon; break;
     case 'hazardToggle': demo.hazard = !demo.hazard; break;
     case 'pipeToggle': if (DEMO_COMBINE) demo.unloading = !demo.unloading; break;
-    case 'foldToggle': demo.unfolded = !demo.unfolded; if (!demo.unfolded) demo.lowered = false; break;
+    case 'foldToggle': demo.unfolded = !demo.unfolded; if (!demo.unfolded) demo.lowered = false; demoHydKick('fold', demo.unfolded ? 'extend' : 'retract'); break;
     case 'harvestAuto': {
       const on = c.value === 1 ? true : c.value === 0 ? false : !demo.auto.on;
       demo.auto = { ...demo.auto, on: on && DEMO_COMBINE, state: on && DEMO_COMBINE ? 'standby' : 'off', target: null, timer: 1000 };
@@ -537,6 +556,7 @@ function demoCommand(c) {
     case 'sectionOverlap': if ([0, 1, 2].includes(c.value)) demo.section.overlap = c.value; break;
     case 'grainCartNext': break;
     case 'harvestAutoMax': demo.auto.max = Math.max(1, Math.min(40, c.value)); break;
+    case 'scvSet': case 'scvAssign': case 'scvFloat': case 'epgMode': demoHydCommand(c); break;
   }
   demo.lastCmd = c.id;
 }
@@ -837,6 +857,7 @@ function demoTick(dt) {
     ? { state: demo.turning && gs && gs.turn.on ? 'turning' : 'engaged', stage: 4, track: gs.track.id, pass: 3, xte: +(0.02 * Math.sin(demo.t / 4000)).toFixed(3), turnOn: gs.turn.on, turns: Math.floor(demo.t / 60000) }
     : { state: hasTrack ? 'ready' : 'notReady', stage: !hasTrack ? 1 : steerOn ? 3 : 2, reason: !hasTrack ? 'noTrack' : steerOn ? undefined : 'steerOff', last: demo.atExit, turnOn: !!(gs && gs.turn.on), turns: 0 },
   { steerOn, sens: gs ? gs.sens : 70, diag: Object.entries(diag).map(([k, v]) => k + '=' + v).join(';') });
+  if (DEMO_HYD) demoHydraulics(frame, dt, working, rpm);
   setTelemetry(demoGnss(DEMO_COMBINE ? demoCombine(frame, dt, working, meters) : DEMO_TILLAGE ? demoTillage(frame, dt, working) : frame, dt));
 }
 
@@ -854,6 +875,121 @@ function demoRowStates(working) {
 function demoSectionBlock(working) {
   const rows = demoRowStates(working);
   return { kind: 'row', lanes: 16, rowsPerLane: 1, controller: demo.rtkState && demo.rtkState.section ? 'G5Link' : '', auto: demoSectionActive(), perRowRate: true, rows: rows.join(''), states: rows };
+}
+
+// Realistic Hydraulics as the planned FS25_RealHydraulicsSCV mod would report it through G5Link: an 8R 410
+// (85+35 cc pumps, 321 L/min at 2100 rpm) with four rear SCVs on a folding planter and the 56 V / 15 kW EPG
+// feeding the row drives. Flow numbers follow the Deere operator's manual (research/deere-help-notes.md, SCV).
+const HYD_PUMP_LPM = 321, HYD_RATED_RPM = 2100, HYD_VALVE_LPM = 159, HYD_MAX_BAR = 207;
+const HYD_FUNCS = [
+  { id: 'planter:fold', label: 'Fold', impl: 'Demo 1775NT Planter', kind: 'fold' },
+  { id: 'planter:lift', label: 'Lift Assist', impl: 'Demo 1775NT Planter', kind: 'lower' },
+  { id: 'planter:vacuum', label: 'Vacuum Fan', impl: 'Demo 1775NT Planter', kind: 'motor' },
+  { id: 'planter:downforce', label: 'Downforce', impl: 'Demo 1775NT Planter', kind: 'movingTool' },
+  { id: 'planter:markers', label: 'Markers', impl: 'Demo 1775NT Planter', kind: 'movingTool' },
+];
+const hydScv = (index, fn, o) => ({ index, bound: fn, mode: 'standard', detent: 'none', flowExt: 60, flowRet: 60, timer: 0, prio: index,
+  float: false, state: 'neutral', timerLeft: 0, run: null, pos: 0.5, ...o });
+demo.hyd = {
+  scvs: [
+    hydScv(1, 'planter:fold', { mode: 'independent', detent: 'timed', flowExt: 80, flowRet: 60, timer: 8, pos: 1 }),
+    hydScv(2, 'planter:lift', { detent: 'timed', flowExt: 70, flowRet: 70, timer: 3, pos: 0 }),
+    hydScv(3, 'planter:vacuum', { detent: 'continuous', flowExt: 45, flowRet: 45 }),
+    hydScv(4, 'planter:downforce', { flowExt: 30, flowRet: 30, float: true }),
+  ],
+  oilC: 48, epgMode: 'auto', result: null, lowered: true,
+};
+const hydFunc = id => HYD_FUNCS.find(f => f.id === id);
+// A function moved (fold key, headland raise): the SCV it is bound to runs for its detent time, or ~3 s without one.
+function demoHydKick(kind, dir) {
+  if (!DEMO_HYD) return;
+  const s = demo.hyd.scvs.find(v => (hydFunc(v.bound) || {}).kind === kind);
+  if (!s || s.float) return;
+  s.run = dir;
+  s.timerLeft = s.detent === 'timed' && s.timer > 0 ? s.timer : 3;
+}
+function demoHydCommand(c) {
+  const h = demo.hyd, s = h.scvs.find(v => v.index === c.index);
+  const a = Object.fromEntries(String(c.arg || '').split(';').map(p => p.split('=')).filter(p => p.length === 2));
+  let ok = true, reason;
+  if (c.name === 'epgMode') { if (['off', 'auto', 'icm'].includes(a.mode)) h.epgMode = a.mode; else { ok = false; reason = 'badMode'; } }
+  else if (!s) { ok = false; reason = 'badIndex'; }
+  else if (c.name === 'scvFloat') { s.float = c.value === 1; s.run = null; s.timerLeft = 0; }
+  else if (c.name === 'scvAssign') {
+    if (a.fn && !hydFunc(a.fn)) { ok = false; reason = 'unknownFunction'; }
+    else { h.scvs.forEach(v => { if (a.fn && v.bound === a.fn) v.bound = null; }); s.bound = a.fn || null; }
+  } else {
+    const num = (k, lo, hi) => { const v = Number(a[k]); if (a[k] !== undefined && Number.isFinite(v)) s[k] = Math.max(lo, Math.min(hi, v)); };
+    num('flowExt', 0, 100); num('flowRet', 0, 100); num('timer', 0, 120); num('prio', 1, 8);
+    if (['none', 'timed', 'continuous'].includes(a.detent)) s.detent = a.detent;
+    if (['standard', 'independent'].includes(a.mode)) s.mode = a.mode;
+    if (s.mode === 'standard') s.flowRet = s.flowExt;
+    if (s.detent !== 'timed') s.timerLeft = s.run ? s.timerLeft : 0;
+  }
+  h.result = { ok, reason, cmd: c.name, id: c.id };
+}
+function demoHydraulics(t, dt, working, rpm) {
+  const h = demo.hyd, sec = dt / 1000;
+  if (h.lowered !== (demo.lowered && !demo.turning)) {          // headland: lift assist follows the hitch
+    h.lowered = demo.lowered && !demo.turning;
+    demoHydKick('lower', h.lowered ? 'retract' : 'extend');
+  }
+  const pump = HYD_PUMP_LPM * Math.min(1, rpm / HYD_RATED_RPM);
+  const hitch = 6 + (demo.turning ? 18 : 0);                    // steering and the 3-point hitch take flow first
+  // what each valve asks for: a running timed detent, a continuous motor while the planter is on, or nothing
+  for (const s of h.scvs) {
+    const fn = hydFunc(s.bound) || {};
+    if (s.float) { s.state = 'float'; s.demand = 0; continue; }
+    if (fn.kind === 'motor' && s.detent === 'continuous') s.run = demo.turnedOn && demo.motorOn ? 'extend' : null;
+    s.state = s.run || 'neutral';
+    s.demand = s.run ? HYD_VALVE_LPM * (s.run === 'retract' ? s.flowRet : s.flowExt) / 100 : 0;
+  }
+  // flow sharing: continuous first, then by priority; whatever is left is shared pro rata
+  let left = Math.max(0, pump - hitch);
+  const order = h.scvs.filter(s => s.demand > 0).sort((a, b) => (b.detent === 'continuous') - (a.detent === 'continuous') || a.prio - b.prio);
+  const demand = order.reduce((n, s) => n + s.demand, 0);
+  for (const s of order) { s.lpm = Math.min(s.demand, left); left -= s.lpm; }
+  h.scvs.forEach(s => { if (!s.demand) s.lpm = 0; });
+  for (const s of h.scvs) {                                     // cylinders move with the flow they got
+    if (s.run && (hydFunc(s.bound) || {}).kind !== 'motor') {
+      const stroke = s.lpm / Math.max(1, s.demand) * sec / 3;
+      s.pos = Math.max(0, Math.min(1, s.pos + (s.run === 'extend' ? stroke : -stroke)));
+      s.timerLeft = Math.max(0, s.timerLeft - sec);
+      const endStop = s.pos === (s.run === 'extend' ? 1 : 0);   // pressure kick-out at the end of the stroke
+      if (endStop || (s.detent !== 'continuous' && s.timerLeft === 0)) { s.run = null; s.timerLeft = 0; }
+    } else if (!s.run) s.timerLeft = 0;
+  }
+  const used = hitch + h.scvs.reduce((n, s) => n + s.lpm, 0);
+  const load = used / Math.max(1, pump);
+  h.oilC += ((44 + 46 * load) - h.oilC) * Math.min(1, sec / 90);  // first-order: heats under load, cools to ambient
+  const shared = demand > pump - hitch + 0.5;
+  const pressure = !demo.motorOn ? 0 : Math.min(HYD_MAX_BAR, 30 + 150 * load + (shared ? 25 : 0));
+  // EPG: 56 V / 15 kW integrated generator (MY27+ 8 Series EVT) driving one 56 V motor per planter row
+  const rows = (t.implements[0] && t.implements[0].seeder && t.implements[0].seeder.rows) || [];
+  const rowKw = rows.filter(r => r.on).length * 0.32 * Math.max(0.3, demo.speed / 10);
+  const epgOn = h.epgMode !== 'off' && demo.motorOn;
+  const ecuKw = epgOn ? 0.4 : 0, epgUsed = epgOn ? Math.min(15, rowKw + ecuKw) : 0;
+  const warnings = [];
+  if (h.oilC > 85) warnings.push({ code: 'HYD_OIL_HOT', text: 'Hydraulic oil temperature high' });
+  if (shared) warnings.push({ code: 'HYD_FLOW_SHARED', text: 'Hydraulic demand is over pump flow' });
+  if (h.epgMode === 'off' && working) warnings.push({ code: 'EPG_OFF', text: 'EPG off: row drives have no power' });
+  const fault = h.epgMode === 'off' && working ? 'noPower' : undefined;
+  t.vehicle.name = 'Demo 8R 410 Tractor';
+  t.hyd = {
+    version: 'demo', pumpLpm: Math.round(pump), maxLpm: HYD_PUMP_LPM, usedLpm: Math.round(used), pressureBar: Math.round(pressure),
+    maxBar: HYD_MAX_BAR, oilTempC: Math.round(h.oilC), hitchLpm: hitch, shared,
+    scvs: h.scvs.map(s => ({ index: s.index, label: (hydFunc(s.bound) || {}).label || `SCV ${['I', 'II', 'III', 'IV'][s.index - 1]}`,
+      bound: s.bound || undefined, boundLabel: hydFunc(s.bound) ? `${hydFunc(s.bound).impl} ${hydFunc(s.bound).label}` : undefined,
+      state: s.state, mode: s.mode, detent: s.detent, flowExt: s.flowExt, flowRet: s.flowRet, timer: s.timer,
+      timerLeft: +s.timerLeft.toFixed(1), prio: s.prio, lpm: Math.round(s.lpm), demandLpm: Math.round(s.demand), pos: +s.pos.toFixed(2), float: s.float })),
+    funcs: HYD_FUNCS.map(f => ({ ...f })),
+    epg: { source: 'tractor_epg', mode: h.epgMode, capKw: 15, availKw: epgOn ? 15 : 0, usedKw: +epgUsed.toFixed(1),
+      busV: epgOn ? +(56 - epgUsed * 0.08).toFixed(1) : 0, nominalV: 56, fault,
+      uses: [{ name: 'Row drives', kw: epgOn ? +rowKw.toFixed(2) : 0, demandKw: +rowKw.toFixed(2) }, { name: 'Planter ECU', kw: ecuKw, demandKw: 0.4 }] },
+    warnings,
+    result: h.result,
+  };
+  return t;
 }
 
 // Realistic Seeder snapshot as G5Link writes it (seed monitor fitted, row drive, no depth sensor).
@@ -998,7 +1134,7 @@ function demoEconomy() {
 }
 function demoEquipment() {
   return { farmId: 1, vehicles: [
-    { id: 'demo1', name: DEMO_COMBINE ? 'Demo S7 Combine' : DEMO_TILLAGE ? 'Demo 8R 410 Tractor' : 'Demo 8R Tractor', kind: DEMO_COMBINE ? 'combine' : 'tractor', x: +demo.x.toFixed(1), z: +demo.z.toFixed(1),
+    { id: 'demo1', name: DEMO_COMBINE ? 'Demo S7 Combine' : DEMO_TILLAGE || DEMO_HYD ? 'Demo 8R 410 Tractor' : 'Demo 8R Tractor', kind: DEMO_COMBINE ? 'combine' : 'tractor', x: +demo.x.toFixed(1), z: +demo.z.toFixed(1),
       heading: Math.round(demo.heading), speed: +demo.speed.toFixed(1), motorOn: demo.motorOn, ai: false, inUse: true, fuelPct: Math.round(demo.fuel / 680 * 100),
       hours: 1287.4, damage: 12, field: 23, implements: [DEMO_COMBINE ? 'Demo HD40F Header' : DEMO_TILLAGE ? 'Demo 2230FH Field Cultivator' : 'Demo 1775NT Planter'], ads: { state: 'READY', hours: 212.4, interval: 250 } },
     { id: 'demo2', name: 'Demo 9RX Tractor', kind: 'tractor', x: -160, z: 300, heading: 180, speed: 0, motorOn: false, ai: false, inUse: false, fuelPct: 64, hours: 2210.3, damage: 31, field: null, implements: ['Demo 2730 Ripper'], ads: { state: 'READY', hours: 268.0, interval: 250 } },

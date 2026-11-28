@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <modDesc descVersion="104">
     <author>kevin7898</author>
-    <version>0.11.0.0</version>
+    <version>0.11.1.0</version>
     <title>
         <en>G5Link - Display Bridge</en>
     </title>
@@ -47,6 +47,7 @@ Requires the G5Link bridge running on the same PC. See README for setup.]]></en>
         <sourceFile filename="scripts/Steering.lua"/>
         <sourceFile filename="scripts/RateControl.lua"/>
         <sourceFile filename="scripts/SectionControl.lua"/>
+        <sourceFile filename="scripts/Hydraulics.lua"/>
         <sourceFile filename="scripts/Api.lua"/>
         <sourceFile filename="scripts/G5Link.lua"/>
     </extraSourceFiles>

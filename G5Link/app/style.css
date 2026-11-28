@@ -805,3 +805,57 @@ a.app { text-decoration: none; color: inherit; }
 .map-btn.center { border-color: #ffd200; }
 .map-arrow { cursor: pointer; }
 .map-arrow.north { filter: drop-shadow(0 0 0 #ffd200) drop-shadow(0 0 3px #ffd200); }
+
+/* ---------------------------------------------------------------- Hydraulics and EPG pages, SCV Settings (hydraulics.js) */
+.hy-lower { display: flex; flex-direction: column; }
+.hy-lower .lower-col { flex: 1; min-height: 0; padding: 8px 14px; gap: 8px; }
+.hy-lower .lower-head { display: flex; justify-content: space-between; align-items: center; font-size: var(--fs-md); }
+.hy-setup { height: var(--h-sm); font-size: var(--fs-md); }
+.hy-scvs { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(var(--n, 4), 1fr); gap: 8px; }
+.hy-scv { display: flex; flex-direction: column; min-height: 0; background: var(--cream); border: 2px solid var(--frame); border-top: 10px solid var(--tile-off);
+  padding: 6px 10px 8px; gap: 2px; }
+.hy-scv.on { border-top-color: var(--tile-on); }
+.hy-scv.float { border-top-color: #4a7fc1; }
+.hy-scv-head { display: flex; justify-content: space-between; align-items: baseline; font-size: var(--fs-lg); color: var(--ink-2); }
+.hy-scv-head small { font-size: var(--fs-xs); font-weight: 700; color: var(--muted); }
+.hy-fn { font-size: var(--fs-md); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hy-state { display: flex; align-items: center; gap: 6px; font-size: var(--fs-md); font-weight: 700; color: var(--muted); }
+.hy-state svg { width: 24px; height: 24px; }
+.hy-state.extend, .hy-state.retract { color: var(--green); }
+.hy-state.float { color: #4a7fc1; }
+.hy-kv { display: flex; justify-content: space-between; align-items: baseline; border-top: 1px solid var(--rule); padding-top: 2px; }
+.hy-kv span { font-size: var(--fs-sm); font-weight: 600; color: var(--muted); }
+.hy-kv b { font-size: var(--fs-lg); }
+.hy-kv.short b { color: var(--warn); }
+.hy-timer { height: 8px; border: 1px solid var(--frame); background: var(--cream-2); margin: 4px 0 6px; }
+.hy-timer i { display: block; height: 100%; background: var(--tile-on); transition: width .25s linear; }
+.hy-scv-btns { display: grid; grid-template-columns: 1fr var(--h-md); gap: 6px; margin-top: auto; }
+.hy-scv-btns .g5btn { height: var(--h-sm); padding: 0 8px; font-size: var(--fs-md); }
+.hy-scv-btns .g5btn.on { background: #4a4a46; color: #fff; }
+.hy-scv-btns svg { width: 22px; height: 22px; }
+.hy-gauge { position: relative; width: 60px; flex: 1; min-height: 120px; max-height: 260px; border: 3px solid var(--frame); background: var(--cream-2); }
+.hy-gauge i { position: absolute; left: 0; right: 0; bottom: 0; transition: height .3s linear; }
+.hy-gauge i.avail { background: #c9d9c3; }
+.hy-gauge i.used { left: 10px; right: 10px; background: var(--tile-on); }
+.hy-gauge i.used.over { background: var(--warn); }
+.ep-uses { display: flex; flex-direction: column; gap: 8px; }
+.ep-use { display: grid; grid-template-columns: 1fr 1.2fr auto; gap: 10px; align-items: center; font-size: var(--fs-md); font-weight: 700; }
+.ep-use b { font-size: var(--fs-lg); min-width: 84px; text-align: right; }
+.ep-use.short b { color: var(--warn); }
+.ep-bar { height: 18px; border: 2px solid var(--frame); background: var(--cream); }
+.ep-bar i { display: block; height: 100%; background: var(--tile-on); }
+#epMode { width: 100%; }
+.hy-win { width: 980px; }
+.hy-win .win-body.tabs { min-height: 470px; }
+.hy-panel { padding: 10px 24px 10px 34px; overflow: auto; }
+.hy-panel .set-row { padding: 4px 0; }
+.hy-panel .set-row .seg { width: 380px; height: var(--h-md); }
+.hy-panel .hint { font-size: var(--fs-sm); margin-top: 10px; }
+.hy-step { width: 380px; height: var(--h-md); }
+.hy-step .tl-step { height: var(--h-md); }
+.hy-step .tl-setpoint b { font-size: var(--fs-xl); }
+.hy-fn-cur { font-size: var(--fs-lg); max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hy-funcs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+.hy-funcs .g5btn { height: auto; min-height: var(--h-lg); flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 14px; text-align: left; }
+.hy-funcs .g5btn small { font-size: var(--fs-sm); font-weight: 600; color: var(--muted); }
+.hy-funcs .g5btn.on { border-color: var(--green); box-shadow: inset 0 0 0 3px var(--green); }

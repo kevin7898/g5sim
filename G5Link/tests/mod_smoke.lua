@@ -1748,6 +1748,155 @@ do
 end
 
 ---------------------------------------------------------------------------
+-- Scenario 14: Realistic Hydraulics (g_currentMission.realHydraulicsAPI): g5.hyd block and SCV commands
+---------------------------------------------------------------------------
+local function hydApi(tractor)
+    local api = {calls = {}, ready = true, refuse = false}
+    local scvs = {
+        {index = 1, label = "Fold", bound = "planter:fold", boundLabel = "1775NT Fold", state = "extend", mode = "independent",
+            detent = "timed", flowExt = 80, flowRet = 60, timer = 4, timerLeft = 2.5, prio = 1, allottedLpm = 54.4, demandLpm = 64, float = false},
+        {index = 2, label = "Markers", state = "neutral", mode = "standard", detent = "none", flowExt = 50, flowRet = 50, prio = 2, float = false,
+            timerLeft = 0 / 0},                                     -- NaN: must be skipped
+        {index = 3, label = "Vacuum", bound = "planter:vacuum", state = "bogus", detent = "continuous", flowExt = 45, flowRet = 45,
+            prio = 3, allottedLpm = math.huge, float = false},     -- unknown state and infinite flow: skipped
+        "not a table",                                              -- must be ignored
+        {index = 4, label = "Downforce", state = "float", detent = "none", flowExt = 30, flowRet = 30, prio = 4, float = true},
+    }
+    function api.getVersion() return "1.0.0" end
+    function api.isReady() return api.ready end
+    function api.getState(v)
+        api.calls[#api.calls + 1] = {"getState", v}
+        if v ~= tractor then return nil end
+        return {circuit = {pumpLpm = 214.6, maxPumpLpm = 227, usedLpm = 135.2, pressureBar = 190, maxPressureBar = 200,
+            oilTempC = 64.4, hitchLpm = 12, flowShared = false}, scvs = scvs,
+            epg = {source = "tractor_epg", mode = "auto", capKw = 15, availableKw = 15, usedKw = 9.6, busV = 55.8, nominalV = 56,
+                fault = "", uses = {{name = "Row drives", kw = 8.1, demandKw = 8.1}, {name = "Fan", kw = 0 / 0}}},
+            warnings = {{code = "HYD_OIL_HOT", text = "Hydraulic oil hot"}, "HYD_FLOW_SHARED", {code = 5}}}
+    end
+    function api.getFunctions(v)
+        return {{id = "planter:fold", label = "Fold", implementName = "1775NT", kind = "fold"},
+            {id = "planter:tool2", label = "Markers", implementName = "1775NT", kind = "movingTool"}, {label = "no id"}}
+    end
+    function api.setScv(v, index, cfg)
+        api.calls[#api.calls + 1] = {"setScv", v, index, cfg}
+        if api.refuse then return false, "notServer" end
+        return true
+    end
+    function api.assign(v, index, fn) api.calls[#api.calls + 1] = {"assign", v, index, fn} return true end
+    function api.setEpgMode(v, mode) error("epg broke") end
+    return api
+end
+local function lastCall(api, name)
+    for i = #api.calls, 1, -1 do if api.calls[i][1] == name then return api.calls[i] end end
+    return nil
+end
+
+do
+    local dir = newScenario("hydraulics", {})
+    local tractor = makeVehicle({name = "Test 8R 410", speed = 8})
+    local planter = makeImplement(12.19, 16)
+    tractor.children = {tractor, planter}
+    g_localPlayer = {getCurrentVehicle = function(self) return tractor end}
+    mod:loadMap("test")
+    os.execute('mkdir -p "' .. dir .. '"')
+    tick(4)
+    local t = telemetry(dir)
+    eq(t["g5.hyd#version"], nil, "no hyd block without the hydraulics mod")
+
+    local api = hydApi(tractor)
+    api.ready = false
+    g_currentMission.realHydraulicsAPI = api                   -- after loadMap, like a mod loading later
+    tick(4)
+    eq(telemetry(dir)["g5.hyd#version"], nil, "no hyd block until isReady()")
+    api.ready = true
+    tick(4)
+    t = telemetry(dir)
+    eq(t["g5.hyd#version"], "1.0.0", "hyd version")
+    eq(t["g5.hyd#pumpLpm"], "215.000000", "pump flow rounded")
+    eq(t["g5.hyd#pressureBar"], "190.000000", "pressure")
+    eq(t["g5.hyd#oilTempC"], "64.000000", "oil temperature")
+    eq(t["g5.hyd#shared"], "false", "flow not shared")
+    eq(t["g5.hyd.scv(0)#index"], "1", "SCV 1 index")
+    eq(t["g5.hyd.scv(0)#bound"], "planter:fold", "SCV 1 bound function")
+    eq(t["g5.hyd.scv(0)#detent"], "timed", "SCV 1 detent")
+    eq(t["g5.hyd.scv(0)#timerLeft"], "2.500000", "SCV 1 timer left")
+    eq(t["g5.hyd.scv(0)#lpm"], "54.000000", "SCV 1 allotted flow")
+    eq(t["g5.hyd.scv(1)#timerLeft"], nil, "NaN timer skipped")
+    eq(t["g5.hyd.scv(2)#state"], nil, "unknown valve state skipped")
+    eq(t["g5.hyd.scv(2)#lpm"], nil, "infinite flow skipped")
+    eq(t["g5.hyd.scv(3)#index"], "4", "a non-table SCV entry is skipped")
+    eq(t["g5.hyd.scv(3)#float"], "true", "SCV 4 in float")
+    eq(t["g5.hyd.scv(4)#index"], nil, "only four SCVs written")
+    eq(t["g5.hyd.func(1)#id"], "planter:tool2", "assignable functions listed")
+    eq(t["g5.hyd.func(2)#id"], nil, "a function without an id is skipped")
+    eq(t["g5.hyd.epg#source"], "tractor_epg", "EPG source")
+    eq(t["g5.hyd.epg#busV"], "55.800000", "EPG bus voltage")
+    eq(t["g5.hyd.epg#fault"], nil, "empty EPG fault left out")
+    eq(t["g5.hyd.epg.use(0)#name"], "Row drives", "EPG consumer")
+    eq(t["g5.hyd.epg.use(1)#kw"], nil, "NaN consumer kW skipped")
+    eq(t["g5.hyd.warn(0)#code"], "HYD_OIL_HOT", "warning with text")
+    eq(t["g5.hyd.warn(1)#code"], "HYD_FLOW_SHARED", "warning given as a string")
+    eq(t["g5.hyd.warn(2)#code"], nil, "a warning without a string code is skipped")
+
+    writeFile(dir .. "commands.xml", table.concat({
+        '<?xml version="1.0"?>', '<commands>',
+        '    <cmd id="1" name="scvSet" value="0" index="1" arg="flowExt=140;flowRet=60;detent=timed;timer=4.5;prio=2;mode=independent;bogus=1"/>',
+        '    <cmd id="2" name="scvAssign" value="0" index="2" arg="fn=planter:tool2"/>',
+        '    <cmd id="3" name="scvFloat" value="1" index="4"/>',
+        '</commands>', ''}, "\n"))
+    tick(2)
+    local c = lastCall(api, "setScv")
+    check(c ~= nil and c[3] == 4 and c[4].float == true, "scvFloat -> setScv(index 4, {float = true})")
+    c = api.calls[#api.calls - 1]
+    for i = #api.calls, 1, -1 do if api.calls[i][1] == "setScv" and api.calls[i][3] == 1 then c = api.calls[i] break end end
+    check(c ~= nil and c[2] == tractor, "scvSet calls the API with the driven machine")
+    eq(c and c[4].flowExt, 100, "flow clamped to 100 %")
+    eq(c and c[4].flowRet, 60, "retract flow")
+    eq(c and c[4].detent, "timed", "detent mode")
+    eq(c and c[4].timer, 4.5, "detent timer")
+    eq(c and c[4].prio, 2, "priority")
+    eq(c and c[4].mode, "independent", "valve mode")
+    eq(c and c[4].bogus, nil, "unknown keys dropped")
+    c = lastCall(api, "assign")
+    check(c ~= nil and c[3] == 2 and c[4] == "planter:tool2", "scvAssign passes the function id")
+    t = telemetry(dir)
+    eq(t["g5.hyd.result#cmd"], "scvFloat", "last result is the last command")
+    eq(t["g5.hyd.result#ok"], "true", "accepted")
+
+    local before = #api.calls
+    api.refuse = true
+    writeFile(dir .. "commands.xml", table.concat({
+        '<?xml version="1.0"?>', '<commands>',
+        '    <cmd id="4" name="scvSet" value="0" index="9" arg="flowExt=50"/>',
+        '    <cmd id="5" name="scvSet" value="0" index="1" arg="detent=sideways"/>',
+        '    <cmd id="6" name="epgMode" value="0" index="0" arg="mode=auto"/>',
+        '    <cmd id="7" name="scvSet" value="0" index="1" arg="flowExt=50"/>',
+        '</commands>', ''}, "\n"))
+    local ok, err = pcall(tick, 2)
+    check(ok, "a throwing setEpgMode does not stop the mod: " .. tostring(err))
+    local sets = 0
+    for i = before + 1, #api.calls do if api.calls[i][1] == "setScv" then sets = sets + 1 end end
+    eq(sets, 1, "bad SCV index and bad detent never reach the API")
+    t = telemetry(dir)
+    eq(t["g5.hyd.result#ok"], "false", "refused by the hydraulics mod")
+    eq(t["g5.hyd.result#reason"], "notServer", "refusal reason passed on")
+    eq(t["g5.hyd.result#id"], "7", "result names the command")
+    local logged = false
+    for _, l in ipairs(logLines) do if string.find(l, "Realistic Hydraulics setEpgMode failed", 1, true) then logged = true end end
+    check(logged, "a failing API call is logged")
+    keepLive(dir)
+
+    -- getState throwing must not break the rest of the telemetry
+    api.getState = function() error("state broke") end
+    ok, err = pcall(tick, 2)
+    check(ok, "a throwing getState does not stop the mod: " .. tostring(err))
+    t = telemetry(dir)
+    eq(t["g5#state"], "vehicle", "telemetry still written")
+    eq(t["g5.hyd#version"], nil, "no hyd block when getState fails")
+    mod:deleteMap()
+end
+
+---------------------------------------------------------------------------
 -- JSON encoder samples for check_output.js
 ---------------------------------------------------------------------------
 do

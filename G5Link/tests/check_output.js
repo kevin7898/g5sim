@@ -239,5 +239,27 @@ if (fs.existsSync(live)) {
   }
 }
 
+// Scenario 14: Realistic Hydraulics block
+{
+  const f = path.join(OUT, 'hydraulics', 'telemetry_live.xml');
+  check(fs.existsSync(f), 'hydraulics live telemetry copy exists');
+  if (fs.existsSync(f)) {
+    const h = telemetryFromXml(fs.readFileSync(f, 'utf8')).hyd;
+    check(!!h, 'live: hyd block parsed');
+    eq(h && h.pumpLpm, 215, 'live: pump flow');
+    eq(h && h.shared, false, 'live: flow sharing flag is a boolean');
+    eq(h && h.scvs.length, 4, 'live: four SCVs');
+    eq(h && h.scvs[0].bound, 'planter:fold', 'live: bound function id');
+    eq(h && h.scvs[0].timerLeft, 2.5, 'live: detent timer left');
+    eq(h && h.scvs[3].float, true, 'live: SCV 4 float');
+    eq(h && h.funcs.length, 2, 'live: assignable functions');
+    eq(h && h.funcs[0].id, 'planter:fold', 'live: function id is a string');
+    eq(h && h.epg && h.epg.uses[0].name, 'Row drives', 'live: EPG consumer');
+    eq(h && h.epg && h.epg.capKw, 15, 'live: EPG capacity');
+    eq(h && h.warnings.map(w => w.code).join(','), 'HYD_OIL_HOT,HYD_FLOW_SHARED', 'live: warnings');
+    eq(h && h.result && h.result.reason, 'notServer', 'live: last command result');
+  }
+}
+
 console.log(`node checks: ${checks}, failures: ${failures}`);
 process.exit(failures ? 1 : 0);

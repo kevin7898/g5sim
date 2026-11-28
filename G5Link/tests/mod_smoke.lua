@@ -464,6 +464,8 @@ local function rhApi()
             return {fan = {optimal = 72, min = 52, max = 92, tolerance = 6}, rotor = {optimal = 67, min = 47, max = 87, tolerance = 6},
                 concave = {optimal = 24, min = 10, max = 44, tolerance = 6}, moistureLimit = 14.5}
         end,
+        findCombine = function(v) return v end,
+        getMachineType = function(v) return "grain" end,
         getCombineTrip = function(v) return {harvestedAreaHa = 3.2, harvestedMassKg = 20100, harvestedLiters = 25770,
             lostLiters = 210, fuelUsedL = 41.5, sessionDuration = 1800, fieldId = 12, efficiencyRank = "A"} end,
     }
@@ -949,6 +951,39 @@ do
     tick(6)
     eq(telemetry(dir)["g5.harvestAuto#limited"], "true", "automation reports a configured speed cap")
     near(tonumber(telemetry(dir)["g5.harvestAuto#target"]), 4, 0.001, "automation target is capped")
+    -- harvest settings from the display go through RH's combineMemory:updateSetting (MP event inside RH)
+    local memCalls = {}
+    combine.spec_rhm_Combine = { combineMemory = {
+        currentSettings = {fan = 70, rotor = 64, concave = 31, upperSieve = 33, lowerSieve = 22, feeder = 36, targetEngineLoad = 80},
+        updateSetting = function(self, p, v) table.insert(memCalls, p .. "=" .. v); self.currentSettings[p] = v; return true end,
+        requestAutoSettings = function(self) table.insert(memCalls, "AUTO") end } }
+    FS25_RealisticHarvesting = { RHM_UnitConverter = { getPhysicalRange = function(name, mt)
+        if name == "fan" then return {min = 400, max = 1100, step = 10, unit = "RPM"} end
+        if name == "concave" then return {min = 2, max = 50, step = 1, unit = "mm"} end
+        error("unknown control " .. tostring(name)) end } }
+    G5LinkControls:run(combine, {name = "harvestSetting", arg = "fan", value = 74.6})
+    G5LinkControls:run(combine, {name = "harvestSetting", arg = "noSuchControl", value = 10})
+    G5LinkControls:run(combine, {name = "harvestSetting", arg = "rotor", value = 0 / 0})
+    eq(table.concat(memCalls, ","), "fan=75", "harvestSetting sets a known control, rounds, skips unknown and NaN")
+    memCalls = {}
+    G5LinkControls:run(combine, {name = "harvestOptimum", value = 0})
+    table.sort(memCalls)
+    eq(table.concat(memCalls, ","), "concave=24,fan=72,rotor=67", "harvestOptimum applies RH's optimal values")
+    memCalls = {}
+    G5LinkControls:run(combine, {name = "harvestAutoSet", value = 0})
+    eq(table.concat(memCalls, ","), "AUTO", "harvestAutoSet asks RH for Opti-Harvest settings")
+    local without = combine.spec_rhm_Combine
+    combine.spec_rhm_Combine = nil
+    eq(G5LinkControls:run(combine, {name = "harvestSetting", arg = "fan", value = 50}), true, "without RH memory the command is still ours and harmless")
+    combine.spec_rhm_Combine = without
+    tick(2)
+    local tm = telemetry(dir)
+    local fanKey
+    for key, val in pairs(tm) do if val == "fan" and key:match("^g5%.rh%.setting%(%d+%)#name$") then fanKey = key:gsub("#name$", "") end end
+    eq(fanKey ~= nil and tm[fanKey .. "#unit"], "RPM", "fan carries RH's physical unit")
+    near(tonumber(fanKey and tm[fanKey .. "#pmax"] or "nan"), 1100, 0.001, "fan carries its physical range")
+    near(tonumber(tm["g5.rh#engineLoadSet"] or "nan"), 80, 0.001, "target engine load setting is reported")
+    FS25_RealisticHarvesting = nil
     -- work lights toggle back off, cruise off puts automation on standby
     writeFile(dir .. "commands.xml", '<?xml version="1.0"?>\n<commands>\n    <cmd id="8" name="workLightsToggle" value="0" index="0"/>\n</commands>\n')
     cs.cc = Drivable.CRUISECONTROL_STATE_OFF

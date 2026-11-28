@@ -102,6 +102,15 @@ reads it in `writeRealisticHarvesting` only if it exists, with every call wrappe
 - **Not yet checked in game:** that `RHM_Api` is visible from G5Link's mod environment (fallback: `FS25_RealisticHarvesting.RHM_Api`).
   Look for `G5Link: Realistic Harvesting read failed` in log.txt.
 - The grain tank comes from vanilla `spec_combine.fillUnitIndex` (verified in the LUADOC), so it works without RH.
+- **Setting harvest settings from the display** (2026-11-27, read from RH 1.6.5.1-Beta-2): commands `harvestSetting`
+  (arg = control name, value = 0-100 %; `targetEngineLoad` 70-100), `harvestOptimum` (every control to
+  `getOptimalSettings().optimal`) and `harvestAutoSet` (Opti-Harvest AI, package tier 4). Controls.lua finds
+  `RHM_Api.findCombine(v).spec_rhm_Combine.combineMemory` and calls `updateSetting(param, pct)`, the same call RH's
+  calibration window makes: it clamps, switches to MANUAL, dispatches onSettingsChanged and sends
+  RHM_CombineSettingsEvent for multiplayer. Concave and feeder are one control in RH (setting one sets both).
+  Telemetry adds each control's physical range from `FS25_RealisticHarvesting.RHM_UnitConverter.getPhysicalRange`
+  (`pmin/pmax/step/unit`, e.g. fan 300-1200 RPM step 10) and `engineLoadSet`; the display's Harvest Settings window
+  (tap a row or the MANUAL/AUTO badge) steps in those units like RH's window. **Not yet checked in game.**
 
 ## Other mods through the FieldPath provider adapters
 
@@ -140,6 +149,12 @@ from `FieldPathPrivateIntegration.lua`:
   carries `map: {save, current, ops: {id: [seq, overlapVersion]}}` so displays fetch only what's new.
 - **Not yet checked in game:** the work-area node positions and orientation on real implements, and the 100° pass rule
   on real headland turns.
+- Processing gaps (2026-11-27): the engine's `getIsWorkAreaProcessing` is true for 200 ms after the tool changes a
+  density-map cell. On passes exactly along the map axes the whole edge crosses a cell line at once, so the bit is off
+  for 1-3 m at a time (savegame9 soybean harvest: 52 breaks of 0.9-3 m on 0/90/180/270° passes, 4 on angled ones).
+  The recorder now holds unconfirmed samples while the work area moves at most `UNCONFIRMED_M` (4 m) and
+  `UNCONFIRMED_MS` (6 s) and fills them in only when work is confirmed again; a sample interval over 800 ms (driven)
+  still breaks the strip.
 
 ## Ops Center (app/ops/, bridge/fields.js)
 

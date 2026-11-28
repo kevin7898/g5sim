@@ -313,7 +313,8 @@ $('shade').onclick = () => $('shade').classList.remove('show');
 
 // ------------------------------------------------------------ commands
 const pendingCmds = new Map();
-const MACHINE_COMMANDS = new Set(['tillageDepth', 'tillageLevel', 'tillageDepthAdjust', 'section', 'sectionOverlap', 'harvestAuto', 'harvestAutoMax', 'rateAuto', 'rateStep']);
+const MACHINE_COMMANDS = new Set(['tillageDepth', 'tillageLevel', 'tillageDepthAdjust', 'section', 'sectionOverlap', 'harvestAuto', 'harvestAutoMax', 'rateAuto', 'rateStep',
+  'harvestSetting', 'harvestOptimum', 'harvestAutoSet']);
 const commandTarget = d => d.session && d.vehicle?.id != null ? { session: d.session, save: d.game?.save || 'unsaved', vehicle: d.vehicle.id } : undefined;
 async function send(name, value = 0, index = 0, el = null, arg = '', target = MACHINE_COMMANDS.has(name) ? commandTarget(data) : undefined) {
   try {
@@ -551,6 +552,78 @@ const SETTING_LABEL = { concave: 'Threshing Clearance', rotor: 'Threshing Speed'
   upperSieve: 'Chaffer Clearance', lowerSieve: 'Sieve Clearance', feeder: 'Feeder House' };
 const SETTING_ORDER = ['concave', 'rotor', 'fan', 'upperSieve', 'lowerSieve', 'feeder'];
 
+// Harvest Settings window: Realistic Harvesting keeps every control as 0-100 % of its range; the display shows and
+// steps it in RH's own units (RPM, mm) like RH's calibration window, and sends the percent (harvestSetting).
+let hsRh = null;
+const hsPending = new Map();   // name -> { pct, at }: taps ahead of the 4 Hz telemetry
+const HS_LOAD = { name: 'targetEngineLoad', pmin: 70, pmax: 100, step: 5, unit: '%', direct: true };
+function hsValue(s) {
+  const p = hsPending.get(s.name);
+  if (p && Date.now() - p.at < 2500 && Math.round(s.value) !== p.pct) return p.pct;
+  if (p) hsPending.delete(s.name);
+  return s.value;
+}
+const hsRanged = s => Number.isFinite(s.pmin) && Number.isFinite(s.pmax) && s.pmax > s.pmin;
+function hsPhys(s, pct) {
+  if (s.direct || !hsRanged(s)) return pct;
+  const st = s.step || 1;
+  return Math.round((s.pmin + (s.pmax - s.pmin) * Math.max(0, Math.min(100, pct)) / 100) / st) * st;
+}
+const hsNum = (s, pct) => fmt(hsPhys(s, pct), 0);
+const hsUnit = s => s.direct ? s.unit : hsRanged(s) ? (s.unit || '') : '%';
+function hsStep(s, dir) {
+  const cur = hsValue(s);
+  if (s.direct) return Math.max(s.pmin, Math.min(s.pmax, Math.round(cur / s.step) * s.step + dir * s.step));
+  if (!hsRanged(s)) return Math.max(0, Math.min(100, Math.round(cur) + dir));
+  const span = s.pmax - s.pmin, st = s.step || 1, phys = s.pmin + span * cur / 100, snapped = Math.round(phys / st) * st;
+  const target = Math.abs(phys - snapped) > 0.01 ? (dir > 0 ? Math.ceil(phys / st) : Math.floor(phys / st)) * st : snapped + dir * st;
+  let pct = (Math.max(s.pmin, Math.min(s.pmax, target)) - s.pmin) / span * 100;
+  if (Math.abs(pct - cur) < 0.5) pct = cur + dir;
+  return Math.max(0, Math.min(100, Math.round(pct)));
+}
+function hsControls() {
+  const rh = hsRh;
+  if (!rh) return [];
+  const sets = (rh.settings || []).slice().sort((a, b) => {
+    const ia = SETTING_ORDER.indexOf(a.name), ib = SETTING_ORDER.indexOf(b.name);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+  });
+  const load = rh.engineLoadSet ?? rh.targetLoad;
+  return Number.isFinite(load) ? [...sets, { ...HS_LOAD, value: load }] : sets;
+}
+function renderHsWin() {
+  const rh = hsRh, list = hsControls();
+  $('hsTitle').textContent = 'Harvest Settings' + (rh && rh.crop && rh.crop !== '--' ? ' - ' + rh.crop[0] + rh.crop.slice(1).toLowerCase() : '');
+  $('hsAuto').hidden = !(rh && rh.tier >= 4);
+  $('hsOpt').disabled = !list.some(s => typeof s.opt === 'number');
+  setHtml($('hsBody'), !rh ? '<p class="hv-note">Realistic Harvesting not detected on this machine.</p>'
+    : list.map(s => {
+      const v = hsValue(s), has = typeof s.opt === 'number', off = has && Math.abs(v - s.opt) > (s.tol || 5);
+      const label = s.direct ? 'Target Engine Load' : SETTING_LABEL[s.name] || s.name;
+      return `<div class="hs-row"><span>${esc(label)}</span>
+        <button class="g5btn hs-step" data-hs-step="${esc(s.name)}" data-dir="-1" aria-label="Lower ${esc(label)}">−</button>
+        <b class="hs-val ${off ? 'off' : ''}">${hsNum(s, v)}<small>${esc(hsUnit(s))}</small></b>
+        <button class="g5btn hs-step" data-hs-step="${esc(s.name)}" data-dir="1" aria-label="Raise ${esc(label)}">+</button>
+        <em>${has ? 'Optimum ' + hsNum(s, s.opt) + ' ' + esc(hsUnit(s)) : ''}</em></div>`;
+    }).join(''));
+}
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-hs-open], #hvMode, #haMode')) {
+    if (hsRh) { renderHsWin(); openWin('hsWin'); }
+    return;
+  }
+  const b = e.target.closest('[data-hs-step]');
+  if (!b) return;
+  const s = hsControls().find(x => x.name === b.dataset.hsStep);
+  if (!s) return;
+  const pct = hsStep(s, Number(b.dataset.dir));
+  hsPending.set(s.name, { pct, at: Date.now() });
+  send('harvestSetting', pct, 0, b, s.name);
+  renderHsWin();
+});
+$('hsOpt').onclick = () => send('harvestOptimum', 0, 0, $('hsOpt'));
+$('hsAuto').onclick = () => send('harvestAutoSet', 0, 0, $('hsAuto'));
+
 function renderHarvest(d, v) {
   const c = d.state === 'vehicle' ? d.combine : null, rh = c ? d.rh : null;
   $('hvPage').hidden = !c; $('hvEmpty').hidden = !!c;
@@ -596,11 +669,13 @@ function renderHarvest(d, v) {
       const has = typeof s.opt === 'number', tol = s.tol || 5;
       const off = has && Math.abs(s.value - s.opt) > tol;
       const pos = x => Math.max(0, Math.min(100, x)).toFixed(1) + '%';
-      return `<div class="hv-row"><span>${esc(SETTING_LABEL[s.name] || s.name)}</span>
-        <b class="hv-val ${off ? 'off' : ''}">${fmt(s.value, 0)}</b>
+      return `<button class="hv-row hv-tap" data-hs-open="${esc(s.name)}" aria-label="Adjust ${esc(SETTING_LABEL[s.name] || s.name)}"><span>${esc(SETTING_LABEL[s.name] || s.name)}</span>
+        <b class="hv-val ${off ? 'off' : ''}">${hsNum(s, hsValue(s))}</b>
         <div class="hv-scale">${has ? `<i class="band" style="left:${pos(s.opt - tol)};width:${(2 * tol).toFixed(1)}%"></i><i class="opt" style="left:${pos(s.opt)}"></i>` : ''}
-        <i class="cur" style="left:${pos(s.value)}"></i></div></div>`;
+        <i class="cur" style="left:${pos(hsValue(s))}"></i></div></button>`;
     }).join(''));
+  hsRh = rh;
+  if (!$('hsWin').hidden) renderHsWin();
 
   // Grain loss breakdown (RH computes each cause separately)
   const rank = rh && rh.rank ? String(rh.rank) : '-';

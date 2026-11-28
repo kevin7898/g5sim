@@ -20,8 +20,15 @@ const MAX_INPUT_GAP = 750;       // ms between trustworthy observations of the s
 const MIN_RATE_DISTANCE = 0.1;  // m, above the centimetre precision of stock poses
 const MIN_RATE_SPEED = 1;       // km/h, very slow application can show volumetric flow instead
 const RATE_SPEED_CHANGE = 0.5;  // km/h between samples, exclude startup and braking from areal rates
-const PROCESSING_GAP_DRIVEN = 800; // ms, up to two missed 4 Hz samples between confirmations
-const PROCESSING_GAP_FLEET = 1100; // ms, one missed 2 Hz sample between confirmations
+const PROCESSING_GAP_DRIVEN = 800; // ms, longest interval between two 4 Hz samples of one stretch
+const PROCESSING_GAP_FLEET = 1100; // ms, longest interval between two 2 Hz samples of one stretch
+// The engine's processing bit lasts 200 ms after the tool changes a density-map cell. On a pass that runs exactly
+// along the map axes the whole edge crosses a cell line at once, then changes nothing until the next line, so
+// the bit stays off for 1-3 m at a time (savegame9 harvest: 52 breaks of 0.9-3 m on 0/90/180/270 deg passes,
+// 4 on angled ones). Unconfirmed samples are held until work is confirmed again within this distance and time;
+// without a confirmation (end of crop, tool lifted) nothing is painted.
+const UNCONFIRMED_M = 4;        // m the work area may move without a confirmation
+const UNCONFIRMED_MS = 6000;    // ms (4 m at about 2.4 km/h)
 const FLUSH_MS = 2000;
 const FRAME_LIMIT = 20000;      // frames per /api/map/frames response
 
@@ -434,7 +441,6 @@ class CoverageStore {
     const ground = new Map();
     const driven = source === 'driven';
     const maxGap = driven ? PROCESSING_GAP_DRIVEN : PROCESSING_GAP_FLEET;
-    const maxMissed = driven ? 2 : 1;
     if (Number.isFinite(t.time) && v.onField === true && v.dir > 0 && v.speed > 0.3 && v.motorOn !== false) {
       for (const [index, impl] of (t.implements || []).entries()) {
         // Sprayers have a separate as-applied signal. For other tools the
@@ -446,13 +452,14 @@ class CoverageStore {
           if (!impl.areas?.[area] || typeof changed !== 'boolean' || ![g.sx, g.sz, g.wx, g.wz].every(Number.isFinite)) continue;
           const key = JSON.stringify([impl.id ?? index, op, area]);
           const anchor = ms.ground.get(key);
-          const continuous = anchor && t.time - anchor.time <= maxGap && (changed || anchor.missed < maxMissed) &&
-            Math.max(Math.hypot(g.sx - anchor.g.sx, g.sz - anchor.g.sz), Math.hypot(g.wx - anchor.g.wx, g.wz - anchor.g.wz)) <= MAX_STEP;
+          const moved = (a, b) => Math.max(Math.hypot(a.sx - b.sx, a.sz - b.sz), Math.hypot(a.wx - b.wx, a.wz - b.wz));
+          const continuous = anchor && t.time - anchor.seen <= maxGap && moved(g, anchor.g) <= MAX_STEP &&
+            (changed || (t.time - anchor.time <= UNCONFIRMED_MS && moved(g, anchor.cg) <= UNCONFIRMED_M));
           if (continuous) {
-            ground.set(key, { time: changed ? t.time : anchor.time, g, continuous: true, changed, missed: changed ? 0 : anchor.missed + 1 });
+            ground.set(key, { time: changed ? t.time : anchor.time, cg: changed ? g : anchor.cg, seen: t.time, g, continuous: true, changed });
             if (!changed) entry.pending.set(key, { index, area });
           } else if (changed) {
-            ground.set(key, { time: t.time, g, continuous: false, changed, missed: 0 });
+            ground.set(key, { time: t.time, cg: g, seen: t.time, g, continuous: false, changed });
           }
         }
       }

@@ -1155,6 +1155,18 @@ function G5Link:writeRealisticHarvesting(xml, combine, base)
     -- (grain: fan, rotor, concave, upperSieve, lowerSieve, feeder).
     local current = get("getSettings", combine)
     local optimal = get("getOptimalSettings", combine)
+    -- real units for each control (RPM, mm), from RH's RHM_UnitConverter (not global: in RH's mod environment)
+    local env = FS25_RealisticHarvesting
+    local conv = type(env) == "table" and type(env.RHM_UnitConverter) == "table" and env.RHM_UnitConverter or nil
+    local machineType = tostring(get("getMachineType", combine) or "grain")
+    local function rangeOf(name)
+        if conv == nil or type(conv.getPhysicalRange) ~= "function" then return nil end
+        local ok, r = pcall(conv.getPhysicalRange, name, machineType)
+        if ok and type(r) == "table" and type(r.min) == "number" and type(r.max) == "number" and r.max > r.min then return r end
+        return nil
+    end
+    xml:setString(k .. "#machineType", machineType)
+    setNum(xml, k .. "#engineLoadSet", type(current) == "table" and current.targetEngineLoad or nil, 0)
     if type(current) == "table" then
         local names = {}
         for name, v in pairs(current) do
@@ -1167,6 +1179,13 @@ function G5Link:writeRealisticHarvesting(xml, combine, base)
             local sk = string.format("%s.setting(%d)", k, i - 1)
             xml:setString(sk .. "#name", name)
             setNum(xml, sk .. "#value", current[name], 1)
+            local r = rangeOf(name)
+            if r ~= nil then
+                setNum(xml, sk .. "#pmin", r.min, 2)
+                setNum(xml, sk .. "#pmax", r.max, 2)
+                setNum(xml, sk .. "#step", r.step, 2)
+                xml:setString(sk .. "#unit", tostring(r.unit or ""))
+            end
             local o = type(optimal) == "table" and optimal[name] or nil
             if type(o) == "table" then
                 setNum(xml, sk .. "#opt", o.optimal, 1)

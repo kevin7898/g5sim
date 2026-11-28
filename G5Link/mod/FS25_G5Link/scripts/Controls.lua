@@ -185,6 +185,8 @@ function G5LinkControls:run(vehicle, cmd)
             local list = call(vehicle, "getChildVehicles") or {}
             self:runTillage(vehicle, cmd, list)
         end
+    elseif name == "harvestSetting" or name == "harvestOptimum" or name == "harvestAutoSet" then
+        self:runHarvestSettings(vehicle, cmd)
     elseif name == "harvestAutoMax" then
         if type(cmd.value) == "number" and cmd.value == cmd.value then
             self.auto.max = math.max(G5LinkControls.AUTO_MIN, math.min(40, cmd.value))
@@ -193,6 +195,53 @@ function G5LinkControls:run(vehicle, cmd)
         return false
     end
     return true
+end
+
+---------------------------------------------------------------------------
+-- Realistic Harvesting settings from the display (RH 1.6.5: src/settings/RHM_CombineMemory.lua)
+---------------------------------------------------------------------------
+-- RH's own calibration window calls combineMemory:updateSetting(param, percent): it clamps (0-100, target
+-- engine load 70-100), switches to MANUAL, raises onSettingsChanged and sends RHM_CombineSettingsEvent so
+-- multiplayer stays in step. requestAutoSettings() is Opti-Harvest AI (package tier 4); it says why it refused.
+function G5LinkControls:rhMemory(vehicle)
+    local api = G5Link ~= nil and G5Link.getRhApi ~= nil and G5Link:getRhApi() or nil
+    if api == nil or type(api.findCombine) ~= "function" then return nil end
+    local ok, combine = pcall(api.findCombine, vehicle)
+    local spec = ok and type(combine) == "table" and combine.spec_rhm_Combine or nil
+    local memory = type(spec) == "table" and spec.combineMemory or nil
+    if type(memory) ~= "table" or type(memory.updateSetting) ~= "function" or type(memory.currentSettings) ~= "table" then
+        return nil
+    end
+    return memory, combine, api
+end
+
+function G5LinkControls:runHarvestSettings(vehicle, cmd)
+    local memory, combine, api = self:rhMemory(vehicle)
+    if memory == nil then
+        print("G5Link: harvest settings need Realistic Harvesting on this combine")
+        return
+    end
+    local function set(param, value)
+        if type(param) ~= "string" or param == "" or type(value) ~= "number" or value ~= value then return false end
+        if memory.currentSettings[param] == nil then return false end
+        local ok, done = pcall(memory.updateSetting, memory, param, math.floor(value + 0.5))
+        if not ok then print("G5Link: harvest setting " .. param .. " failed: " .. tostring(done)) end
+        return ok and done == true
+    end
+    if cmd.name == "harvestSetting" then
+        set(cmd.arg, cmd.value)
+    elseif cmd.name == "harvestOptimum" then
+        -- every control to the middle of RH's optimum window for the current crop and conditions
+        local ok, optimal = pcall(api.getOptimalSettings, combine)
+        if ok and type(optimal) == "table" then
+            for param, o in pairs(optimal) do
+                if type(o) == "table" and type(o.optimal) == "number" then set(param, o.optimal) end
+            end
+        end
+    elseif cmd.name == "harvestAutoSet" and type(memory.requestAutoSettings) == "function" then
+        local ok, err = pcall(memory.requestAutoSettings, memory)
+        if not ok then print("G5Link: Opti-Harvest request failed: " .. tostring(err)) end
+    end
 end
 
 -- Front and back work lights together: if either is on, both go off; otherwise both come on.

@@ -515,7 +515,7 @@ const ALLOWED = new Set(['motorToggle', 'cruiseToggle', 'cruiseSet', 'cruiseAdju
   'lowerAll', 'turnOnAll', 'implTurnOn', 'resetWork',
   'pipeToggle', 'foldToggle', 'lightsToggle', 'workLightsToggle', 'beaconToggle', 'hazardToggle',
   'harvestAuto', 'harvestAutoMax', 'tillageDepth', 'tillageDepthAdjust', 'tillageLevel', 'grainCart', 'grainCartNext', 'rtk', 'autotrac', 'rateAuto', 'rateStep', 'section', 'sectionOverlap', 'boomWidth',
-  'scvSet', 'scvAssign', 'scvFloat', 'epgMode']);
+  'scvSet', 'scvAssign', 'scvFloat', 'epgMode', 'harvestSetting', 'harvestOptimum', 'harvestAutoSet']);
 let cmdQueue = [];
 let nextCmdId = 1;
 
@@ -625,6 +625,7 @@ function demoCommand(c) {
     case 'grainCartNext': break;
     case 'harvestAutoMax': demo.auto.max = Math.max(1, Math.min(40, c.value)); break;
     case 'scvSet': case 'scvAssign': case 'scvFloat': case 'epgMode': demoHydCommand(c); break;
+    case 'harvestSetting': case 'harvestOptimum': case 'harvestAutoSet': demoHarvestCommand(c); break;
   }
   demo.lastCmd = c.id;
 }
@@ -733,10 +734,22 @@ function demoGrainCart(dt) {
 }
 
 // Turns the tractor demo frame into a combine with a header and Realistic Harvesting data.
+// [name, value %, optimum %, tolerance %, physical range like RH's RHM_UnitConverter grain table]
 const DEMO_SETTINGS = [
-  ['concave', 31, 24, 6], ['fan', 70, 72, 6], ['feeder', 36, 35, 4],
-  ['lowerSieve', 22, 20, 5], ['rotor', 64, 67, 6], ['upperSieve', 33, 35, 5],
+  ['fan', 70, 72, 6, [300, 1200, 10, 'RPM']], ['feeder', 36, 35, 4, [0, 50, 1, 'mm']],
+  ['lowerSieve', 22, 20, 5, [0, 25, 1, 'mm']], ['rotor', 64, 67, 6, [200, 1100, 10, 'RPM']], ['upperSieve', 33, 35, 5, [0, 30, 1, 'mm']],
 ];
+demo.engineLoadSet = 80;
+function demoHarvestCommand(c) {
+  if (!DEMO_COMBINE) return;
+  if (c.name === 'harvestSetting') {
+    if (c.arg === 'targetEngineLoad') { demo.engineLoadSet = Math.max(70, Math.min(100, Math.round(c.value))); return; }
+    const s = DEMO_SETTINGS.find(x => x[0] === c.arg);
+    if (s && Number.isFinite(c.value)) s[1] = Math.max(0, Math.min(100, Math.round(c.value)));
+  } else if (c.name === 'harvestOptimum' || c.name === 'harvestAutoSet') {
+    for (const s of DEMO_SETTINGS) s[1] = s[2];
+  }
+}
 function demoCombine(t, dt, working, meters) {
   const width = 12.19;
   const big = DEMO_BIG && require('./demo-bigfield.js');
@@ -745,8 +758,8 @@ function demoCombine(t, dt, working, meters) {
   const tph = yieldT * haph;
   const moisture = big ? big.moistureAt(demo.x, demo.z, demo.t) : 14.2 + 1.6 * Math.sin(demo.t / 45000);
   const load = demo.motorOn ? (working ? 38 + tph * 1.25 : 22) : 0;
-  const target = 85;
-  const lossSettings = working ? 0.35 : 0;
+  const target = demo.engineLoadSet;
+  const lossSettings = working ? +(0.05 + DEMO_SETTINGS.reduce((a, [, v, o, tol]) => a + Math.max(0, Math.abs(v - o) - tol) * 0.06, 0)).toFixed(2) : 0;
   const lossOverload = working ? Math.max(0, load - 100) * 0.09 : 0;
   const lossMoisture = working ? Math.max(0, moisture - 14.5) * 0.35 : 0;
   const loss = lossSettings + lossOverload + lossMoisture;
@@ -775,7 +788,8 @@ function demoCombine(t, dt, working, meters) {
     lossSettings, lossSlope: 0, lossWear: 0, rank,
     load: +load.toFixed(1), targetLoad: target, recSpeed: demo.recSpeed = +(demo.speed * Math.min(1.25, target / Math.max(1, load))).toFixed(1),
     efficiency: 0.94,
-    settings: DEMO_SETTINGS.map(([name, value, opt, tol]) => ({ name, value, opt, tol, min: opt - 20, max: opt + 20 })),
+    machineType: 'grain', engineLoadSet: demo.engineLoadSet,
+    settings: DEMO_SETTINGS.map(([name, value, opt, tol, [pmin, pmax, step, unit]]) => ({ name, value, opt, tol, min: opt - 20, max: opt + 20, pmin, pmax, step, unit })),
     trip: {
       areaHa: +(demo.work.area / 10000).toFixed(3), massKg: Math.round(demo.massKg), liters: Math.round(demo.massKg / 0.78),
       lostLiters: Math.round(demo.lostKg / 0.78), fuelL: +demo.work.fuelUsed.toFixed(1), seconds: Math.round(demo.work.time / 1000),

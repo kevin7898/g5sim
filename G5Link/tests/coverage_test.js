@@ -199,12 +199,22 @@ const eq = (a, b, label) => check(a === b, `${label}: expected ${b}, got ${a}`);
   eq(fleetStrips.length, 2, 'one missed fleet sample at 2 Hz preserves the measured path');
   check(fleetStrips.every(f => f.m === 'worker'), 'recovered fleet strips retain the worker identity');
 
+  // A pass along the map axes: the edge crosses density cells all at once, so the bit is off for up to ~3 m.
+  const axis = new CoverageStore();
+  for (let seq = 1; seq <= 8; seq++) axis.onFrame(at(seq, seq === 1 || seq === 8));
+  const axisStrips = axis.frames('seeding').frames;
+  eq(axisStrips.length, 7, 'six quiet samples (3.3 m) between confirmations keep the strip whole');
+  eq(new Set(axisStrips.map(f => f.p)).size, 1, 'an axis-aligned pass keeps one pass id');
+
   for (const [label, middle, end] of [
     ['raised or disabled', [at(2, false, { areas: [false, false, false, false] })], at(3, true)],
     ['reversing', [at(2, false, { dir: -1 })], at(3, true)],
     ['different implement', [at(2, false, { id: 'other drill' })], at(3, true)],
-    ['long sample interval', [at(2, false)], at(3, true, { time: 1100 })],
-    ['more than two missed samples', [at(2, false), at(3, false), at(4, false, { time: 925 })], at(5, true, { time: 1000 })],
+    ['long sample interval', [at(2, false)], at(3, true, { time: 1400 })],
+    ['more than 4 m without confirmed work', [2, 3, 4, 5, 6, 7, 8, 9].map(n => at(n, false)), at(10, true)],
+    ['more than 6 s without confirmed work', [at(2, false, { time: 800 }), at(3, false, { time: 1600 }), at(4, false, { time: 2400 }),
+      at(5, false, { time: 3200 }), at(6, false, { time: 4000 }), at(7, false, { time: 4800 }), at(8, false, { time: 5600 }),
+      at(9, false, { time: 6400 })], at(10, true, { time: 7200 })],
     ['tool still inactive', [at(2, false)], null],
   ]) {
     const separate = new CoverageStore();

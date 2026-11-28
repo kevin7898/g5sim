@@ -184,18 +184,103 @@ function profitRange() {
   profitRangeCache = { key, r };
   return r;
 }
-function frameColor(f) {
+function frameColor(f, range) {
   if (S.page === 'profit') {
-    const v = profitOf(f), r = profitRange();
-    if (v === null || !r) return null;
-    return colorIdx(Math.max(0, Math.min(r.n - 1, Math.floor((v - r.lo) / r.step))), r.n, 'high');
+    const v = profitOf(f);
+    if (v === null || !range) return null;
+    return colorIdx(Math.max(0, Math.min(range.n - 1, Math.floor((v - range.lo) / range.step))), range.n, 'high');
   }
   if (S.layerKey === 'coverage') return '#4a7fd6';
   if (S.layerKey === 'applied') return f.application ? '#44a17c' : null;
-  const L = LAYERS[S.layerKey], v = f.v && f.v[S.layerKey], r = layerRange();
-  if (typeof v !== 'number' || !r) return null;
+  const L = LAYERS[S.layerKey], v = f.v && f.v[S.layerKey];
+  if (typeof v !== 'number' || !range) return null;
   const x = L.conv ? L.conv(v) : v;
-  return colorIdx(Math.max(0, Math.min(r.n - 1, Math.floor((x - r.lo) / r.step))), r.n, L.good);
+  return colorIdx(Math.max(0, Math.min(range.n - 1, Math.floor((x - range.lo) / range.step))), range.n, L.good);
+}
+
+const coverageCanvas = document.createElement('canvas');
+const coverageCtx = coverageCanvas.getContext('2d');
+const SWATH_BATCH = 512;
+const MAX_COVERAGE_SIDE = 3072;
+const MAX_COVERAGE_PIXELS = 6000000;
+let coverageLayer = null;
+
+function buildCoverageLayer(bb, profit, style) {
+  const colors = new Map();
+  const range = profit ? profitRange() : ['coverage', 'applied'].includes(S.layerKey) ? null : layerRange();
+  let minX = Infinity, minZ = Infinity, maxX = -Infinity, maxZ = -Infinity;
+  for (const f of S.frames) {
+    if ((!profit && S.layerKey === 'applied' && !f.application) || (bb && !inBox(f, bb))) continue;
+    const color = frameColor(f, range) || '#4a7fd6';
+    let quads = colors.get(color);
+    if (!quads) { quads = []; colors.set(color, quads); }
+    for (const q of f.q) {
+      quads.push(q);
+      for (let i = 0; i < 8; i += 2) {
+        minX = Math.min(minX, q[i]); maxX = Math.max(maxX, q[i]);
+        minZ = Math.min(minZ, q[i + 1]); maxZ = Math.max(maxZ, q[i + 1]);
+      }
+    }
+  }
+  return { frames: S.frames, style, colors, minX, minZ, maxX, maxZ, image: null };
+}
+
+function paintCoverageImage(layer, width, height, scale, x, y) {
+  if (coverageCanvas.width !== width || coverageCanvas.height !== height) {
+    coverageCanvas.width = width;
+    coverageCanvas.height = height;
+  } else coverageCtx.clearRect(0, 0, width, height);
+  coverageCtx.lineWidth = 1;
+  for (const [color, quads] of layer.colors) {
+    coverageCtx.fillStyle = coverageCtx.strokeStyle = color;
+    for (let base = 0; base < quads.length; base += SWATH_BATCH) {
+      coverageCtx.beginPath();
+      const end = Math.min(base + SWATH_BATCH, quads.length);
+      for (let k = base; k < end; k++) {
+        const q = quads[k];
+        coverageCtx.moveTo(x + q[0] * scale, y + q[1] * scale);
+        for (let i = 2; i < 8; i += 2) coverageCtx.lineTo(x + q[i] * scale, y + q[i + 1] * scale);
+        coverageCtx.closePath();
+      }
+      coverageCtx.fill();
+      coverageCtx.stroke();
+    }
+  }
+}
+
+function drawCoverage(s) {
+  const bb = fieldBox(), profit = S.page === 'profit';
+  const style = JSON.stringify([S.framesSeq, S.frames.length, S.page, S.layerKey, bb, settings.units, profit ? profitRow() : null]);
+  if (coverageLayer?.frames !== S.frames || coverageLayer.style !== style) coverageLayer = buildCoverageLayer(bb, profit, style);
+  const layer = coverageLayer;
+  if (!layer.colors.size) return;
+  const scale = V.ppm * s.dpr;
+  const widthM = Math.max(1, layer.maxX - layer.minX), heightM = Math.max(1, layer.maxZ - layer.minZ);
+  const padding = 2;
+  const maxScale = Math.min((MAX_COVERAGE_SIDE - padding * 2) / Math.max(widthM, heightM),
+    Math.sqrt(MAX_COVERAGE_PIXELS / (widthM * heightM)));
+  const whole = scale <= maxScale;
+  const camera = whole ? 'whole' : [s.w, s.h, scale, V.cx, V.cz].join('|');
+  if (layer.image?.camera !== camera || whole && layer.image.scale < scale) {
+    if (whole) {
+      // Cache the complete field in world coordinates, with extra resolution
+      // so the usual pan and zoom gestures can reuse the painted layer.
+      const resolution = Math.min(maxScale, scale * 2.5);
+      paintCoverageImage(layer, Math.ceil(widthM * resolution) + padding * 2, Math.ceil(heightM * resolution) + padding * 2,
+        resolution, padding - layer.minX * resolution, padding - layer.minZ * resolution);
+      layer.image = { camera, scale: resolution };
+    } else {
+      // At close zoom keep full precision without allocating a huge bitmap.
+      paintCoverageImage(layer, s.w, s.h, scale, s.w / 2 - V.cx * scale, s.h / 2 - V.cz * scale);
+      layer.image = { camera, scale };
+    }
+  }
+  ctx.globalAlpha = 0.92;
+  if (whole) {
+    const [x, y] = toScreen(layer.minX, layer.minZ, s), zoom = scale / layer.image.scale;
+    ctx.drawImage(coverageCanvas, x - padding * zoom, y - padding * zoom, coverageCanvas.width * zoom, coverageCanvas.height * zoom);
+  } else ctx.drawImage(coverageCanvas, 0, 0);
+  ctx.globalAlpha = 1;
 }
 
 function draw() {
@@ -228,25 +313,7 @@ function draw() {
 
   // coverage layer around the open field
   if (onField && S.framesOp && S.frames.length) {
-    const byColor = new Map(), bb = fieldBox();
-    for (const f of S.frames) {
-      if (S.page !== 'profit' && S.layerKey === 'applied' && !f.application) continue;
-      if (bb && !inBox(f, bb)) continue;
-      const c = frameColor(f) || '#4a7fd6';
-      if (!byColor.has(c)) byColor.set(c, []);
-      byColor.get(c).push(...f.q);
-    }
-    ctx.globalAlpha = 0.92;
-    for (const [c, quads] of byColor) {
-      ctx.fillStyle = c; ctx.strokeStyle = c; ctx.lineWidth = 1;
-      ctx.beginPath();
-      for (const q of quads) {
-        for (let i = 0; i < 4; i++) { const [px, py] = toScreen(q[i * 2], q[i * 2 + 1], s); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }
-        ctx.closePath();
-      }
-      ctx.fill(); ctx.stroke();
-    }
-    ctx.globalAlpha = 1;
+    drawCoverage(s);
     if (S.page !== 'profit' && S.layerKey === 'coverage' && S.overlap) {
       ctx.fillStyle = '#16307f'; ctx.beginPath();
       for (const [x0, x1, z] of S.overlap.runs) {

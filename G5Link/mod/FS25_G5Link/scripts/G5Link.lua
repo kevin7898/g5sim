@@ -1781,11 +1781,6 @@ function G5Link:runCommand(vehicle, cmd)
             pcall(AttacherJoints.actionEventLowerAllImplements, vehicle, "", 1, nil, false)
         end
 
-    elseif name == "turnOnAll" then
-        if TurnOnVehicle ~= nil and TurnOnVehicle.actionEventTurnOnAll ~= nil then
-            pcall(TurnOnVehicle.actionEventTurnOnAll, vehicle, "", 1, nil, false)
-        end
-
     elseif name == "boomWidth" then
         if cmd.session == "" or vehicle.isServer ~= true or call(vehicle, "getIsAIActive") == true then return end
         if cmd.arg ~= "left" and cmd.arg ~= "right" then return end

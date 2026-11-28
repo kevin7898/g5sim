@@ -139,6 +139,14 @@ function G5LinkControls:run(vehicle, cmd)
         action(Pipe, "actionEventTogglePipe", self:findPipe(vehicle))
     elseif name == "foldToggle" then
         action(Foldable, "actionEventFoldAll", self:findFoldable(vehicle))
+    elseif name == "turnOnAll" then
+        -- The stock action checks the caller's specialization, then toggles its whole vehicle family.
+        for _, tool in ipairs(family(vehicle)) do
+            if call(tool, "getCanToggleTurnedOn") == true then
+                action(TurnOnVehicle, "actionEventTurnOnAll", tool)
+                break
+            end
+        end
     elseif name == "lightsToggle" then
         action(Lights, "actionEventToggleLights", vehicle)
     elseif name == "beaconToggle" then

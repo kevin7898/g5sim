@@ -734,6 +734,20 @@ do
     tick(1)
     near(tonumber(telemetry(dir)["g5.work#area"]), 0, 0.001, "work counters reset")
 
+    planter.getCanToggleTurnedOn = function() return true end
+    local secondTool = { getCanToggleTurnedOn = function() return true end }
+    tractor.children = { tractor, planter, secondTool }
+    mod:runCommand(tractor, { name = "turnOnAll" })
+    local powerCalls = 0
+    for _, entry in ipairs(calls) do
+        if entry.name == "turnOnAll" then
+            powerCalls = powerCalls + 1
+            eq(entry.args[1], planter, "Turn On All runs on the powered planter")
+        end
+    end
+    eq(powerCalls, 1, "Turn On All invokes the native group action once")
+    tractor.children = { tractor, planter }
+
     -- providers.json exists, every adapter reports missing
     local pj = readFile(dir .. "providers.json")
     check(pj ~= nil and #pj > 10, "providers.json written")

@@ -442,7 +442,8 @@ end
 function G5Link:getImplementState(impl)
     local s = {}
     s.name = call(impl, "getFullName") or "Implement"
-    s.canLower = impl.getIsLowered ~= nil and impl.getAllowsLowering ~= nil and bool(call(impl, "getAllowsLowering"))
+    s.canLower = impl.getIsLowered ~= nil
+        and (bool(call(impl, "getAllowsLowering")) or G5LinkControls:hasFoldMiddleLift(impl))
     s.lowered = bool(call(impl, "getIsLowered", false))
     s.canTurnOn = bool(call(impl, "getCanBeTurnedOn"))
     s.turnedOn = bool(call(impl, "getIsTurnedOn"))

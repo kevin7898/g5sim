@@ -50,6 +50,13 @@ function G5LinkControls:reset()
 end
 G5LinkControls:reset()
 
+-- Some drawn tools lift through the mid-position of their folding animation.
+function G5LinkControls:hasFoldMiddleLift(impl)
+    return type(impl.setLoweredAll) == "function" and type(impl.setFoldMiddleState) == "function"
+        and call(impl, "getIsFoldMiddleAllowed") == true and call(impl, "getIsUnfolded") == true
+        and call(impl, "getAttacherVehicle") ~= nil
+end
+
 -- The driven vehicle and its children, the driven vehicle first.
 local function family(vehicle)
     local list = call(vehicle, "getChildVehicles")

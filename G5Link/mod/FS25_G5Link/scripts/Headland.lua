@@ -9,7 +9,7 @@
 --   * base game steering assist (AIAutomaticSteering): spec.lastDistanceToEnd, state ACTIVE/AVAILABLE
 --   * Enhanced Vehicle (ZhooL): vData.is[5] snap on, vData.is[6] snap to track,
 --     vData.track.eofDistance (to its headland line), vData.track.isOnField (> 5 = back in the field)
--- Lowering and raising use AttacherJoints:handleLowerImplementByAttacherJointIndex(index, direction).
+-- Lowering and raising use the stock hitch handler or the implement's Lower All action for fold-middle tools.
 
 G5LinkHeadland = {}
 
@@ -213,11 +213,12 @@ end
 function G5LinkHeadland:tools(vehicle, host)
     local list = {}
     for _, impl in ipairs(host:getImplements(vehicle)) do
-        if call(impl, "getAllowsLowering") == true then
+        local foldMiddle = G5LinkControls:hasFoldMiddleLift(impl)
+        if foldMiddle or call(impl, "getAllowsLowering") == true then
             local attacher = call(impl, "getAttacherVehicle")
             local index = attacher and call(attacher, "getAttacherJointIndexFromObject", impl)
             if attacher ~= nil and index ~= nil then
-                table.insert(list, { impl = impl, attacher = attacher, index = index })
+                table.insert(list, { impl = impl, attacher = attacher, index = index, foldMiddle = foldMiddle })
             end
         end
     end
@@ -324,7 +325,12 @@ end
 function G5LinkHeadland:setLowered(tools, down)
     for _, t in ipairs(tools) do
         if (call(t.impl, "getIsLowered", false) == true) ~= down then
-            call(t.attacher, "handleLowerImplementByAttacherJointIndex", t.index, down)
+            if t.foldMiddle then
+                -- Attachables dispatch onSetLoweredAll to Foldable even when the hitch itself is fixed.
+                call(t.impl, "setLoweredAll", down, t.index)
+            else
+                call(t.attacher, "handleLowerImplementByAttacherJointIndex", t.index, down)
+            end
         end
     end
     self.lastCmdAt = g_currentMission.time or 0

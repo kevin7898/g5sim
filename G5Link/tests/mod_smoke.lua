@@ -1138,6 +1138,45 @@ do
     tractor.spec_aiAutomaticSteering.lastDistanceToEnd = 200
     tick(2)
     check(ps.lowered, "lowered when steering assist is engaged")
+
+    -- A drawn disc harrow can lift via Foldable with a fixed trailer joint.
+    local folded, liftCalls = true, {}
+    planter.getAllowsLowering = function() return false end
+    planter.getIsFoldMiddleAllowed = function() return true end
+    planter.getIsUnfolded = function() return not folded end
+    planter.setFoldMiddleState = function(_, down) ps.lowered = down end
+    planter.setLoweredAll = function(self, down, index)
+        eq(index, 1, "native Lower All action gets the attached joint")
+        table.insert(liftCalls, down)
+        self:setFoldMiddleState(down)
+    end
+    tractor.handleLowerImplementByAttacherJointIndex = function() check(false, "fixed trailer hitch was commanded") end
+    turnAround()
+    shift(100 - nodes[tractor.rootNode].x, 1)
+    writeHeadland(4, 'lowerMode="auto" headSpeed="0" workSpeed="0" useBoundary="true" useCoverage="false"', square)
+    tick(10)
+    eq(telemetry(dir)["g5.implements.implement(0)#canLower"], "false", "transport-folded tool cannot lift for headland work")
+    eq(telemetry(dir)["g5.headland#state"], "noImplement", "transport-folded tool is skipped")
+    folded = false
+    tick(2)
+    eq(telemetry(dir)["g5.implements.implement(0)#canLower"], "true", "deployed tool reports its fold-middle lift capability")
+    eq(telemetry(dir)["g5.headland#source"], "boundary", "fold-middle tool follows the active boundary")
+    for _ = 1, 60 do
+        shift(2)
+        tick(1)
+        if not ps.lowered then break end
+    end
+    eq(liftCalls[1], false, "fold-middle tool lifts approaching the headland")
+    shift(8) tick(2)
+    turnAround() tick(2)
+    check(not ps.lowered, "fold-middle tool stays raised in the band")
+    for _ = 1, 30 do
+        shift(-1.5)
+        tick(1)
+        if ps.lowered then break end
+    end
+    eq(liftCalls[2], true, "fold-middle tool lowers returning to work")
+    eq(#liftCalls, 2, "one native command per boundary transition")
     keepLive(dir)
     mod:deleteMap()
 end

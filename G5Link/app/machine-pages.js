@@ -89,8 +89,11 @@
     setHtml($('sprayTiles'), [tile('Tank', tankPct === null ? '—' : fmt(tankPct, 0), tankPct === null ? '' : '%', { pct: tankPct, sub: vol(sprayer?.level) }),
       tile('Application', opState, '', { on: sprayer?.applying === true }), tile('Working Width', width || '—')].join(''));
     const target = rate?.value != null ? rate.system === 'sf' ? `${fmt(rate.value, 2)}×` : `Level ${fmt(rate.value, 0)}` : '—';
-    setHtml($('sprayReadings'), pairs([['Product', sprayer?.product || d.workSetup?.product], ['Target setting', target], ['Actual Rate', '—'],
-      ['Worked', unitsArea(job.totals?.workedHa)], ['Applied', unitsArea(job.totals?.appliedHa)], ['Product Used', '—']]));
+    const measured = d.link === 'live' && sprayer?.applying && d.applicationRate?.implement === tool.id ? d.applicationRate?.litersPerHa : null;
+    const actual = Number.isFinite(measured) ? `${fmt(U.vol(measured) / U.areaFromHa(1), 1)} ${U.volUnit()}/${U.areaUnit()}` : '—';
+    const product = sprayer?.product !== 'UNKNOWN' && (sprayer?.productTitle || sprayer?.product);
+    setHtml($('sprayReadings'), pairs([['Product', product || d.workSetup?.product], ['Target setting', target], ['Actual Rate', actual],
+      ['Worked', unitsArea(job.totals?.workedHa)], ['Applied', unitsArea(job.totals?.appliedHa)], ['Mapped Product Used', vol(job.totals?.productUsed?.quantity)]]));
     $('sprayRates').hidden = !rate;
   }
 

@@ -460,6 +460,7 @@ class FieldStore {
     const db = this.db(save);
     const active = this.activeJob(save);
     if (!active || active.id !== id) throw new Error('The active work has changed.');
+    this.coverage?.settleWork(save, id);
     if (this.coverage?.flush(Date.now(), true) === false) throw new Error('Could not save the work map. Try Finish Work again.');
     const job = { ...active, finished: Date.now(), totals: this.jobTotals(save, active) };
     this.write(save, { ...db, activeJob: null, jobs: db.jobs.map(old => old.id === id ? job : old) }, 'work job');
@@ -483,7 +484,8 @@ class FieldStore {
       outsideHa: inside ? Math.max(0, hectares(view.worked.coveredCells) - inside.coveredHa) : null,
       remainingHa: inside ? Math.max(0, fieldHa - inside.coveredHa) : null,
       appliedHa: applied, appliedPercent: applied !== null && workedHa > 0 ? 100 * applied / workedHa : null,
-      productUsed: null };
+      productUsed: view.inputProduct && !view.inputIncomplete ? { product: view.inputProduct, unit: 'L',
+        quantity: +view.inputLiters.toFixed(3), scope: 'mapped', source: 'tank' } : null };
     this.jobTotalsCache = { view, seq: view.worked.seq, totals };
     return totals;
   }

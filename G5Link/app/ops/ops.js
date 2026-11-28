@@ -984,7 +984,8 @@ function renderWork() {
     const t = j.totals;
     const stats = t ? [t.fieldHa != null ? `Field ${area(t.fieldHa)}` : null, t.overlapHa > 0 ? `Overlap ${area(t.overlapHa)}` : null,
       t.remainingHa != null ? `Remaining ${area(t.remainingHa)}` : null, t.outsideHa > 0 ? `Outside ${area(t.outsideHa)}` : null,
-      t.appliedHa != null ? `Applied ${area(t.appliedHa)}` : null].filter(Boolean).join(' · ') : '';
+      t.appliedHa != null ? `Applied ${area(t.appliedHa)}` : null,
+      t.productUsed ? `Mapped product used ${fmt(U.vol(t.productUsed.quantity), 1)} ${U.volUnit()}` : null].filter(Boolean).join(' · ') : '';
     return `<div class="row"><i class="wk ${esc(j.kind)}"></i><div class="nm"><b>${esc(j.title)}</b>
       <span>${esc(j.fieldName || 'No field selected')}${j.boundaryVersion != null ? ` · Boundary ${j.boundaryVersion}` : ''} · ${j.finished ? 'Finished' : 'Open'}</span>
       ${stats ? `<span>${esc(stats)}</span>` : ''}</div><span class="num">${t ? area(t.workedHa) : '—'}</span></div>`;

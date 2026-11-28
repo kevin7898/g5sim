@@ -162,6 +162,9 @@ const eq = (a, b, label) => check(a === b, `${label}: expected ${b}, got ${a}`);
   eq(measure(1180, { ai: true }, { helperBuySeeds: false }), 250, 'helper with known disabled purchases uses measured tank depletion');
   eq(measure(1181), undefined, 'even a small refill clears the previous estimate');
   eq(measure(1177), 100, 'measured rate restarts from the refilled level');
+  const empty = store.operationOf({}, { operation: 'application', sprayer: { product: 'UNKNOWN', level: 0 },
+    fills: [{ type: 'DIESEL', level: 600 }] });
+  eq(empty.product, '', 'an empty sprayer has no applied product from its engine tank');
 }
 
 // Native telemetry can miss one or two 200 ms processing windows between

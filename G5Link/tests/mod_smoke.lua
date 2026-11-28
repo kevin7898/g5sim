@@ -1805,10 +1805,14 @@ do
     root.getIsTurnedOn = function() return state.on end
     root.getSprayerFillUnitIndex = function() return 2 end
     root.getFillUnitFillLevel = function() return 70 end
+    root.getFillUnitFillType = function() return FillType.LIQUIDFERTILIZER end
+    root.getFillUnitLastValidFillType = function() return FillType.LIQUIDFERTILIZER end
     root.getFillUnitCapacity = function() return 100 end
     root.getAreEffectsVisible = function() return true end
     root.getIsWorkAreaProcessing = function(self, wa) return self.spec_workArea.workAreas[2] == wa end
-    root.spec_sprayer = {workAreaParameters = {isActive = true, lastTotalArea = 16}}
+    root.spec_sprayer = {workAreaParameters = {isActive = true, lastTotalArea = 16, sprayVehicle = root,
+        sprayVehicleFillUnitIndex = 2, lastIsExternallyFilled = false}}
+    root.spec_fillUnit = {fillTrigger = {isFilling = false}}
     for _, wa in ipairs(root.spec_workArea.workAreas) do wa.lastProcessingTime = 400 end
     g_localPlayer = {getCurrentVehicle = function() return root end}
     g_currentMission.missionInfo = {savegameIndex = 2}
@@ -1824,9 +1828,17 @@ do
     eq(t[k .. "#processing"], "01", "observed processing and tool readiness are separate")
     eq(t[k .. ".sprayer#tank"], "2", "stock sprayer active tank index")
     eq(t[k .. ".sprayer#applying"], "true", "stock sprayer applying with processed area")
+    eq(t[k .. ".input#liters"], "70.000000", "native internal supply used for metering")
+    eq(t[k .. ".input#product"], "LIQUIDFERTILIZER", "metering identifies the product")
+    root.spec_fillUnit.fillTrigger.isFilling = true
+    tick(1)
+    eq(telemetry(dir)[k .. ".input#liters"], nil, "refilling suspends tank metering")
     root.spec_sprayer.workAreaParameters.isActive = false
+    root.getFillUnitFillType = function() return FillType.UNKNOWN end
+    root.getFillUnitFillLevel = function() return 0 end
     tick(1)
     eq(telemetry(dir)[k .. ".sprayer#applying"], "false", "armed stock sprayer can stop applying")
+    eq(telemetry(dir)[k .. ".sprayer#product"], "LIQUIDFERTILIZER", "empty equipment reports the last selected tank product")
     mod:deleteMap()
     mod:loadMap("test")
     check(mod.session ~= session, "reloading a save produces a new load identity")

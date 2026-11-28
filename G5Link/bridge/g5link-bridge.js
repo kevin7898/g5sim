@@ -125,6 +125,7 @@ function implementFromNode(node) {
     section: sectionFromNode(child(node, 'section')),
     tillage: child(node, 'tillage')?.attrs || null,
     sprayer: child(node, 'sprayer')?.attrs || null,
+    input: child(node, 'input')?.attrs || null,
   };
 }
 
@@ -367,6 +368,7 @@ function setTelemetry(t) {
   if (DEMO) latest.headland = demoHeadland(latest);
   latest.map = mapStore().status();
   latest.passReport = mapStore().passReport();
+  latest.applicationRate = mapStore().applicationRate;
   updateOpsTelemetry();
   broadcast();
 }
@@ -383,6 +385,7 @@ function heartbeat() {
     if (link === 'stale') {
       mapStore().interrupt();
       latest.map = mapStore().status();
+      latest.applicationRate = null;
       fleet = [];
       latest.fleet = fleet;
     }
@@ -812,8 +815,9 @@ function demoSprayer(t, meters, working) {
   t.controls.fold.name = t.vehicle.name;
   t.implements = [{ id: t.vehicle.id, name: '24 m Broadcast Boom', operation: 'application', width,
     canTurnOn: true, turnedOn: demo.turnedOn && phase >= 3000 && phase < 43000, areas: [demo.unfolded], processing: [working],
-    geometry: demoAreas(1, width, -5), fills: [tank], sprayer: { provider: 'demo', master: demo.turnedOn && phase >= 3000 && phase < 43000,
-      applying: working, tank: 1, product: tank.type, level: tank.level, cap: capacity } }];
+    geometry: demoAreas(1, width, -5), fills: [tank], input: working ? { tank: 1, product: tank.type, liters: demo.sprayTank } : null,
+    sprayer: { provider: 'demo', master: demo.turnedOn && phase >= 3000 && phase < 43000,
+      applying: working, tank: 1, product: tank.type, productTitle: tank.title, level: tank.level, cap: capacity } }];
   return t;
 }
 

@@ -366,6 +366,18 @@ function G5Link:getSeeder(impl)
     return snap
 end
 
+local function observedInputTank(impl, index)
+    if type(index) ~= "number" or index < 1 then return nil end
+    local trigger = impl.spec_fillUnit and impl.spec_fillUnit.fillTrigger
+    if trigger == nil or trigger.isFilling ~= false then return nil end
+    if impl.spec_dischargeable ~= nil and call(impl, "getDischargeState") ~= 0 then return nil end
+    local indexType = call(impl, "getFillUnitFillType", index)
+    local product = indexType and call(g_fillTypeManager, "getFillTypeByIndex", indexType)
+    local level = call(impl, "getFillUnitFillLevel", index)
+    if product == nil or type(product.name) ~= "string" or product.name == "UNKNOWN" or type(level) ~= "number" or level < 0 then return nil end
+    return {tank = index, product = product.name, liters = level}
+end
+
 function G5Link:getImplementState(impl)
     local s = {}
     s.name = call(impl, "getFullName") or "Implement"
@@ -458,15 +470,32 @@ function G5Link:getImplementState(impl)
     end
     if s.seeder ~= nil or impl.spec_sowingMachine ~= nil then
         s.operation = "seeding"
+        local spec = impl.spec_sowingMachine
+        local params = spec and spec.workAreaParameters
+        local info = g_currentMission and g_currentMission.missionInfo
+        if s.seeder == nil and params and params.isActive and params.seedsVehicle == impl and spec.consumableName == nil
+            and (call(impl, "getIsAIActive") == false or info and info.helperBuySeeds == false) then
+            s.input = observedInputTank(impl, params.seedsVehicleFillUnitIndex)
+        end
     elseif impl.spec_sprayer ~= nil then
         s.operation = "application"
         local params = impl.spec_sprayer.workAreaParameters
         local index = call(impl, "getSprayerFillUnitIndex")
         local productIndex = index and call(impl, "getFillUnitFillType", index)
+        local applying = params ~= nil and s.turnedOn and params.isActive == true and (params.lastTotalArea or 0) > 0
+        if applying then productIndex = params.sprayFillType or productIndex end
         local product = productIndex and call(g_fillTypeManager, "getFillTypeByIndex", productIndex)
+        if not applying and index and (product == nil or product.name == "UNKNOWN") then
+            local previous = call(impl, "getFillUnitLastValidFillType", index)
+            product = previous and call(g_fillTypeManager, "getFillTypeByIndex", previous)
+        end
         s.sprayer = { master = s.turnedOn, tank = index, product = product and product.name,
-            level = index and call(impl, "getFillUnitFillLevel", index), cap = index and call(impl, "getFillUnitCapacity", index),
-            applying = params and params.isActive == true and (params.lastTotalArea or 0) > 0 and call(impl, "getAreEffectsVisible") == true }
+            productTitle = product and product.title, level = index and call(impl, "getFillUnitFillLevel", index),
+            cap = index and call(impl, "getFillUnitCapacity", index),
+            applying = params and applying }
+        if applying and params.sprayVehicle == impl and params.lastIsExternallyFilled == false then
+            s.input = observedInputTank(impl, params.sprayVehicleFillUnitIndex)
+        end
     elseif impl.spec_cutter ~= nil then
         s.operation = "harvest"
     elseif s.tillage ~= nil then
@@ -862,6 +891,13 @@ function G5Link:writeImplementsTo(xml, base, vehicle, ox, oz)
             if type(b.level) == "number" then xml:setFloat(k .. "#level", round(b.level, 1)) end
             if type(b.cap) == "number" then xml:setFloat(k .. "#cap", round(b.cap, 0)) end
             if b.product ~= nil then xml:setString(k .. "#product", b.product) end
+            if type(b.productTitle) == "string" and b.productTitle ~= "" then xml:setString(k .. "#productTitle", b.productTitle) end
+        end
+        if s.input ~= nil then
+            local k, input = ik .. ".input", s.input
+            xml:setInt(k .. "#tank", input.tank)
+            xml:setString(k .. "#product", input.product)
+            setNumber(xml, k .. "#liters", input.liters, 4)
         end
         local bits = ""
         for _, a in ipairs(s.areas) do

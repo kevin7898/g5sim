@@ -16,6 +16,7 @@ const MAX_STEP = 8;             // m between frames before a sweep is treated as
 const TURN_DEG = 100;           // heading change from the pass start that starts a new pass
 const ENDPOINT_TOLERANCE = 0.04; // m, work-area corners arrive rounded to centimetres
 const MAX_FRAME_GAP = 2000;      // ms of mission time
+const MAX_INPUT_GAP = 750;       // ms between trustworthy observations of the same tank
 const PROCESSING_GAP_DRIVEN = 800; // ms, up to two missed 4 Hz samples between confirmations
 const PROCESSING_GAP_FLEET = 1100; // ms, one missed 2 Hz sample between confirmations
 const FLUSH_MS = 2000;
@@ -35,6 +36,15 @@ const VALUE_KEYS = ['speed', 'yield', 'moisture', 'loss', 'rate', 'seedLph', 'sk
 // Tillage tool types the mod reports (Controls.lua getTillage).
 const TILL_NAMES = { plow: 'Plow', cultivator: 'Field Cultivator', disc: 'Disc', subsoiler: 'Ripper', ripper: 'Ripper',
   powerHarrow: 'Power Harrow', harrow: 'Harrow', spader: 'Spader', mulcher: 'Mulcher', roller: 'Roller', weeder: 'Weeder', ridgeformer: 'Ridge Former' };
+
+function observedUse(from, to, ms) {
+  if (!(ms > 0 && ms <= MAX_INPUT_GAP) || !from || !to || from.tank !== to.tank || from.product !== to.product) return null;
+  if (!Number.isInteger(to.tank) || to.tank < 1 || typeof to.product !== 'string' || !to.product ||
+      !Number.isFinite(from.liters) || !Number.isFinite(to.liters) || to.liters < 0) return null;
+  const liters = from.liters - to.liters;
+  if (liters < 0) return null;
+  return { product: to.product, liters: +liters.toFixed(4) };
+}
 
 function quadArea(q) {
   let a = 0;
@@ -192,6 +202,7 @@ class CoverageStore {
     this.drivenId = null;
     this.session = null;
     this.counter = null;
+    this.applicationRate = null;
     this.jobView = null;
     this.passSeq = 0;            // pass ids are unique across machines
     this.rates = new Map();      // implement key -> {level, area, rate}
@@ -228,6 +239,9 @@ class CoverageStore {
           if (Number.isFinite(rec.dt)) frame.dt = rec.dt;
           if (Number.isFinite(rec.dist)) frame.dist = rec.dist;
           if (rec.application === true) frame.application = true;
+          if (typeof rec.inputUsed?.product === 'string' && Number.isFinite(rec.inputUsed.liters) && rec.inputUsed.liters >= 0) {
+            frame.inputUsed = rec.inputUsed;
+          }
           op.addFrame(frame, false);
           this.passSeq = Math.max(this.passSeq, (rec.p || 0) + 1);
         }
@@ -269,8 +283,10 @@ class CoverageStore {
       return { kind: 'tillage', product: impl.tillage.type, title: 'Tillage · ' + tool };
     }
     if (impl.operation === 'application' || product && impl.turnedOn) {
-      const applied = impl.sprayer?.product || product?.type || product?.title || '';
-      return { kind: 'application', product: applied, title: 'Application' + (applied ? ' · ' + title(applied) : ''), rateUnit: 'L/ha' };
+      const selected = impl.sprayer ? impl.sprayer.product : product?.type || product?.title;
+      const applied = selected && selected !== 'UNKNOWN' ? selected : '';
+      const label = applied && (impl.sprayer?.productTitle || fills.find(f => f.type === applied)?.title || title(applied));
+      return { kind: 'application', product: applied, title: 'Application' + (label ? ' · ' + label : ''), rateUnit: 'L/ha' };
     }
     return { kind: 'tillage', product: '', title: 'Tillage' };
   }
@@ -467,6 +483,7 @@ class CoverageStore {
     for (const id of this.machines.keys()) this.forgetMachine(id);
     this.drivenId = null;
     this.current = null;
+    this.applicationRate = null;
     this.rates.clear();
     this.flush(now, true);
   }
@@ -488,7 +505,7 @@ class CoverageStore {
       const id = driven ? this.drivenId : source;
       // A late empty fleet report must not interrupt the driver's current pose.
       if (id && (driven || this.machines.get(id)?.received?.source !== 'driven')) this.forgetMachine(id);
-      if (driven) { this.drivenId = null; this.current = null; }
+      if (driven) { this.drivenId = null; this.current = null; this.applicationRate = null; }
       this.flush(now);
       return;
     }
@@ -498,6 +515,7 @@ class CoverageStore {
       if (this.drivenId) this.forgetMachine(this.drivenId);
       this.drivenId = id;
     }
+    if (driven) this.applicationRate = null;
     this.queueGround(t, source, id, this.machine(id), now);
   }
 
@@ -533,7 +551,7 @@ class CoverageStore {
       const meta = this.operationOf(t, impl);
       const opId = operationId(meta);
       const key = `${id}|${impl.id ?? `${index}:${impl.name || ''}`}|${opId}`;
-      tracks.set(key, spans);
+      tracks.set(key, { spans, input: impl.input });
       let pass = passes.get(opId);
       if (!pass) {
         pass = ms.passes.get(opId);
@@ -542,7 +560,7 @@ class CoverageStore {
       }
       const previous = ms.track.get(key);
       if (!previous) continue;
-      const quads = this.sweepsBetween(previous, spans);
+      const quads = this.sweepsBetween(previous.spans, spans);
       if (!quads.length) continue;
       const areaM2 = quads.reduce((sum, q) => sum + quadArea(q), 0);
       swept += areaM2;
@@ -551,6 +569,18 @@ class CoverageStore {
       const frame = { p: pass.id, h: Math.round(heading), d: day, q: quads, v: this.valuesOf(t, impl, meta, key, areaM2) };
       if (!driven) frame.m = id.replace(/^m:/, '');
       if (meta.kind === 'application' && impl.sprayer?.applying === true) frame.application = true;
+      if (frame.application || meta.kind === 'seeding') {
+        const inputUsed = observedUse(previous.input, impl.input, elapsed);
+        if (inputUsed && (meta.kind === 'seeding' || inputUsed.product === meta.product)) {
+          frame.inputUsed = inputUsed;
+          if (frame.application || !impl.seeder && meta.rateUnit === 'L/ha') {
+            frame.v.rate = +(inputUsed.liters * 10000 / areaM2).toFixed(1);
+          }
+          if (driven && frame.application && !this.applicationRate) {
+            this.applicationRate = { implement: impl.id, product: inputUsed.product, litersPerHa: frame.v.rate };
+          }
+        }
+      }
       if (job?.op === opId) {
         frame.job = job.id;
         if (!jobSampleCounted) {
@@ -580,12 +610,19 @@ class CoverageStore {
     return { areaM2, distanceM, timeS };
   }
 
+  settleWork(save, id) {
+    const ms = this.machines.get(this.drivenId);
+    if (this.save !== save || !ms || ms.received?.t.activeWork?.id !== id) return;
+    this.drainGround(ms, this.drivenId, true);
+    ms.ground.clear();
+  }
+
   jobCoverage(save, job) {
     const op = this.ops(save).get(job.op);
     let view = this.jobView;
     if (!view || view.id !== job.id || view.save !== save || view.source !== op) {
       view = this.jobView = { id: job.id, save, source: op, cursor: 0, worked: new Operation(job.op, {}),
-        applied: null, distanceM: 0, timeS: null, sweptM2: 0 };
+        applied: null, distanceM: 0, timeS: null, sweptM2: 0, inputProduct: null, inputLiters: 0, inputIncomplete: false };
     }
     if (op) for (; view.cursor < op.frames.length; view.cursor++) {
       const frame = op.frames[view.cursor];
@@ -594,6 +631,9 @@ class CoverageStore {
       view.sweptM2 += frame.q.reduce((area, q) => area + quadArea(q), 0);
       view.distanceM += frame.dist || 0;
       if (frame.dt !== undefined) view.timeS = (view.timeS || 0) + frame.dt / 1000;
+      const input = frame.inputUsed;
+      if (!input || view.inputProduct !== null && input.product !== view.inputProduct) view.inputIncomplete = true;
+      else { view.inputProduct = input.product; view.inputLiters += input.liters; }
       if (frame.application) {
         if (!view.applied) view.applied = new Operation(job.op, {});
         view.applied.addFrame({ ...frame }, false);

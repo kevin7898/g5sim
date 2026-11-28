@@ -12,11 +12,11 @@
     track: { name: 'Track Controls', description: 'The selected track, spacing and shift controls.', sizes: { compact: [3, 2], wide: [4, 2] } },
   };
   const factory = {
-    tractor: { name: 'Tractor', pages: ['Guidance', 'Tractor', 'Work Monitor', 'Implement Details', 'Machine Monitor', 'Field'] },
-    tillage: { name: 'Tillage', pages: ['Guidance', 'Tillage', 'Work Monitor', 'Implement Details', 'Tractor'] },
-    seeder: { name: 'Planting & Drilling', pages: ['Guidance', 'Planter', 'Section Control', 'Work Monitor', 'Implement Details'] },
-    combine: { name: 'Harvest', pages: ['Harvesting', 'Work Monitor', 'Harvest Automation', 'Harvest Logistics', 'Guidance'] },
-    sprayer: { name: 'Spraying', pages: ['Guidance', 'Spraying', 'Boom & Sections', 'Work Monitor', 'Implement Details'] },
+    tractor: { name: 'Tractor', pages: ['Guidance', 'Tractor', 'Work Monitor', 'Implement Details', 'Machine Monitor', 'Field', 'Hydraulics', 'EPG'] },
+    tillage: { name: 'Tillage', pages: ['Guidance', 'Tillage', 'Work Monitor', 'Implement Details', 'Tractor', 'Hydraulics', 'EPG'] },
+    seeder: { name: 'Planting & Drilling', pages: ['Guidance', 'Planter', 'Section Control', 'Work Monitor', 'Implement Details', 'Hydraulics', 'EPG'] },
+    combine: { name: 'Harvest', pages: ['Harvesting', 'Work Monitor', 'Harvest Automation', 'Harvest Logistics', 'Guidance', 'Hydraulics', 'EPG'] },
+    sprayer: { name: 'Spraying', pages: ['Guidance', 'Spraying', 'Boom & Sections', 'Work Monitor', 'Implement Details', 'Hydraulics', 'EPG'] },
   };
   const defaults = value => value && typeof value === 'object' ? value : {};
   const list = value => Array.isArray(value) ? value : [];

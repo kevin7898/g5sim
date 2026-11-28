@@ -54,6 +54,8 @@ const PAGE_RULES = {
   'Section Control': d => hasSeeder(d),
   'Spraying': d => !!d.rate || (d.implements || []).some(i => i.sprayer),
   'Boom & Sections': d => !!d.rate || (d.implements || []).some(i => i.sprayer),
+  'Hydraulics': d => !!d.hyd,
+  'EPG': d => !!(d.hyd && d.hyd.epg),
   'Work Monitor': d => (d.implements || []).length > 0 || !!d.combine,
   'Implement Details': d => (d.implements || []).length > 0,
   'Machine Monitor': () => true,
@@ -162,7 +164,7 @@ document.addEventListener('click', e => {
 document.addEventListener('keydown', e => {
   if (e.defaultPrevented) return;
   if (e.key === 'Escape' && !$('runLayoutWin').hidden) { window.G5RunPages?.close(); return; }
-  if (e.key === 'Escape') ['menu', 'scPanel', 'confirm', 'numpad', 'trackWin', 'unitsWin', 'layerWin'].forEach(closeWin);
+  if (e.key === 'Escape') ['menu', 'scPanel', 'confirm', 'numpad', 'trackWin', 'unitsWin', 'layerWin', 'hydWin'].forEach(closeWin);
   if (e.target.closest?.('input, textarea, select, [contenteditable], .map-mod') || document.querySelector('.window-wrap:not([hidden]), #menu:not([hidden])')) return;
   if (e.key === 'ArrowRight') stepPage(1);
   if (e.key === 'ArrowLeft') stepPage(-1);
@@ -384,6 +386,7 @@ function render() {
     ['Mod Telemetry', d.version || '---'], ['PC Bridge', d.bridgeVersion || '---'], ['Last Command', d.lastCmd ?? '---'],
     ['Realistic Harvesting', d.rh ? 'Found' : d.combine ? 'Not found' : '---'], ['Soil & Fertilizer', modState('soil-fertilizer')],
     ['Courseplay', modState('courseplay')], ['AutoDrive', modState('autodrive')],
+    ['Realistic Hydraulics', d.hyd ? 'Found' + (d.hyd.version && d.hyd.version !== 'demo' ? ' ' + d.hyd.version : '') : inVehicle ? 'Not found' : '---'],
   ].map(([k, val]) => `<div><small>${k}</small><b>${esc(val)}</b></div>`).join(''));
 
   for (const [id, el] of pendingCmds) if ((d.lastCmd || 0) >= id) { el.classList.remove('pending'); pendingCmds.delete(id); }
@@ -449,6 +452,7 @@ function render() {
   if (window.G5Keys) G5Keys.render(d);
   if (window.G5GrainCart) G5GrainCart.render();
   if (window.G5Rate) G5Rate.render();
+  if (window.G5Hyd) G5Hyd.render(d);
 
   const r = rates(w);
   renderWorkMonitor(v, w, imps, r, d.passReport);

@@ -53,6 +53,8 @@
     <symbol id="i-swap" viewBox="0 0 48 48"><path d="M3 31h42" stroke="currentColor" stroke-width="3"/><circle cx="15" cy="31" r="5" fill="#fff" stroke="currentColor" stroke-width="3"/><path d="M24 31l12-15" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M30 14h7v7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M40 8v8M44 10v6" stroke="currentColor" stroke-width="2" stroke-dasharray="2 2"/></symbol>
     <symbol id="i-help" viewBox="0 0 48 48"><path d="M14 16.5a10 10 0 1 1 14.5 9c-3.4 1.8-4.5 3.4-4.5 7.5v1.5" fill="none" stroke="currentColor" stroke-width="6.5" stroke-linecap="round"/><circle cx="24" cy="42" r="4" fill="currentColor"/></symbol>
     <symbol id="i-layout" viewBox="0 0 48 48"><rect x="4" y="6" width="40" height="32" rx="2.5" fill="#fff" stroke="currentColor" stroke-width="2.8"/><rect x="8" y="10" width="20" height="18" style="fill:var(--a3,none)" stroke="currentColor" stroke-width="2.2"/><path d="M31 11h9M31 16h9M31 21h9M31 26h9" stroke="currentColor" stroke-width="2.6"/><path d="M4 32h40" stroke="currentColor" stroke-width="2.4"/><path d="M14 32v6M24 32v6M34 32v6" stroke="currentColor" stroke-width="2"/><path d="M8 44h32" stroke="currentColor" stroke-width="3" stroke-linecap="round" style="stroke:var(--a2,currentColor)"/></symbol>
+    <symbol id="i-scv" viewBox="0 0 48 48"><path d="M8 14h20v20H8z" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linejoin="round"/><path d="M14 20l4-4 4 4M14 28l4 4 4-4M18 16v16" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M28 20h8a6 6 0 0 1 6 6v12M28 28h4a2 2 0 0 1 2 2v8" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></symbol>
+    <symbol id="i-epg" viewBox="0 0 48 48"><circle cx="24" cy="24" r="17" fill="none" stroke="currentColor" stroke-width="3.4"/><path d="M27 9l-9 17h8l-5 13 11-19h-8z" fill="currentColor"/></symbol>
     <symbol id="i-gear" viewBox="0 0 48 48"><circle cx="24" cy="24" r="8" fill="none" stroke="currentColor" stroke-width="3.4"/><path d="M24 4v7M24 37v7M4 24h7M37 24h7M10 10l5 5M33 33l5 5M38 10l-5 5M15 33l-5 5" stroke="currentColor" stroke-width="4" stroke-linecap="round"/></symbol>
 
     <symbol id="i-setup" viewBox="0 0 48 48"><path d="M5 11l3.5 3.5L14 8M5 24l3.5 3.5L14 21M5 37l3.5 3.5L14 34" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><rect x="18" y="8" width="25" height="7" rx="1.5" fill="currentColor"/><rect x="18" y="21" width="25" height="7" rx="1.5" fill="currentColor"/><rect x="18" y="34" width="25" height="7" rx="1.5" fill="currentColor"/></symbol>
@@ -484,6 +486,63 @@
         </div>
       </section>
 
+      <!-- Run page: Hydraulics (Realistic Hydraulics: SCVs, pump flow, pressure, oil temperature) -->
+      <section class="page" data-name="Hydraulics">
+        <div class="page-grid main-side">
+          <div class="module">
+            <div class="mod-title" id="hyTitle">Hydraulics</div>
+            <div class="tiles t4 compact" id="hyTiles"></div>
+            <div class="mod-lower hy-lower">
+              <div class="lower-col">
+                <div class="lower-head"><span>Selective Control Valves</span><button class="g5btn hy-setup" id="hySetup">SCV Settings</button></div>
+                <div class="hy-scvs" id="hyScvs"></div>
+              </div>
+            </div>
+          </div>
+          <div class="side">
+            <div class="module side-mod grow">
+              <div class="mod-title">Pump Flow</div>
+              <div class="side-body center" id="hyFlow"></div>
+            </div>
+            <div class="module side-mod">
+              <div class="mod-title">Circuit</div>
+              <div class="side-body compact" id="hyCircuit"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Run page: EPG (electric power for implements: tractor EPG or an implement PTO/hydraulic generator) -->
+      <section class="page" data-name="EPG">
+        <div class="page-grid main-side">
+          <div class="module">
+            <div class="mod-title" id="epTitle">EPG</div>
+            <div class="tiles t4 compact" id="epTiles"></div>
+            <div class="mod-lower split">
+              <div class="lower-col">
+                <div class="lower-head">EPG Mode</div>
+                <div class="seg" id="epMode"><button data-v="off">Off</button><button data-v="auto">Auto</button><button data-v="icm">ICM</button></div>
+                <p class="ha-msg" id="epMsg">---</p>
+              </div>
+              <div class="lower-col">
+                <div class="lower-head">Consumers</div>
+                <div class="ep-uses" id="epUses"></div>
+              </div>
+            </div>
+          </div>
+          <div class="side">
+            <div class="module side-mod grow">
+              <div class="mod-title">Power Used</div>
+              <div class="side-body center" id="epGauge"></div>
+            </div>
+            <div class="module side-mod">
+              <div class="mod-title">Generator</div>
+              <div class="side-body compact" id="epGen"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- Run page 6: Field (data from other mods: Realistic Soil & Fertilizer, Mud System Physics, Courseplay, AutoDrive) -->
       <section class="page" data-name="Field">
         <div class="page-grid main-side">
@@ -546,6 +605,9 @@
             <a class="app" href="/ops/"><span class="app-ico"><svg><use href="#i-cloud"/></svg></span><b>Ops Center</b></a>
             <button class="app" data-goto="Planter"><span class="app-ico"><svg><use href="#i-planter"/></svg></span><b>Planter</b></button>
             <button class="app" data-goto="Harvesting"><span class="app-ico"><svg><use href="#i-combine"/></svg></span><b>Harvesting</b></button>
+            <button class="app" data-goto="Hydraulics"><span class="app-ico"><svg><use href="#i-scv"/></svg></span><b>Hydraulics</b></button>
+            <button class="app" id="appScv" hidden><span class="app-ico"><svg><use href="#i-scv"/></svg></span><b>SCV Settings</b></button>
+            <button class="app" data-goto="EPG"><span class="app-ico"><svg><use href="#i-epg"/></svg></span><b>EPG</b></button>
             <button class="app" data-goto="Field"><span class="app-ico"><svg><use href="#i-field"/></svg></span><b>Field</b></button>
             <button class="app" id="appStatus"><span class="app-ico"><svg><use href="#i-status"/></svg></span><b>Status Center</b></button>
             <button class="app" id="appHelp"><span class="app-ico"><svg><use href="#i-helpbook"/></svg></span><b>Help</b></button>
@@ -597,6 +659,15 @@
       <div class="window narrow rate-win">
         <div class="win-head"><b>Rate Controller</b><button class="win-close" data-close="rateWin" aria-label="Close"><svg><use href="#i-x"/></svg></button></div>
         <div class="win-body" id="rateBody"></div>
+      </div>
+    </div>
+
+    <!-- App window: SCV Settings (Realistic Hydraulics): function, flow, detent and priority per valve -->
+    <div class="window-wrap" id="hydWin" hidden>
+      <div class="window hy-win">
+        <div class="win-head"><b>SCV Settings</b><button class="win-close" data-close="hydWin" aria-label="Close"><svg><use href="#i-x"/></svg></button></div>
+        <div class="win-body tabs" id="hydBody"></div>
+        <div class="win-foot" id="hydFoot"><button class="g5btn" data-close="hydWin">Cancel</button><button class="g5btn" id="hydSave"><svg class="ok"><use href="#i-check"/></svg>Save</button></div>
       </div>
     </div>
 
@@ -724,6 +795,7 @@
 <script src="graincart.js"></script>
 <script src="starfire.js"></script>
 <script src="rate.js"></script>
+<script src="hydraulics.js"></script>
 <script src="autotrac.js"></script>
 <script src="guidance.js"></script>
 <script src="keys.js"></script>

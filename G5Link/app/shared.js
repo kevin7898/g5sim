@@ -26,6 +26,7 @@ const UNIT_KINDS = [
   ['grain', 'Yield and Grain', 't/ha · t/h · t', 'bu/ac · bu/h · bu'],
   ['rate', 'Seeding Rate', 'seeds/ha · kg/ha', 'seeds/ac · lb/ac'],
   ['pressure', 'Pressure', 'bar', 'psi'],
+  ['temperature', 'Temperature', '°C', '°F'],
 ];
 if (typeof settings.units === 'string') {           // older settings: one value for everything
   const all = settings.units; settings.units = {}; UNIT_KINDS.forEach(([k]) => { settings.units[k] = all; });

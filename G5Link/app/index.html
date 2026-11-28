@@ -8,6 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="G5Link">
 <meta name="theme-color" content="#000000">
+<meta name="g5link-display-revision" content="__G5LINK_DISPLAY_REVISION__">
 <title>G5Link Display</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon.svg">
@@ -16,8 +17,10 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="display-update.css">
 </head>
 <body>
+<aside id="displayUpdate" hidden><span role="status">A G5Link display update is ready.</span><button type="button">Reload Display</button></aside>
 <!-- Shared SVG icons (simple line art drawn for this app) -->
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <defs>

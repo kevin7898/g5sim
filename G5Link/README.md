@@ -288,6 +288,8 @@ node g5link-bridge.js --dir "D:\path\..."   custom modSettings\FS25_G5Link folde
   the mod is active in the savegame and you're in the game, not the main menu. Check
   `log.txt` in the FS25 profile folder for a line starting with `G5Link`.
 - **"Paused":** the game stopped writing data, for example in the pause menu or ESC screen.
+- **A display update is ready:** save any open layout edits, then tap **Reload Display**. If you
+  have a display open from an earlier release, reload it once after updating the PC bridge.
 - **iPad can't load the page:** check that both devices are on the same network, that the
   firewall allowed Node.js on Private networks, and that you're typing the PC's address, not
   `localhost`.

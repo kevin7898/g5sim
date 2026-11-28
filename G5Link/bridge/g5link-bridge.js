@@ -21,6 +21,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { createHash } = require('node:crypto');
 const BRIDGE_VERSION = '0.12.0.0';
 
 // ---------------------------------------------------------------- options
@@ -53,6 +54,7 @@ const RTK = path.join(DIR, 'rtk.json');
 const FLEET = path.join(DIR, 'fleet.xml');         // other working machines (AI workers, Courseplay), every 0.5 s             // RTK package: receivers, subscriptions, bases, ledger (on change)     // prices, input costs, farm finances (every 30 s)
 const PROVIDER_STALE_MS = 6000;
 const APP_DIR = path.resolve(__dirname, '..', 'app');
+let displayRevision;
 const STALE_MS = 3000; // no new seq for this long => game considered paused/closed
 const { CoverageStore, operationId } = require('./coverage.js');
 const { FieldStore } = require('./fields.js');
@@ -352,7 +354,7 @@ function setTelemetry(t) {
     lastTelemetryKey = key;
     lastSeqAt = Date.now();
   }
-  latest = { ...t, ...currentExtras(), bridgeVersion: BRIDGE_VERSION, link: fresh ? 'live' : latest.link };
+  latest = { ...t, ...currentExtras(), bridgeVersion: BRIDGE_VERSION, displayRevision, link: fresh ? 'live' : latest.link };
   latest.workState = workStateFor(latest);
   let job = null;
   try {
@@ -1139,6 +1141,24 @@ const MIME = {
   '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.svg': 'image/svg+xml',
 };
 
+function revisionOfDisplay() {
+  const hash = createHash('sha256').update(BRIDGE_VERSION);
+  function addDirectory(dir) {
+    for (const name of fs.readdirSync(dir).sort()) {
+      if (name.startsWith('.')) continue;
+      const file = path.join(dir, name);
+      const stat = fs.statSync(file);
+      if (stat.isDirectory()) addDirectory(file);
+      else if (stat.isFile() && MIME[path.extname(file)]) {
+        const relative = path.relative(APP_DIR, file).replaceAll(path.sep, '/');
+        hash.update(JSON.stringify([relative, stat.size])).update(fs.readFileSync(file));
+      }
+    }
+  }
+  addDirectory(APP_DIR);
+  return hash.digest('hex').slice(0, 16);
+}
+
 function serveStatic(req, res) {
   const urlPath = decodeURIComponent(new URL(req.url, 'http://x').pathname);
   if (urlPath === '/ops') { res.writeHead(302, { Location: '/ops/' }).end(); return; }
@@ -1148,7 +1168,9 @@ function serveStatic(req, res) {
   if (!file.startsWith(APP_DIR + path.sep)) { res.writeHead(403).end(); return; }
   fs.readFile(file, (err, data) => {
     if (err) { res.writeHead(404).end('Not found'); return; }
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
+    const html = path.extname(file) === '.html';
+    if (html) data = data.toString('utf8').replace('content="__G5LINK_DISPLAY_REVISION__"', `content="${displayRevision}"`);
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': html ? 'no-store' : 'no-cache' });
     res.end(data);
   });
 }
@@ -1183,7 +1205,7 @@ const server = http.createServer((req, res) => {
           settings: store.db(save).settings, fields: fieldsOut, version: store.version,
           equipment: equipment.vehicles, equipmentAge: equipmentAt ? Date.now() - equipmentAt : null,
           here: v && typeof v.x === 'number' ? { x: v.x, z: v.z, heading: v.heading, name: v.name } : null,
-          game: latest.game || {}, link: latest.link, maps: mapStore().list().ops });
+          game: latest.game || {}, link: latest.link, displayRevision, maps: mapStore().list().ops });
       }
       if (u.pathname === '/api/ops/field') {
         const f = store.field(save, u.searchParams.get('id'));
@@ -1324,6 +1346,8 @@ const server = http.createServer((req, res) => {
 });
 
 function start() {
+displayRevision = revisionOfDisplay();
+latest.displayRevision = displayRevision;
 setInterval(heartbeat, 1000);
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`G5Link bridge ${DEMO ? '(DEMO MODE) ' : ''}on port ${PORT}`);

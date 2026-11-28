@@ -502,6 +502,7 @@ async function refresh() {
       if (S.page === 'field') showPage('land');
     }
     S.summary = sm;
+    if (typeof checkDisplayRevision === 'function') checkDisplayRevision(sm.displayRevision);
     $('saveName').textContent = sm.save === 'unsaved' ? 'Unsaved game' : `Savegame: ${sm.save}`;
     $('orgName').textContent = `${clientName()} · ${farmName()}`;
     $('linkState').textContent = sm.link === 'live' ? 'Live' : sm.link === 'stale' ? 'Game paused' : 'Waiting for game';

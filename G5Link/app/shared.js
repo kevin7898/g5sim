@@ -7,6 +7,15 @@ const settings = { units: {}, mode: 'day', sound: 'on', pageName: null };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('g5link') || '{}')); } catch (e) { /* private mode */ }
 function saveSettings() { try { localStorage.setItem('g5link', JSON.stringify(settings)); } catch (e) { /* ignore */ } }
 
+const displayUpdate = document.getElementById('displayUpdate');
+const loadedDisplayRevision = document.querySelector('meta[name="g5link-display-revision"]')?.content;
+displayUpdate?.querySelector('button')?.addEventListener('click', () => location.reload());
+function checkDisplayRevision(revision) {
+  if (!displayUpdate || !loadedDisplayRevision) return;
+  const hidden = !revision || loadedDisplayRevision === revision;
+  if (displayUpdate.hidden !== hidden) displayUpdate.hidden = hidden;
+}
+
 // ------------------------------------------------------------ units
 // Each quantity has its own unit setting (Menu > System > Units); the Metric / US key sets them all.
 const UNIT_KINDS = [

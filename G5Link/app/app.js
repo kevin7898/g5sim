@@ -365,6 +365,7 @@ let data = { link: 'waiting' };
 function render() {
   const d = data, v = d.vehicle || null, w = d.work || {}, imps = d.implements || [];
   const inVehicle = d.state === 'vehicle' && v;
+  if (typeof checkDisplayRevision === 'function') checkDisplayRevision(d.displayRevision);
   updateAvailablePages(d);
 
   // Title bar status center

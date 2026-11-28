@@ -148,6 +148,22 @@ try {
 
 const eq = (a, b, label) => check(a === b, `${label}: expected ${b}, got ${a}`);
 
+{
+  const store = new CoverageStore();
+  const op = { kind: 'seeding', product: 'CANOLA' };
+  const measure = (level, vehicle = {}, game = {}) => {
+    const impl = { fills: [{ type: 'SEEDS', level }] };
+    return store.valuesOf({ vehicle, game }, impl, op, 'seed-tank', 400).rate;
+  };
+  eq(measure(1200, { ai: true }, { helperBuySeeds: true }), undefined, 'automatic seed purchase makes tank rate unknown');
+  eq(measure(1190, { ai: true }), undefined, 'old AI telemetry without purchase settings cannot verify tank rate');
+  eq(measure(1190), undefined, 'first manual tank sample sets a baseline');
+  eq(measure(1190), undefined, 'unchanged tank while seeding is not a measured zero rate');
+  eq(measure(1180, { ai: true }, { helperBuySeeds: false }), 250, 'helper with known disabled purchases uses measured tank depletion');
+  eq(measure(1181), undefined, 'even a small refill clears the previous estimate');
+  eq(measure(1177), 100, 'measured rate restarts from the refilled level');
+}
+
 // Native telemetry can miss one or two 200 ms processing windows between
 // confirmed work samples. Retain each measured pose and each real stopped lane.
 {

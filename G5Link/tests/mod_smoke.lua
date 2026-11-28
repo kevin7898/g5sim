@@ -576,7 +576,8 @@ do
     local planter, ps = makeImplement(12.19, 16)
     tractor.children = {tractor, planter}
     g_localPlayer = {getCurrentVehicle = function(self) return tractor end}
-    g_currentMission.missionInfo = {savegameDirectory = "C:/Users/me/Documents/My Games/FarmingSimulator2025/savegame9/"}
+    g_currentMission.missionInfo = {savegameDirectory = "C:/Users/me/Documents/My Games/FarmingSimulator2025/savegame9/",
+        helperBuySeeds = true, helperBuyFertilizer = false}
     g_currentMission.realisticSeederAPI = seederApi(planter)
 
     -- map fields (FieldManager) and the farm's machines (VehicleSystem) for the Ops Center files
@@ -637,7 +638,8 @@ do
     local originalDirectory = info.savegameDirectory
     info.savegameIndex, info.savegameDirectory = 9, "C:/profile/tempsavegame"
     local saveFrame = {}
-    mod:writeGame({setInt = function() end, setString = function(_, key, value) saveFrame[key] = value end})
+    mod:writeGame({setInt = function() end, setBool = function() end,
+        setString = function(_, key, value) saveFrame[key] = value end})
     eq(saveFrame["g5.game#save"], "savegame9", "the native save write uses the same slot key")
     eq(G5LinkRtk:saveKey(), "savegame9", "RTK uses the same key during the native save")
     info.savegameIndex, info.savegameDirectory = nil, originalDirectory
@@ -690,6 +692,8 @@ do
     check(string.find(fj, '"farmName":"Test Farm"', 1, true) ~= nil, "fields.json farm name")
     local t = telemetry(dir)
     eq(t["g5#state"], "vehicle", "state")
+    eq(t["g5.game#helperBuySeeds"], "true", "reported automatic seed purchase")
+    eq(t["g5.game#helperBuyFertilizer"], "false", "reported disabled automatic fertilizer purchase")
     eq(t["g5.vehicle#name"], "Test Tractor", "vehicle name")
     near(tonumber(t["g5.vehicle#speed"]), 10, 0.01, "speed")
     eq(t["g5.vehicle#heading"], "90.000000", "heading east from direction (1, 0)")

@@ -340,24 +340,38 @@ class CoverageStore {
       set('yieldPotential', sd.yieldPotential, 1);
       set('seedLph', sd.lph, 2);                 // seed litres per hectare at the set rate (for seed cost)
     } else if (op.kind === 'seeding' || op.kind === 'application' && !impl.sprayer) {
-      // As-applied rate from the product leaving the tank over the area worked (L/ha).
-      const fill = (impl.fills || []).find(f => op.kind === 'seeding' ? /SEED/i.test(f.type || f.title || '') : (f.type || f.title) === op.product);
-      let st = this.rates.get(key);
-      if (!st) { st = { level: fill ? fill.level : null, area: 0, rate: null }; this.rates.set(key, st); }
-      if (fill && st.level !== null) {
-        st.area += areaM2;
-        if (fill.level > st.level + 1) { st.level = fill.level; st.area = 0; }     // refilled
-        else if (st.area >= 400) {
-          const used = st.level - fill.level;
-          if (used >= 0) st.rate = used / (st.area / 10000);
-          st.level = fill.level; st.area = 0;
-        }
-      } else if (fill) st.level = fill.level;
-      set('rate', st.rate, 1);
+      set('rate', this.inventoryRate(t, impl, op, key, areaM2), 1);
     }
     const soil = t.providers?.['soil-fertilizer']?.values;
     if (soil) { set('soilN', soil.nitrogen?.value, 0); set('soilP', soil.phosphorus?.value, 0); set('soilK', soil.potassium?.value, 0); set('soilPH', soil.pH, 2); }
     return v;
+  }
+
+  inventoryRate(t, impl, op, key, areaM2) {
+    const seeding = op.kind === 'seeding';
+    const purchases = seeding ? t.game?.helperBuySeeds : t.game?.helperBuyFertilizer;
+    const fills = (impl.fills || []).filter(f => seeding ? /SEED/i.test(f.type || f.title || '') : (f.type || f.title) === op.product);
+    const level = fills.length === 1 ? num(fills[0].level) : undefined;
+    // The helper can buy product directly. A full tank in that mode says
+    // nothing about the application rate, including with older telemetry.
+    if (level === undefined || t.vehicle.ai && purchases !== false) {
+      this.rates.delete(key);
+      return null;
+    }
+    let st = this.rates.get(key);
+    if (!st || level > st.last) {
+      this.rates.set(key, { start: level, last: level, area: 0, rate: null });
+      return null;
+    }
+    st.last = level;
+    st.area += areaM2;
+    if (st.area >= 400) {
+      const used = st.start - level;
+      st.rate = used > 0 ? used * 10000 / st.area : null;
+      st.start = level;
+      st.area = 0;
+    }
+    return st.rate;
   }
 
   machine(id) {
@@ -441,7 +455,10 @@ class CoverageStore {
 
   forgetMachine(id) {
     const ms = this.machines.get(id);
-    if (ms) this.drainGround(ms, id, true);
+    if (ms) {
+      this.drainGround(ms, id, true);
+      for (const key of ms.track.keys()) this.rates.delete(key);
+    }
     this.machines.delete(id);
   }
 
@@ -490,6 +507,7 @@ class CoverageStore {
     const elapsed = Number.isFinite(t.time) && ms.time !== null ? t.time - ms.time : null;
     const job = driven ? t.activeWork || null : null;
     if (source !== ms.source || ms.job !== job?.id || elapsed !== null && (elapsed < 0 || elapsed > MAX_FRAME_GAP) || distance > MAX_STEP) {
+      for (const key of ms.track.keys()) this.rates.delete(key);
       ms.track.clear();
       ms.passes.clear();
     }
@@ -543,6 +561,7 @@ class CoverageStore {
       }
       op.addFrame(frame, this.persist);
     }
+    for (const key of ms.track.keys()) if (!tracks.has(key)) this.rates.delete(key);
     ms.track = tracks;
     ms.passes = passes;
     if (driven) {

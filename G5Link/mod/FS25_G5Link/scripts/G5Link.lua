@@ -584,6 +584,11 @@ function G5Link:writeGame(xml)
         xml:setInt("g5.game#hour", env.currentHour or 0)
         xml:setInt("g5.game#minute", env.currentMinute or 0)
     end
+    local info = g_currentMission.missionInfo
+    if info ~= nil then
+        if type(info.helperBuySeeds) == "boolean" then xml:setBool("g5.game#helperBuySeeds", info.helperBuySeeds) end
+        if type(info.helperBuyFertilizer) == "boolean" then xml:setBool("g5.game#helperBuyFertilizer", info.helperBuyFertilizer) end
+    end
     local key = self:saveKey()
     if key ~= nil then xml:setString("g5.game#save", key) end
 end

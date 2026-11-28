@@ -144,7 +144,8 @@
       <div class="bd-grid">
         <div><small>Distance</small><b id="bdDistance"></b></div>
         <div><small>Back to start</small><b id="bdGap"></b></div>
-        <div><small>Reference</small><b title="${esc(st.tool?.name || 'Vehicle')}">${st.reference === 'implement' ? 'Implement edge' : 'Vehicle'}</b></div>
+        <div><small>Reference</small><b>${st.reference === 'implement' ? 'Implement edge' : 'Vehicle'}</b>
+          ${st.tool ? `<small class="bd-source">${esc(st.tool.name)} · ${U.width(st.tool.width)}</small>` : ''}</div>
         <div><small>Offset</small><b>${side}</b></div>
       </div>
       <p class="hint">${pauseReasons[st.pauseReason] || (st.paused ? 'Resume joins the last recorded point to your current position.'

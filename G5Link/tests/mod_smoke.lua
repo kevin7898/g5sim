@@ -933,6 +933,15 @@ do
     local tractor = makeVehicle({name = "Test 8R Tractor"})
     local disc = makeImplement(9.1, 1)
     disc.spec_cultivator = {useDeepMode = false}
+    disc.configFileName = "disc.xml"
+    local shallowCultivator = makeImplement(4, 1)
+    shallowCultivator.configFileName = "cultivator.xml"
+    shallowCultivator.spec_cultivator = {useDeepMode = false}
+    local previousStore = g_storeManager
+    g_storeManager = {getItemByXMLFilename = function(_, filename)
+        if filename == "disc.xml" then return {categoryName = "DISCHARROWS"} end
+        if filename == "cultivator.xml" then return {categoryName = "CULTIVATORS"} end
+    end}
     local plow = makeImplement(3.0, 1)
     plow.spec_plow = {}
     plow.spec_realisticTillage = {initialized = true, implementClass = "plow", depthCm = 25, targetDepthCm = 25,
@@ -959,13 +968,16 @@ do
     local csLocked = makeImplement(4, 1)
     csLocked.spec_cultivator = {useDeepMode = false}
     csLocked.spec_CultivatorSettings = {mode = 2, config = 2, useWorkModes = false}
-    tractor.children = {tractor, disc, plow, ripper, wmCult, csCult, csLocked}
+    tractor.children = {tractor, disc, plow, ripper, wmCult, csCult, csLocked, shallowCultivator}
     g_localPlayer = {getCurrentVehicle = function(self) return tractor end}
     mod:loadMap("test")
     tick(4)
     local t = telemetry(dir)
-    eq(t["g5.implements.implement(0).tillage#type"], "disc", "shallow cultivator reads as disc")
+    eq(t["g5.implements.implement(0).tillage#type"], "disc", "store category identifies disc even without a depth sensor")
     eq(t["g5.implements.implement(0).tillage#deep"], "false", "disc is shallow")
+    eq(t["g5.implements.implement(6).tillage#type"], "cultivator", "stock shallow cultivator remains a cultivator")
+    eq(t["g5.implements.implement(6).tillage#level"], "shallow", "stock cultivator keeps its real work mode")
+    g_storeManager = previousStore
     eq(t["g5.implements.implement(0).tillage#depth"], nil, "no depth without Realistic Tillage")
     eq(t["g5.implements.implement(1).tillage#type"], "plow", "plow type")
     eq(t["g5.implements.implement(1).tillage#depth"], "25.000000", "plow depth from Realistic Tillage")

@@ -334,7 +334,7 @@ function G5LinkControls:getDepthModes(impl)
     return nil
 end
 
--- Cultivator.lua: isSubsoiler, isPowerHarrow, useDeepMode (false = shallow, disc-harrow mode).
+-- Cultivator.lua: isSubsoiler, isPowerHarrow, useDeepMode (false = shallow).
 function G5LinkControls:getTillage(impl)
     local t
     local cult = impl.spec_cultivator
@@ -345,12 +345,16 @@ function G5LinkControls:getTillage(impl)
     if impl.spec_plow ~= nil then
         t = { type = "plow", deep = true }
     elseif cult ~= nil then
+        local storeItem = call(g_storeManager, "getItemByXMLFilename", impl.configFileName)
+        local category = storeItem and type(storeItem.categoryName) == "string" and string.lower(storeItem.categoryName)
         if cult.isPowerHarrow == true then
             t = { type = "powerHarrow" }
-        elseif modes ~= nil then
-            t = { type = "cultivator" }          -- a level-switching tool stays one tool (one map)
         elseif cult.isSubsoiler == true then
             t = { type = "subsoiler" }
+        elseif category == "discharrows" then
+            t = { type = "disc" }
+        elseif category == "cultivators" or modes ~= nil then
+            t = { type = "cultivator" }
         elseif cult.useDeepMode == false then
             t = { type = "disc" }
         else

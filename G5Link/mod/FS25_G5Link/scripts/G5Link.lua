@@ -1063,9 +1063,33 @@ end
 -- Other mods (providers.json, course.json)
 ---------------------------------------------------------------------------
 
--- Field id under a position. Realistic Soil & Fertilizer has a field lookup
--- (soilSystem.hookManager:getFieldIdAtWorldPosition, used in its SoilFertilitySystem.lua);
--- without it, no field id is reported and the display shows the farmland only.
+local function mapFieldId(field)
+    if type(field) ~= "table" then return nil end
+    local id = call(field, "getId") or field.fieldId
+    return type(id) == "number" and id > 0 and id or nil
+end
+
+local function mapFields()
+    local fields = g_fieldManager and (call(g_fieldManager, "getFields") or g_fieldManager.fields)
+    return type(fields) == "table" and fields or {}
+end
+
+local function fieldFarmlandId(field)
+    local farmland = call(field, "getFarmland") or field.farmland
+    return type(farmland) == "table" and (call(farmland, "getId") or farmland.id) or nil
+end
+
+local function fieldOutline(field)
+    local polygon = {}
+    for _, node in ipairs(call(field, "getPolygonPoints") or field.polygonPoints or {}) do
+        local x, z = nodePos(node)
+        if x ~= nil then polygon[#polygon + 1] = {x, z} end
+    end
+    return polygon
+end
+
+-- Stock FS25 maps link each field to a Farmland object. The parcel also
+-- contains yards and grass margins, so check the field's own polygon.
 function G5Link:getFieldIdAt(x, z)
     local manager = g_currentMission and g_currentMission.soilFertilityManager
     local system = manager and manager.soilSystem
@@ -1074,12 +1098,23 @@ function G5Link:getFieldIdAt(x, z)
     if type(id) == "number" and id > 0 then
         return id
     end
-    -- base game: FieldManager:getFieldAtWorldPosition (patterns/field-detection.md, used by Realistic Seeder too)
-    local field = call(g_fieldManager, "getFieldAtWorldPosition", x, z)
-    if type(field) == "table" and type(field.fieldId) == "number" and field.fieldId > 0 then
-        return field.fieldId
+    id = mapFieldId(call(g_fieldManager, "getFieldAtWorldPosition", x, z))
+    if id ~= nil then return id end
+    local farmland = call(g_farmlandManager, "getFarmlandAtWorldPosition", x, z)
+    local field = call(farmland, "getField")
+    id = mapFieldId(field)
+    if id == nil then return nil end
+    local polygon = fieldOutline(field)
+    if #polygon < 3 then return nil end
+    local inside = false
+    local a = polygon[#polygon]
+    for _, b in ipairs(polygon) do
+        if (a[2] > z) ~= (b[2] > z) and x < (b[1] - a[1]) * (z - a[2]) / (b[2] - a[2]) + a[1] then
+            inside = not inside
+        end
+        a = b
     end
-    return nil
+    return inside and id or nil
 end
 
 -- The local player's farm (as Realistic Harvesting's RHM_Api.getActiveFarmId resolves it).
@@ -1148,11 +1183,10 @@ function G5Link:getFarmId()
     return id
 end
 
--- fields.json for the Ops Center: every map field with its polygon (Field:getPolygonPoints nodes, read with
--- getWorldTranslation as FieldManager does), area, farmland and owner. Rewritten only when something changes.
+-- fields.json for the Ops Center: map fields with their native outlines, acreage and ownership.
 function G5Link:writeFields()
-    local fm = g_fieldManager
-    if fm == nil or type(fm.fields) ~= "table" or #fm.fields == 0 then
+    local fields = mapFields()
+    if #fields == 0 then
         return  -- empty during loading; retried on the next check
     end
     local farmId = self:getFarmId()
@@ -1160,35 +1194,30 @@ function G5Link:writeFields()
     local farm = call(g_farmManager, "getFarmById", farmId)
     local farmName = type(farm) == "table" and type(farm.name) == "string" and farm.name or nil
     local out = {farmId = farmId, farmName = farmName, fields = {}}
-    local keyParts = {tostring(farmId), tostring(farmName)}
-    for _, field in ipairs(fm.fields) do
-        local id = field.fieldId
-        if type(id) == "number" then
-            local farmlandId = type(field.farmland) == "table" and field.farmland.id or nil
+    for _, field in ipairs(fields) do
+        local id = mapFieldId(field)
+        if id ~= nil then
+            local farmlandId = fieldFarmlandId(field)
             local owner = farmlandId and call(g_farmlandManager, "getFarmlandOwner", farmlandId) or nil
-            local poly = {}
-            local points = call(field, "getPolygonPoints") or field.polygonPoints or {}
-            for _, node in ipairs(points) do
-                local x, z = nodePos(node)
-                if x ~= nil then
-                    poly[#poly + 1] = {round(x, 1), round(z, 1)}
-                end
+            local poly = fieldOutline(field)
+            for _, point in ipairs(poly) do point[1], point[2] = round(point[1], 1), round(point[2], 1) end
+            local name = field.name or call(field, "getName")
+            local area = call(field, "getAreaHa") or field.areaHa
+            local x, z = call(field, "getCenterOfFieldWorldPosition")
+            if #poly >= 3 then
+                out.fields[#out.fields + 1] = {
+                    id = id, name = type(name) == "string" and name ~= tostring(id) and name or nil,
+                    areaHa = type(area) == "number" and round(area, 3) or nil,
+                    farmland = farmlandId, owner = owner, x = round(x or field.posX, 1), z = round(z or field.posZ, 1),
+                    polygon = poly
+                }
             end
-            out.fields[#out.fields + 1] = {
-                id = id, name = type(field.name) == "string" and field.name or nil,
-                areaHa = type(field.areaHa) == "number" and round(field.areaHa, 3) or nil,
-                farmland = farmlandId, owner = owner, x = round(field.posX or 0, 1), z = round(field.posZ or 0, 1),
-                polygon = poly
-            }
-            keyParts[#keyParts + 1] = tostring(id) .. ":" .. tostring(owner) .. ":" .. tostring(#poly)
         end
     end
-    local key = table.concat(keyParts, "|")
-    if key == self.fieldsKey then
-        return
-    end
-    if self:writeTextFile(self.fieldsPath, G5Json.encode(out)) then
-        self.fieldsKey = key
+    if #out.fields == 0 then return end
+    local body = G5Json.encode(out)
+    if body ~= self.fieldsKey and self:writeTextFile(self.fieldsPath, body) then
+        self.fieldsKey = body
     end
 end
 
@@ -1325,9 +1354,8 @@ function G5Link:readFarmFinance(farmId)
     end
     out.contracts = {}
     local seen = {}
-    local fields = g_fieldManager and g_fieldManager.fields or {}
-    for _, field in ipairs(fields) do
-        local farmlandId = type(field.farmland) == "table" and field.farmland.id or nil
+    for _, field in ipairs(mapFields()) do
+        local farmlandId = fieldFarmlandId(field)
         if farmlandId ~= nil and not seen[farmlandId] then
             seen[farmlandId] = true
             local c = get("getLandContract", farmlandId)

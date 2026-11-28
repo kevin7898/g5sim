@@ -581,9 +581,15 @@ do
 
     -- map fields (FieldManager) and the farm's machines (VehicleSystem) for the Ops Center files
     local fieldNodes = {addNode(0, 0), addNode(100, 0), addNode(100, 100), addNode(0, 100)}
-    g_fieldManager = {fields = {{fieldId = 7, name = "Field 7", areaHa = 1.0, farmland = {id = 23}, posX = 50, posZ = 50,
-        getPolygonPoints = function(self) return fieldNodes end}},
-        getFieldAtWorldPosition = function(self, x, z) if x >= 0 and x <= 100 and z >= 0 and z <= 100 then return self.fields[1] end return nil end}
+    local farmland = {getId = function() return 23 end}
+    local field = {
+        getId = function() return 7 end, getName = function() return "Field 7" end,
+        getAreaHa = function() return 1.0 end, getFarmland = function() return farmland end,
+        getCenterOfFieldWorldPosition = function() return 50, 50 end, getPolygonPoints = function() return fieldNodes end
+    }
+    farmland.getField = function() return field end
+    g_fieldManager = {getFields = function() return {field} end}
+    g_farmlandManager.getFarmlandAtWorldPosition = function() return farmland end
     g_farmlandManager.getFarmlandOwner = function(self, id) return id == 23 and 1 or 0 end
     g_localPlayer.getFarmId = function(self) return 1 end
     tractor.spec_motorized = {}
@@ -656,9 +662,15 @@ do
     check(string.find(fj, '"id":7', 1, true) ~= nil, "fields.json lists map field 7")
     check(string.find(fj, '"owner":1', 1, true) ~= nil, "fields.json has the owner")
     check(string.find(fj, '[100,100]', 1, true) ~= nil, "fields.json has the polygon")
+    eq(G5Link:getFieldIdAt(50, 50), 7, "native farmland locates its actual field")
+    eq(G5Link:getFieldIdAt(-10, 50), nil, "yard in a field's farmland stays outside the field")
     writeFile(dir .. "fields.json", "SENTINEL")
     tick(41)                                            -- > 10 s: ownership unchanged, so no rewrite
     eq(readFile(dir .. "fields.json"), "SENTINEL", "fields.json only rewritten on change")
+    fieldNodes[3] = addNode(100, 101)
+    G5Link:writeFields()
+    check(string.find(readFile(dir .. "fields.json") or "", '[100,101]', 1, true) ~= nil,
+        "fields.json refreshes when a polygon corner moves")
     local ej = readFile(dir .. "equipment.json") or ""
     check(string.find(ej, '"id":"veh-1"', 1, true) ~= nil, "equipment.json lists the farm's tractor")
     check(string.find(ej, "Neighbour", 1, true) == nil, "equipment.json leaves out other farms' machines")

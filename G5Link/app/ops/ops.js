@@ -6,7 +6,7 @@
 const $ = id => document.getElementById(id);
 function setHtml(el, html) { if (el.__html !== html) { el.innerHTML = html; el.__html = html; } }
 const S = { summary: null, version: -1, page: 'map', mapSub: 'fields', search: '', workKind: null, field: null, detail: null,
-  proposal: null, pick: false, draw: null, layerOp: null, layerKey: 'coverage', frames: [], framesOp: null, framesSeq: 0,
+  proposal: null, coverageEdit: null, pick: false, draw: null, layerOp: null, layerKey: 'coverage', frames: [], framesOp: null, framesSeq: 0,
   overlap: null, work: [], mapsKey: '', profit: null, profitField: null, profitSub: 'pl', serviceSub: 'summary' };
 
 function toast(text, ms = 3200) {
@@ -39,6 +39,14 @@ const shapeSvg = (poly, color = '#d63cc7', cls = 'shape') => {
 // ---------------------------------------------------------------- map (north up: world x right, world z down)
 const canvas = $('map'), ctx = canvas.getContext('2d');
 const V = { cx: 0, cz: 0, ppm: 0.5, fitted: false };
+let drawQueued = false;
+function requestDraw() {
+  if (drawQueued) return;
+  drawQueued = true;
+  requestAnimationFrame(() => { drawQueued = false; draw(); });
+}
+if (window.ResizeObserver) new ResizeObserver(requestDraw).observe(canvas);
+else window.addEventListener('resize', requestDraw);
 function size() {
   const r = canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
   const w = Math.round(r.width * dpr), h = Math.round(r.height * dpr);
@@ -54,6 +62,7 @@ function fitTo(polys) {
   const r = canvas.getBoundingClientRect();
   V.cx = (x0 + x1) / 2; V.cz = (z0 + z1) / 2;
   V.ppm = Math.min(r.width / Math.max(40, (x1 - x0) * 1.2), r.height / Math.max(40, (z1 - z0) * 1.25));
+  requestDraw();
 }
 function fitAll() {
   const sm = S.summary;
@@ -84,6 +93,7 @@ function pathPoly(poly, s) {
 const RAMP = ['#c40b0b', '#dc3b1a', '#ec741c', '#f4a81e', '#f1d424', '#c7dc2c', '#8dc63a', '#55aa3b', '#2f8a31', '#1b6424'];
 const LAYERS = {
   coverage: { label: 'Coverage' },
+  applied: { label: 'Applied Coverage' },
   yield: { label: 'Yield', good: 'high', conv: v => HU.yield(v, opMeta().product), unit: () => HU.yieldUnit() },
   moisture: { label: 'Moisture', good: 'low', unit: () => '%' },
   loss: { label: 'Grain Loss', good: 'low', unit: () => '%' },
@@ -181,6 +191,7 @@ function frameColor(f) {
     return colorIdx(Math.max(0, Math.min(r.n - 1, Math.floor((v - r.lo) / r.step))), r.n, 'high');
   }
   if (S.layerKey === 'coverage') return '#4a7fd6';
+  if (S.layerKey === 'applied') return f.application ? '#44a17c' : null;
   const L = LAYERS[S.layerKey], v = f.v && f.v[S.layerKey], r = layerRange();
   if (typeof v !== 'number' || !r) return null;
   const x = L.conv ? L.conv(v) : v;
@@ -188,8 +199,8 @@ function frameColor(f) {
 }
 
 function draw() {
-  requestAnimationFrame(draw);
   const s = size();
+  if (!s.w || !s.h) return;
   ctx.fillStyle = '#4b4a43'; ctx.fillRect(0, 0, s.w, s.h);
   const sm = S.summary;
   if (!sm) return;
@@ -219,6 +230,7 @@ function draw() {
   if (onField && S.framesOp && S.frames.length) {
     const byColor = new Map(), bb = fieldBox();
     for (const f of S.frames) {
+      if (S.page !== 'profit' && S.layerKey === 'applied' && !f.application) continue;
       if (bb && !inBox(f, bb)) continue;
       const c = frameColor(f) || '#4a7fd6';
       if (!byColor.has(c)) byColor.set(c, []);
@@ -273,6 +285,9 @@ function draw() {
     pathPoly(S.proposal.polygon, s);
     ctx.fillStyle = 'rgba(214, 60, 199, .15)'; ctx.fill();
     ctx.setLineDash([8 * s.dpr, 6 * s.dpr]); ctx.strokeStyle = '#ff5ee8'; ctx.lineWidth = 3 * s.dpr; ctx.stroke(); ctx.setLineDash([]);
+    for (const [a, b] of S.proposal.problemSegments || []) {
+      ctx.beginPath(); ctx.moveTo(...toScreen(...a, s)); ctx.lineTo(...toScreen(...b, s)); ctx.strokeStyle = '#f04a30'; ctx.stroke();
+    }
   }
   if (S.draw && S.draw.points.length) {
     ctx.beginPath();
@@ -328,11 +343,12 @@ canvas.addEventListener('pointermove', e => {
   if (pointers.size === 2 && drag.dist) {
     const [a, b] = [...pointers.values()];
     V.ppm = Math.max(0.05, Math.min(20, drag.ppm * Math.hypot(a[0] - b[0], a[1] - b[1]) / drag.dist));
+    requestDraw();
     drag.moved = true; return;
   }
   const dx = e.offsetX - drag.x, dy = e.offsetY - drag.y;
   if (Math.hypot(dx, dy) > 4) drag.moved = true;
-  if (drag.moved) { V.cx = drag.cx - dx / V.ppm; V.cz = drag.cz - dy / V.ppm; }
+  if (drag.moved) { V.cx = drag.cx - dx / V.ppm; V.cz = drag.cz - dy / V.ppm; requestDraw(); }
 });
 canvas.addEventListener('pointerup', e => {
   pointers.delete(e.pointerId);
@@ -345,13 +361,14 @@ canvas.addEventListener('wheel', e => {
   V.ppm = Math.max(0.05, Math.min(20, V.ppm * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
   const [nx, nz] = toWorld(e.offsetX, e.offsetY);
   V.cx += wx - nx; V.cz += wz - nz;
+  requestDraw();
 }, { passive: false });
-$('zoomIn').onclick = () => { V.ppm = Math.min(20, V.ppm * 1.4); };
-$('zoomOut').onclick = () => { V.ppm = Math.max(0.05, V.ppm / 1.4); };
+$('zoomIn').onclick = () => { V.ppm = Math.min(20, V.ppm * 1.4); requestDraw(); };
+$('zoomOut').onclick = () => { V.ppm = Math.max(0.05, V.ppm / 1.4); requestDraw(); };
 $('zoomFit').onclick = () => { if (S.page === 'field' && S.detail) fitField(); else fitAll(); };
 $('locate').onclick = () => {
   const m = (S.summary && S.summary.equipment || []).find(e => e.inUse) || (S.summary && S.summary.here);
-  if (m) { V.cx = m.x; V.cz = m.z; V.ppm = Math.max(V.ppm, 1.2); } else toast('No machine in use.');
+  if (m) { V.cx = m.x; V.cz = m.z; V.ppm = Math.max(V.ppm, 1.2); requestDraw(); } else toast('No machine in use.');
 };
 
 function inPoly(poly, x, z) {
@@ -366,14 +383,11 @@ async function tapMap(px, py) {
   const [x, z] = toWorld(px, py);
   if (S.draw) { S.draw.points.push([+x.toFixed(1), +z.toFixed(1)]); renderDraw(); return; }
   if (S.pick) {                                          // new field from the coverage under this point
+    const operation = S.pick.operation;
     S.pick = false; $('mapHint').hidden = true;
-    try {
-      const r = await api('/api/ops/from-coverage', { x, z });
-      if (!r.proposal) return toast('No recorded coverage there.');
-      S.proposal = { ...r.proposal, newField: true };
-      showPage('analyze');
-      toast(`New field from a previous operation: ${area(r.proposal.areaHa)}.`, 4000);
-    } catch (e) { toast(e.message); }
+    showPage('analyze');
+    beginCoverageReview({ x, z }, operation);
+    await previewCoverage();
     return;
   }
   const f = (S.summary && S.summary.fields || []).find(ff => inPoly(ff.polygon, x, z));
@@ -388,6 +402,7 @@ function startDraw(fieldId) {
   renderDraw();
 }
 function renderDraw() {
+  requestDraw();
   if (!S.draw) return;
   const p = S.draw.points, n = p.length;
   let a = 0;
@@ -395,7 +410,7 @@ function renderDraw() {
   $('drawInfo').textContent = n < 3 ? `Tap the corners of the field (${n} so far)` : `${n} points · ${area(Math.abs(a) / 2 / 10000)}`;
   $('drawDone').disabled = n < 3; $('drawUndo').disabled = !n;
 }
-function endDraw() { S.draw = null; $('mapDraw').hidden = true; document.querySelector('.mapwrap').classList.remove('drawing'); }
+function endDraw() { S.draw = null; $('mapDraw').hidden = true; document.querySelector('.mapwrap').classList.remove('drawing'); requestDraw(); }
 $('drawUndo').onclick = () => { if (S.draw) { S.draw.points.pop(); renderDraw(); } };
 $('drawCancel').onclick = endDraw;
 $('drawDone').onclick = async () => {
@@ -414,6 +429,11 @@ async function refresh() {
   try {
     const sm = await api('/api/ops/summary');
     const first = !S.summary;
+    if (S.summary && S.summary.save !== sm.save) {
+      S.framesOp = null; S.frames = []; S.framesSeq = 0; S.overlap = null;
+      S.proposal = null; S.coverageEdit = null; S.work = []; S.workJobs = [];
+      if (S.page === 'field') showPage('land');
+    }
     S.summary = sm;
     $('saveName').textContent = sm.save === 'unsaved' ? 'Unsaved game' : `Savegame: ${sm.save}`;
     $('orgName').textContent = `${clientName()} · ${farmName()}`;
@@ -423,6 +443,7 @@ async function refresh() {
     if (sm.version !== S.version) { S.version = sm.version; if (S.field) loadField(S.field, false); }
     const key = maps().map(m => m.id + ':' + m.seq).join('|');
     if (S.page === 'profit') await loadProfit(false);
+    if (S.page === 'analyze' && key !== S.mapsKey) loadWork();
     renderAll(key !== S.mapsKey);
     S.mapsKey = key;
     syncFrames();
@@ -433,6 +454,7 @@ async function refresh() {
 async function syncFrames() {
   const op = S.page === 'field' ? S.layerOp : S.page === 'profit' ? S.profitOp : null;
   if (!op) return;
+  const save = S.summary?.save;
   if (op !== S.framesOp) { S.frames = []; S.framesSeq = 0; S.framesOp = op; S.overlap = null; rangeCache = null; }
   const meta = opMeta(op);
   if (syncFrames.busy || (meta.seq !== undefined && meta.seq <= S.framesSeq && S.overlap && S.overlap.version === meta.overlapVersion)) return;
@@ -440,12 +462,14 @@ async function syncFrames() {
   try {
     for (let guard = 0; guard < 50; guard++) {
       const r = await api(`/api/map/frames?op=${encodeURIComponent(op)}&since=${S.framesSeq}`);
-      if (S.framesOp !== op) return;
+      if (S.framesOp !== op || S.summary?.save !== save || r.save !== undefined && r.save !== save) return;
       for (const f of r.frames) S.frames.push(f);
       S.framesSeq = r.frames.length ? r.frames[r.frames.length - 1].s : r.seq;
       if (!r.more) break;
     }
-    S.overlap = await api(`/api/map/overlap?op=${encodeURIComponent(op)}`);
+    const overlap = await api(`/api/map/overlap?op=${encodeURIComponent(op)}`);
+    if (S.framesOp !== op || S.summary?.save !== save) return;
+    S.overlap = overlap;
     renderLegend();
   } catch (e) { /* retried */ } finally { syncFrames.busy = false; }
 }
@@ -459,6 +483,7 @@ function showPage(page) {
   if (page !== 'profit') S.profitField = null;
   if (page === 'profit') loadProfit();
   if (page !== 'field') { S.field = null; S.detail = null; S.framesOp = null; if (!(S.proposal && S.proposal.newField)) S.proposal = null; }
+  if (!['field', 'analyze'].includes(page) || page === 'analyze' && S.coverageEdit?.context.fieldId) { S.coverageEdit = null; S.proposal = null; }
   if (page === 'analyze') loadWork();
   renderAll(true);
 }
@@ -531,13 +556,14 @@ $('landAddMenu').onclick = e => {
   const b = e.target.closest('[data-add]'); if (!b) return;
   $('landAddMenu').hidden = true;
   if (b.dataset.add === 'draw') startDraw(null);
-  else if (b.dataset.add === 'coverage') { S.pick = true; $('mapHint').hidden = false; $('mapHint').textContent = 'Tap the recorded coverage of the new field'; }
+  else if (b.dataset.add === 'coverage') { S.pick = {}; $('mapHint').hidden = false; $('mapHint').textContent = 'Tap the recorded coverage of the new field'; }
   else toast('On the G5 display: Menu > Applications > Boundary, choose New Field, then drive the edge.', 5000);
 };
 
 // Field page
 async function openField(id) {
   S.proposal = null;
+  S.coverageEdit = null;
   showPage('field');
   S.field = String(id);
   await loadField(id, true);
@@ -666,9 +692,82 @@ function openReport(d) {
   w.document.write(html); w.document.close();
 }
 
+function beginCoverageReview(context, operation = null) {
+  S.proposal = null;
+  S.coverageEdit = { context, save: S.summary?.save, operation: operation || maps().find(m => m.frames > 0)?.id || '', coverageClass: 'worked', pending: false };
+  repaintCoverage();
+}
+
+function repaintCoverage() {
+  requestDraw();
+  if (S.page === 'field') renderField();
+  if (S.page === 'analyze') renderWork();
+}
+
+async function previewCoverage() {
+  const edit = S.coverageEdit;
+  if (!edit?.operation || edit.pending) return;
+  S.proposal = null;
+  edit.pending = true;
+  repaintCoverage();
+  try {
+    const r = await api('/api/ops/from-coverage', { ...edit.context, operation: edit.operation, coverageClass: edit.coverageClass });
+    if (edit !== S.coverageEdit || edit.save !== S.summary?.save) return;
+    if (!r.proposal) { edit.message = 'This operation has no coverage at the selected location.'; return; }
+    edit.message = '';
+    S.proposal = { ...r.proposal, newField: !edit.context.fieldId };
+    if (edit.context.fieldId) fitField();
+    else fitTo([r.proposal.polygon]);
+  } catch (e) { if (edit === S.coverageEdit) edit.message = e.message; }
+  finally { if (edit === S.coverageEdit) { edit.pending = false; repaintCoverage(); } }
+}
+
+function coverageEditor() {
+  const edit = S.coverageEdit;
+  if (!edit) return '';
+  const options = maps().filter(m => m.frames > 0);
+  const applied = options.find(m => m.id === edit.operation)?.hasApplication;
+  const p = S.proposal;
+  return `<div class="proposal coverage-review"><b>Coverage Boundary</b>
+    <div class="coverage-options"><label>Operation<select id="proposalOp" ${edit.pending || !options.length ? 'disabled' : ''}>${options.length ? options.map(m => `<option value="${esc(m.id)}" ${m.id === edit.operation ? 'selected' : ''}>${esc(m.title)}</option>`).join('') : '<option>No recorded operations</option>'}</select></label>
+    <label>Coverage<select id="proposalClass" ${edit.pending ? 'disabled' : ''}><option value="worked">Worked</option><option value="applied" ${edit.coverageClass === 'applied' ? 'selected' : ''} ${applied ? '' : 'disabled'}>Applied</option></select></label></div>
+    ${p ? `<p>Proposed ${area(p.areaHa)}${p.previousHa == null ? '' : ` · Active ${area(p.previousHa)} · ${p.addedHa >= 0 ? '+' : ''}${area(p.addedHa)}`}</p>
+      ${p.problems.length ? `<ul>${p.problems.map(problem => `<li>${esc(problem)}</li>`).join('')}</ul>` : ''}` : ''}
+    ${edit.message ? `<p role="status">${esc(edit.message)}</p>` : ''}
+    <div class="acts"><button class="btn" id="proposalPreview" ${edit.operation && !edit.pending ? '' : 'disabled'}>${edit.pending ? 'Working…' : 'Preview Outline'}</button>
+      ${p ? `<button class="btn primary" id="proposalSave" ${p.valid && !edit.pending ? '' : 'disabled'}>Save ${p.newField ? 'as New Field' : 'as New Boundary'}</button>` : ''}
+      <button class="btn" id="proposalClose">Discard</button></div></div>`;
+}
+
+function bindCoverageEditor() {
+  if (!$('proposalPreview')) return;
+  $('proposalPreview').onclick = previewCoverage;
+  $('proposalOp').onchange = e => { S.coverageEdit.operation = e.target.value; S.coverageEdit.coverageClass = 'worked'; S.proposal = null; repaintCoverage(); };
+  $('proposalClass').onchange = e => { S.coverageEdit.coverageClass = e.target.value; S.proposal = null; repaintCoverage(); };
+  $('proposalClose').onclick = () => { S.coverageEdit = null; S.proposal = null; repaintCoverage(); };
+  if ($('proposalSave')) $('proposalSave').onclick = async () => {
+    const p = S.proposal, edit = S.coverageEdit;
+    if (!p?.valid || edit?.pending || edit?.save !== S.summary?.save) return;
+    const name = p.newField ? prompt('Name for the new field', 'New Field') : null;
+    if (p.newField && !name?.trim()) return;
+    edit.pending = true;
+    repaintCoverage();
+    try {
+      const result = await api('/api/ops/from-coverage', { action: 'commit', id: p.id, name });
+      if (edit !== S.coverageEdit) return;
+      S.proposal = null; S.coverageEdit = null;
+      toast(p.newField ? 'Field created.' : 'Boundary saved.');
+      await refresh();
+      if (p.newField) openField(result.field);
+    } catch (e) { if (edit === S.coverageEdit) edit.message = e.message; }
+    finally { edit.pending = false; repaintCoverage(); }
+  };
+}
+
 function renderField() {
   const d = S.detail;
   if (!d) return;
+  requestDraw();
   const f = d.field, b = f.boundaries.find(x => x.v === f.active), recs = d.records;
   $('fieldCrumb').textContent = f.name;
   const versions = [...f.boundaries].sort((x, y) => (y.v === f.active) - (x.v === f.active) || y.v - x.v);
@@ -680,7 +779,7 @@ function renderField() {
     ${versions.map(x => `<div class="bnd ${x.v === f.active ? 'active' : ''}">${shapeSvg(x.polygon, x.v === f.active ? '#d63cc7' : '#9a988d')}
         <b>${esc(f.name)}-Boundary${f.boundaries.length > 1 ? ' ' + x.v : ''}</b>
         ${x.v === f.active ? '<span class="state">Active</span>' : `<button class="mini" data-use="${x.v}">Make Active</button>`}
-        <span class="sub">Basic | ${SOURCE[x.source] || x.source} | ${area(x.areaHa)}${dateTxt(x.at) ? ' | ' + dateTxt(x.at) : ''}${x.source !== 'game' ? ` · <button class="mini" data-remove="${x.v}">Delete</button>` : ''}</span></div>`).join('')}
+        <span class="sub">Basic | ${SOURCE[x.source] || x.source} | ${area(x.areaHa)}${dateTxt(x.at) ? ' | ' + dateTxt(x.at) : ''} · <button class="mini" data-edge-track="${x.v}">Create Edge Track</button>${x.source !== 'game' ? ` · <button class="mini" data-remove="${x.v}">Delete</button>` : ''}</span></div>`).join('')}
     <div class="bnd-actions"><span></span>
       <div class="add-wrap"><button class="linkbtn" id="addBnd">+ Add Boundary ▾</button>
         <div class="menu" id="addBndMenu" hidden>
@@ -688,8 +787,7 @@ function renderField() {
           <button data-ab="coverage"><b>From a previous operation</b><span>Trace it from recorded coverage, e.g. after working new ground</span></button>
           <button data-ab="drive"><b>Drive the edge</b><span>Boundary app on the G5 display, in this field</span></button>
         </div></div></div>
-    ${S.proposal && !S.proposal.newField ? `<div class="proposal">From a previous operation: ${area(S.proposal.areaHa)} (${S.proposal.addedHa >= 0 ? '+' : ''}${area(S.proposal.addedHa)})
-      <div class="acts"><button class="btn primary" id="propSave">Save as New Boundary</button><button class="btn" id="propDrop">Discard</button></div></div>` : ''}
+    ${S.coverageEdit?.context.fieldId === f.id ? coverageEditor() : ''}
     <p class="note">The newest driven, drawn or traced boundary is active unless you make another one active. Work records follow the active boundary.</p>
     <h3>Guidance</h3>
     ${(d.tracks || []).length ? d.tracks.map(t => `<div class="bnd"><svg class="shape" viewBox="0 0 26 16"><path d="M3 14L23 2" stroke="#1f1f1d" stroke-width="2"/></svg>
@@ -704,6 +802,7 @@ function renderField() {
     <h3>Prescriptions</h3>
     ${rxSection(d, recs)}`);
   bindRx(d);
+  bindCoverageEditor();
   $('fieldReport').onclick = () => openReport(d);
   $('fieldRename').onclick = async () => {
     const name = prompt('Field name', f.name);
@@ -716,17 +815,17 @@ function renderField() {
     $('addBndMenu').hidden = true;
     if (btn.dataset.ab === 'draw') return startDraw(f.id);
     if (btn.dataset.ab === 'drive') return toast('On the G5 display: Menu > Applications > Boundary, choose this field, then drive the edge.', 5000);
+    beginCoverageReview({ fieldId: f.id }, S.layerOp);
+  };
+  $('fieldDetail').querySelectorAll('[data-edge-track]').forEach(button => { button.onclick = async () => {
+    button.disabled = true;
     try {
-      const r = await api('/api/ops/from-coverage', { fieldId: f.id });
-      if (!r.proposal) return toast('No recorded coverage around this field.');
-      S.proposal = r.proposal; renderField(); fitField();
-    } catch (err) { toast(err.message); }
-  };
-  if ($('propSave')) $('propSave').onclick = async () => {
-    try { await api('/api/ops/boundary', { fieldId: f.id, source: 'coverage', polygon: S.proposal.polygon, note: 'From a previous operation' }); S.proposal = null; toast('Boundary saved.'); refresh(); }
-    catch (e) { toast(e.message); }
-  };
-  if ($('propDrop')) $('propDrop').onclick = () => { S.proposal = null; renderField(); };
+      await api('/api/ops/tracks', { action: 'fromBoundary', fieldId: f.id, v: Number(button.dataset.edgeTrack) });
+      toast('Guidance track created from the longest edge.');
+      await loadField(f.id, false);
+    } catch (e) { toast(e.message); }
+    finally { button.disabled = false; }
+  }; });
   $('fieldDetail').querySelectorAll('[data-trk-rename]').forEach(x => { x.onclick = async () => {
     const t = d.tracks.find(y => y.id === x.dataset.trkRename); const name = t && prompt('Track name', t.name);
     if (!name) return;
@@ -751,7 +850,7 @@ function renderLayerControls() {
   if (ops.length) {
     if (!ops.includes(S.layerOp)) S.layerOp = ops[0];
     setHtml($('layerOp'), ops.map(id => `<option value="${esc(id)}" ${id === S.layerOp ? 'selected' : ''}>${esc(opMeta(id).title || id)}</option>`).join(''));
-    const keys = ['coverage'].concat((opMeta().values || []).filter(k => LAYERS[k]));
+    const keys = ['coverage', ...(opMeta().hasApplication ? ['applied'] : [])].concat((opMeta().values || []).filter(k => LAYERS[k]));
     if (!keys.includes(S.layerKey)) S.layerKey = 'coverage';
     setHtml($('layerKey'), keys.map(k => `<option value="${k}" ${k === S.layerKey ? 'selected' : ''}>${k === 'rate' ? rateLabel() : LAYERS[k].label}</option>`).join(''));
   }
@@ -760,6 +859,7 @@ function renderLayerControls() {
 $('layerOp').onchange = e => { S.layerOp = e.target.value; rangeCache = null; renderLayerControls(); syncFrames(); };
 $('layerKey').onchange = e => { S.layerKey = e.target.value; rangeCache = null; renderLegend(); };
 function renderLegend() {
+  requestDraw();
   if (S.page === 'profit') {
     const r = S.profitField && profitRange();
     $('mapLegend').hidden = !r;
@@ -780,6 +880,10 @@ function renderLegend() {
   if (!S.framesOp) { setHtml($('mapLegend'), '<b>Field</b><span class="lg"><i class="sq" style="background:#d63cc7"></i>Active Boundary</span>'); return; }
   if (S.layerKey === 'coverage') {
     setHtml($('mapLegend'), '<b>Coverage</b><span class="lg"><i class="sq" style="background:#4a7fd6"></i>Once</span><span class="lg"><i class="sq" style="background:#16307f"></i>Overlap</span><span class="lg"><i class="sq" style="background:#d63cc7"></i>Active Boundary</span>');
+    return;
+  }
+  if (S.layerKey === 'applied') {
+    setHtml($('mapLegend'), '<b>Applied Coverage</b><span class="lg"><i class="sq" style="background:#44a17c"></i>Confirmed application</span><span class="lg"><i class="sq" style="background:#d63cc7"></i>Active Boundary</span>');
     return;
   }
   const L = LAYERS[S.layerKey], r = layerRange();
@@ -818,25 +922,19 @@ function renderWork() {
       <span>${esc(j.fieldName || 'No field selected')}${j.boundaryVersion != null ? ` · Boundary ${j.boundaryVersion}` : ''} · ${j.finished ? 'Finished' : 'Open'}</span>
       ${stats ? `<span>${esc(stats)}</span>` : ''}</div><span class="num">${t ? area(t.workedHa) : '—'}</span></div>`;
   }).join('')}<h4 class="jobs-group">Operation History</h4>` : '';
-  const prop = S.proposal && S.proposal.newField ? `<div class="proposal" style="margin:8px 14px">New field from a previous operation: ${area(S.proposal.areaHa)}
-      <div class="acts"><button class="btn primary" id="newSave">Save as New Field</button><button class="btn" id="newDrop">Discard</button></div></div>` : '';
+  const prop = S.coverageEdit && !S.coverageEdit.context.fieldId ? coverageEditor() : '';
   setHtml($('workList'), prop + jobList + (recs.length ? recs.map(r => `
     <div class="row" ${r.field ? `data-field="${esc(r.field)}"` : ''}><i class="wk ${r.kind}"></i>
       <div class="nm"><b>${esc(r.title)}</b><span>${esc(r.fieldName)}${dayTxt(r.firstDay) ? ' · ' + dayTxt(r.firstDay) : ''}${r.lastDay !== r.firstDay && dayTxt(r.lastDay) ? ' – ' + dayTxt(r.lastDay) : ''}</span>
-        <span>${esc(recordValues(r))}</span>${r.field ? '' : '<span><button class="linkbtn" data-pick="1">Create a field from this coverage</button></span>'}</div>
+        <span>${esc(recordValues(r))}</span>${r.field ? '' : `<span><button class="linkbtn" data-pick="${esc(r.op)}">Create a field from this coverage</button></span>`}</div>
       <span class="num">${r.field ? area(r.coveredHa) : area(r.swathHa)}</span><span class="chev">${r.field ? '›' : ''}</span></div>`).join('')
     : '<p class="empty">No work recorded in this savegame yet.</p>'));
-  if ($('newSave')) $('newSave').onclick = async () => {
-    const name = prompt('Name for the new field', 'New Field');
-    if (!name) return;
-    try { const r = await api('/api/ops/boundary', { name, newField: true, source: 'coverage', polygon: S.proposal.polygon, note: 'From a previous operation' }); S.proposal = null; toast('Field created.'); await refresh(); openField(r.field); }
-    catch (e) { toast(e.message); }
-  };
-  if ($('newDrop')) $('newDrop').onclick = () => { S.proposal = null; renderWork(); };
+  bindCoverageEditor();
 }
 $('workChips').onclick = e => { const b = e.target.closest('[data-kind]'); if (b) { S.workKind = S.workKind === b.dataset.kind ? null : b.dataset.kind; renderWork(); } };
 $('workList').onclick = e => {
-  if (e.target.closest('[data-pick]')) { S.pick = true; $('mapHint').hidden = false; $('mapHint').textContent = 'Tap the recorded coverage of the new field'; return; }
+  const pick = e.target.closest('[data-pick]');
+  if (pick) { S.pick = { operation: pick.dataset.pick }; $('mapHint').hidden = false; $('mapHint').textContent = 'Tap the recorded coverage of the new field'; return; }
   const r = e.target.closest('[data-field]');
   if (r) openField(r.dataset.field);
 };
@@ -1179,4 +1277,4 @@ document.addEventListener('click', e => {
 
 refresh();
 setInterval(refresh, 3000);
-requestAnimationFrame(draw);
+requestDraw();

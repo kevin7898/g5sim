@@ -90,15 +90,28 @@ try {
   check(!lw['2'], 'field 2 has no work');
 
   // --- expand field 1 from coverage
-  const prop = store.fromCoverage(SAVE, { fieldId: '1' });
+  const operation = cov.list().ops.find(op => op.kind === 'seeding').id;
+  const wrongField = store.reviewCoverage(SAVE, { fieldId: '2', operation });
+  check(wrongField && !wrongField.valid && wrongField.problems.some(p => /does not reach/.test(p)), 'nearby work cannot extend an unrelated field');
+  check(store.reviewCoverage(SAVE, { fieldId: '1', operation, coverageClass: 'applied' }) === null, 'worked history does not invent applied coverage');
+  const reviewed = store.reviewCoverage(SAVE, { fieldId: '1', operation });
+  check(reviewed && reviewed.valid && reviewed.previousVersion === 2, 'selected-operation preview validates against active version');
+  check(store.field(SAVE, '1').active === 2, 'preview leaves the active version untouched');
+  store.setActive(SAVE, '1', 1);
+  let refused = false;
+  try { store.commitCoverage(SAVE, reviewed.id); } catch (error) { refused = /active boundary changed/.test(error.message); }
+  check(refused && store.field(SAVE, '1').active === 1, 'changes to the active version invalidate the preview');
+  store.setActive(SAVE, '1', 2);
+  const prop = store.reviewCoverage(SAVE, { fieldId: '1', operation });
   check(prop !== null, 'coverage proposal made');
   near(prop.areaHa, 1.08 + 0.324, 0.05, 'expanded area includes the new ground');
   near(prop.addedHa, 0.324, 0.05, 'added area');
   check(inPolygon(prop.polygon, 120, 50) && inPolygon(prop.polygon, 50, 50), 'new polygon covers old and new ground');
   check(!inPolygon(prop.polygon, 250, 50), 'and not field 2');
   check(prop.polygon.length <= 12, `outline simplified (${prop.polygon.length} points)`);
-  const r3 = store.addBoundary(SAVE, { fieldId: '1', source: 'coverage', polygon: prop.polygon });
+  const r3 = store.commitCoverage(SAVE, prop.id);
   check(r3.v === 3 && store.list(SAVE).find(f => f.id === '1').source === 'coverage', 'coverage boundary saved as version 3');
+  check(store.commitCoverage(SAVE, prop.id).v === r3.v && store.field(SAVE, '1').boundaries.length === 3, 'repeated commit recovers the same version');
   near(store.records(SAVE, '1')[0].coveredHa, 1.08 + 0.324, 0.05, 'records follow the new boundary');
 
   // --- a brand-new field traced from a point on isolated coverage
@@ -180,6 +193,8 @@ try {
   check(store2.list(SAVE).length === 3, 'fields reloaded');
   check(store2.db(SAVE).settings.client === 'Kev', 'settings reloaded');
   check(store2.tracks(SAVE).length === 2 && store2.workSetup(SAVE).farm === 'North', 'tracks and work setup reloaded');
+  const edge = store2.trackFromBoundary(SAVE, '1', r3.v);
+  check(edge.how === 'Boundary Edge' && edge.boundaryVersion === r3.v && edge.fieldId === '1', 'edge track records the chosen version');
   check(store2.field(SAVE, '1').boundaries.length === 3, 'boundary versions reloaded');
   near(store2.records(SAVE, '1').find(r => r.kind === 'seeding').coveredHa, 1.08 + 0.324, 0.05, 'records rebuilt after reload');
   store2.removeBoundary(SAVE, 'u1', 1);

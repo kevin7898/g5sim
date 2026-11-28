@@ -16,6 +16,8 @@ const MAX_STEP = 8;             // m between frames before a sweep is treated as
 const TURN_DEG = 100;           // heading change from the pass start that starts a new pass
 const ENDPOINT_TOLERANCE = 0.04; // m, work-area corners arrive rounded to centimetres
 const MAX_FRAME_GAP = 2000;      // ms of mission time
+const PROCESSING_GAP_DRIVEN = 800; // ms, up to two missed 4 Hz samples between confirmations
+const PROCESSING_GAP_FLEET = 1100; // ms, one missed 2 Hz sample between confirmations
 const FLUSH_MS = 2000;
 const FRAME_LIMIT = 20000;      // frames per /api/map/frames response
 
@@ -51,6 +53,16 @@ function inQuad(q, x, z) {               // even-odd test, works for any simple 
   return inside;
 }
 
+function crossing(a, b, c, d) {
+  const ux = b[0] - a[0], uz = b[1] - a[1], vx = d[0] - c[0], vz = d[1] - c[1];
+  const determinant = ux * vz - uz * vx;
+  if (Math.abs(determinant) < 1e-9) return null;
+  const dx = c[0] - a[0], dz = c[1] - a[1];
+  const t = (dx * vz - dz * vx) / determinant, u = (dx * uz - dz * ux) / determinant;
+  if (t <= 0 || t >= 1 || u <= 0 || u >= 1) return null;
+  return [a[0] + t * ux, a[1] + t * uz];
+}
+
 class Operation {
   constructor(id, meta) {
     this.id = id;
@@ -64,6 +76,7 @@ class Operation {
     this.overlapCache = null;
     this.values = new Set();
     this.pending = [];           // lines to append
+    this.hasApplication = false;
   }
   cell(cx, cz, create) {
     const tx = Math.floor(cx / TILE), tz = Math.floor(cz / TILE), key = tx + ',' + tz;
@@ -100,6 +113,7 @@ class Operation {
     this.seq++;
     frame.s = this.seq;
     this.frames.push(frame);
+    if (frame.application) this.hasApplication = true;
     for (const k of Object.keys(frame.v || {})) this.values.add(k);
     for (const q of frame.q) this.paint(q, frame.p);
     if (persist) this.pending.push(JSON.stringify(frame));
@@ -160,6 +174,7 @@ class Operation {
       areaHa: +(this.coveredCells * CELL * CELL / 10000).toFixed(3),
       overlapHa: +(this.overlapCells * CELL * CELL / 10000).toFixed(3),
       values: [...this.values].filter(k => VALUE_KEYS.includes(k)), overlapVersion: this.overlapVersion,
+      hasApplication: this.hasApplication,
     };
   }
 }
@@ -272,7 +287,7 @@ class CoverageStore {
       if (impl.processing?.[i] === false && impl.sprayer?.applying !== true) return;
       if (![g.sx, g.sz, g.wx, g.wz].every(Number.isFinite)) return;
       const ls = lat(g.sx, g.sz), lw = lat(g.wx, g.wz);
-      spans.set(i, ls <= lw ? { l: ls, a: [g.sx, g.sz], b: [g.wx, g.wz] } : { l: lw, a: [g.wx, g.wz], b: [g.sx, g.sz] });
+      spans.set(i, { l: Math.min(ls, lw), reversed: ls > lw, a: [g.sx, g.sz], b: [g.wx, g.wz] });
     });
     return spans;
   }
@@ -281,15 +296,26 @@ class CoverageStore {
     const distance = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
     const strips = [];
     for (const [id, to] of [...current.entries()].sort(([, a], [, b]) => a.l - b.l)) {
-      const from = previous.get(id);
-      if (!from) continue;
-      const step = Math.max(distance(from.a, to.a), distance(from.b, to.b));
+      const prior = previous.get(id);
+      if (!prior) continue;
+      const step = Math.max(distance(prior.a, to.a), distance(prior.b, to.b));
       if (step < 0.02 || step > MAX_STEP) continue;
-      const left = strips.find(strip => distance(strip.fromB, from.a) < ENDPOINT_TOLERANCE && distance(strip.toB, to.a) < ENDPOINT_TOLERANCE);
-      if (left) { left.fromB = from.b; left.toB = to.b; }
-      else strips.push({ fromA: from.a, fromB: from.b, toA: to.a, toB: to.b });
+      // Match the same physical node across frames, even when the tool swings past
+      // the tractor's lateral axis. Normalize winding only after matching.
+      const [fromA, fromB] = to.reversed ? [prior.b, prior.a] : [prior.a, prior.b];
+      const [toA, toB] = to.reversed ? [to.b, to.a] : [to.a, to.b];
+      const left = strips.find(strip => distance(strip.fromB, fromA) < ENDPOINT_TOLERANCE && distance(strip.toB, toA) < ENDPOINT_TOLERANCE);
+      if (left) { left.fromB = fromB; left.toB = toB; }
+      else strips.push({ fromA, fromB, toA, toB });
     }
-    return strips.map(s => [...s.fromA, ...s.fromB, ...s.toB, ...s.toA].map(n => +n.toFixed(2))).filter(q => quadArea(q) > 0.001);
+    const quads = strips.flatMap(({ fromA, fromB, toA, toB }) => {
+      // On a pivot, the leading and trailing edges can cross. Keep both
+      // swept lobes as triangles using the existing four-corner record format.
+      const p = crossing(fromA, fromB, toA, toB);
+      if (p) return [[...fromA, ...p, ...toA, ...toA], [...p, ...fromB, ...toB, ...toB]];
+      return [[...fromA, ...fromB, ...toB, ...toA]];
+    });
+    return quads.map(q => q.map(n => +n.toFixed(2))).filter(q => quadArea(q) > 0.001);
   }
 
   // Values recorded with this frame's swaths.
@@ -336,16 +362,96 @@ class CoverageStore {
 
   machine(id) {
     let m = this.machines.get(id);
-    if (!m) { m = { track: new Map(), passes: new Map(), source: null, position: null, time: null, seq: null, job: null }; this.machines.set(id, m); }
+    if (!m) {
+      m = { track: new Map(), passes: new Map(), source: null, position: null, time: null, job: null,
+        received: null, ground: new Map(), queue: [] };
+      this.machines.set(id, m);
+    }
     return m;
   }
 
+  drainGround(ms, id, force = false) {
+    while (ms.queue.length && (force || !ms.queue[0].pending.size)) {
+      const { t, source, repairs } = ms.queue.shift();
+      if (!repairs.length) {
+        this.recordFrame(t, source, id, ms);
+        continue;
+      }
+      const implements_ = t.implements.slice();
+      for (const { index, area } of repairs) {
+        if (implements_[index] === t.implements[index]) {
+          implements_[index] = { ...implements_[index], processing: implements_[index].processing.slice() };
+        }
+        implements_[index].processing[area] = true;
+      }
+      this.recordFrame({ ...t, implements: implements_ }, source, id, ms);
+    }
+  }
+
+  queueGround(t, source, id, ms, now) {
+    const prev = ms.received, v = t.vehicle;
+    if (prev?.source === source && t.seq != null && prev.t.seq === t.seq) return;
+    if (prev && (prev.source !== source || prev.t.activeWork?.id !== t.activeWork?.id ||
+        prev.t.work?.counterEpoch !== t.work?.counterEpoch || Math.hypot(v.x - prev.t.vehicle.x, v.z - prev.t.vehicle.z) > MAX_STEP ||
+        !(t.time > prev.t.time && t.time - prev.t.time <= MAX_FRAME_GAP))) {
+      this.drainGround(ms, id, true);
+      ms.ground.clear();
+    }
+    const entry = { t, source, pending: new Map(), repairs: [] };
+    const ground = new Map();
+    const driven = source === 'driven';
+    const maxGap = driven ? PROCESSING_GAP_DRIVEN : PROCESSING_GAP_FLEET;
+    const maxMissed = driven ? 2 : 1;
+    if (Number.isFinite(t.time) && v.onField === true && v.dir > 0 && v.speed > 0.3 && v.motorOn !== false) {
+      for (const [index, impl] of (t.implements || []).entries()) {
+        // Sprayers have a separate as-applied signal. For other tools the
+        // engine's processing bit expires after 200 ms, before the next sample.
+        if (!impl.processing || impl.sprayer || impl.canTurnOn && !impl.turnedOn) continue;
+        const op = operationId(this.operationOf(t, impl));
+        for (const g of impl.geometry || []) {
+          const area = g.i ?? 0, changed = impl.processing[area];
+          if (!impl.areas?.[area] || typeof changed !== 'boolean' || ![g.sx, g.sz, g.wx, g.wz].every(Number.isFinite)) continue;
+          const key = JSON.stringify([impl.id ?? index, op, area]);
+          const anchor = ms.ground.get(key);
+          const continuous = anchor && t.time - anchor.time <= maxGap && (changed || anchor.missed < maxMissed) &&
+            Math.max(Math.hypot(g.sx - anchor.g.sx, g.sz - anchor.g.sz), Math.hypot(g.wx - anchor.g.wx, g.wz - anchor.g.wz)) <= MAX_STEP;
+          if (continuous) {
+            ground.set(key, { time: changed ? t.time : anchor.time, g, continuous: true, changed, missed: changed ? 0 : anchor.missed + 1 });
+            if (!changed) entry.pending.set(key, { index, area });
+          } else if (changed) {
+            ground.set(key, { time: t.time, g, continuous: false, changed, missed: 0 });
+          }
+        }
+      }
+    }
+    for (const pending of ms.queue) {
+      for (const [key, repair] of pending.pending) {
+        const next = ground.get(key);
+        if (next?.continuous && !next.changed) continue;
+        pending.pending.delete(key);
+        if (next?.continuous && next.changed) pending.repairs.push(repair);
+      }
+    }
+    ms.received = entry;
+    ms.ground = ground;
+    ms.queue.push(entry);
+    this.drainGround(ms, id);
+    this.flush(now);
+  }
+
+  forgetMachine(id) {
+    const ms = this.machines.get(id);
+    if (ms) this.drainGround(ms, id, true);
+    this.machines.delete(id);
+  }
+
   interrupt() {
-    this.machines.clear();
+    const now = Date.now();
+    for (const id of this.machines.keys()) this.forgetMachine(id);
     this.drivenId = null;
     this.current = null;
     this.rates.clear();
-    this.flush(Date.now(), true);
+    this.flush(now, true);
   }
   // A vehicle may move between the driven and fleet feeds. The next source starts a fresh sweep.
   onFrame(t, source = 'driven') {
@@ -364,7 +470,7 @@ class CoverageStore {
     if (t?.state !== 'vehicle' || !Number.isFinite(v?.x) || !Number.isFinite(v?.z)) {
       const id = driven ? this.drivenId : source;
       // A late empty fleet report must not interrupt the driver's current pose.
-      if (id && (driven || this.machines.get(id)?.source !== 'driven')) this.machines.delete(id);
+      if (id && (driven || this.machines.get(id)?.received?.source !== 'driven')) this.forgetMachine(id);
       if (driven) { this.drivenId = null; this.current = null; }
       this.flush(now);
       return;
@@ -372,11 +478,14 @@ class CoverageStore {
     const id = driven && v.id != null ? `m:${v.id}` : source;
     if (!driven && id === this.drivenId) return;
     if (driven && this.drivenId !== id) {
-      if (this.drivenId) this.machines.delete(this.drivenId);
+      if (this.drivenId) this.forgetMachine(this.drivenId);
       this.drivenId = id;
     }
-    const ms = this.machine(id);
-    if (source === ms.source && t.seq != null && t.seq === ms.seq) return;
+    this.queueGround(t, source, id, this.machine(id), now);
+  }
+
+  recordFrame(t, source, id, ms) {
+    const driven = source === 'driven', v = t.vehicle;
     const distance = ms.position ? Math.hypot(v.x - ms.position[0], v.z - ms.position[1]) : 0;
     const elapsed = Number.isFinite(t.time) && ms.time !== null ? t.time - ms.time : null;
     const job = driven ? t.activeWork || null : null;
@@ -386,7 +495,6 @@ class CoverageStore {
     }
     ms.position = [v.x, v.z];
     ms.source = source;
-    ms.seq = t.seq;
     ms.time = Number.isFinite(t.time) ? t.time : null;
     ms.job = job?.id;
 
@@ -445,7 +553,6 @@ class CoverageStore {
         if (elapsed > 0 && this.counter.timeS !== null) this.counter.timeS += elapsed / 1000;
       }
     }
-    this.flush(now);
   }
 
   passReport() {
@@ -476,6 +583,18 @@ class CoverageStore {
     return view;
   }
 
+  coverageClass(save, id, type) {
+    const op = this.ops(save).get(id);
+    if (type === 'worked') return op || null;
+    if (type !== 'applied' || !op?.hasApplication) return null;
+    if (!op.appliedView) op.appliedView = { op: new Operation(id, op.meta), cursor: 0 };
+    const view = op.appliedView;
+    for (; view.cursor < op.frames.length; view.cursor++) {
+      if (op.frames[view.cursor].application) view.op.addFrame({ ...op.frames[view.cursor] }, false);
+    }
+    return view.op;
+  }
+
   flush(now = Date.now(), force = false) {
     if (!this.persist || (!force && now - this.lastFlush < FLUSH_MS)) return true;
     this.lastFlush = now;
@@ -495,6 +614,10 @@ class CoverageStore {
   }
 
   clear(opId) {
+    for (const [id, ms] of this.machines) {
+      this.drainGround(ms, id, true);
+      ms.ground.clear();
+    }
     const m = this.ops();
     if (!m.has(opId)) return false;
     m.delete(opId);
@@ -506,16 +629,16 @@ class CoverageStore {
   status() {
     const m = this.ops();
     const ops = {};
-    for (const op of m.values()) ops[op.id] = [op.seq, op.overlapVersion];
+    for (const op of m.values()) ops[op.id] = [op.seq, op.overlapVersion, op.hasApplication];
     return { save: this.save, current: this.current, ops };
   }
   list() { return { save: this.save, current: this.current, ops: [...this.ops().values()].map(op => op.summary()) }; }
   frames(opId, since = 0) {
     const op = this.ops().get(opId);
-    if (!op) return { op: opId, seq: 0, frames: [], more: false };
+    if (!op) return { save: this.save, op: opId, seq: 0, frames: [], more: false };
     const start = op.frames.findIndex(f => f.s > since);
     const slice = start < 0 ? [] : op.frames.slice(start, start + FRAME_LIMIT);
-    return { op: opId, seq: op.seq, frames: slice, more: start >= 0 && start + FRAME_LIMIT < op.frames.length, meta: op.meta };
+    return { save: this.save, op: opId, seq: op.seq, frames: slice, more: start >= 0 && start + FRAME_LIMIT < op.frames.length, meta: op.meta };
   }
   overlap(opId) {
     const op = this.ops().get(opId);

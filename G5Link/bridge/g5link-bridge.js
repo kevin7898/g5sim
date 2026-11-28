@@ -21,6 +21,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const BRIDGE_VERSION = '0.12.0.0';
 
 // ---------------------------------------------------------------- options
 const args = process.argv.slice(2);
@@ -233,7 +234,7 @@ function rhFromNode(n) {
 }
 
 // ---------------------------------------------------------------- state + SSE
-let latest = { state: 'waiting', link: 'waiting' };
+let latest = { state: 'waiting', link: 'waiting', bridgeVersion: BRIDGE_VERSION };
 let lastTelemetryKey = null;
 let lastSeqAt = 0;
 const clients = new Set();
@@ -347,7 +348,7 @@ function setTelemetry(t) {
     lastTelemetryKey = key;
     lastSeqAt = Date.now();
   }
-  latest = { ...t, ...currentExtras(), link: fresh ? 'live' : latest.link };
+  latest = { ...t, ...currentExtras(), bridgeVersion: BRIDGE_VERSION, link: fresh ? 'live' : latest.link };
   latest.workState = workStateFor(latest);
   let job = null;
   try {
@@ -555,7 +556,7 @@ function demoCommand(c) {
     case 'cruiseAdjust': demo.ccSpeed = Math.max(1, Math.min(40, demo.ccSpeed + c.value)); break;
     case 'lowerAll': demo.lowered = !demo.lowered; break;
     case 'turnOnAll': case 'implTurnOn': demo.turnedOn = !demo.turnedOn; break;
-    case 'resetWork': Object.keys(demo.work).forEach(k => { demo.work[k] = 0; }); break;
+    case 'resetWork': Object.keys(demo.work).forEach(k => { demo.work[k] = 0; }); demo.workEpoch = (demo.workEpoch || 0) + 1; break;
     case 'lightsToggle': demo.lights = !demo.lights; break;
     case 'workLightsToggle': demo.workLights = !demo.workLights; break;
     case 'beaconToggle': demo.beacon = !demo.beacon; break;
@@ -809,7 +810,7 @@ function demoSprayer(t, meters, working) {
   const tank = { title: 'Liquid Fertilizer', type: 'LIQUIDFERTILIZER', level: +demo.sprayTank.toFixed(1), cap: capacity };
   t.vehicle.name = 'Demo Broadcast Sprayer';
   t.controls.fold.name = t.vehicle.name;
-  t.implements = [{ id: 'demo-boom', name: '24 m Broadcast Boom', operation: 'application', width,
+  t.implements = [{ id: t.vehicle.id, name: '24 m Broadcast Boom', operation: 'application', width,
     canTurnOn: true, turnedOn: demo.turnedOn && phase >= 3000 && phase < 43000, areas: [demo.unfolded], processing: [working],
     geometry: demoAreas(1, width, -5), fills: [tank], sprayer: { provider: 'demo', master: demo.turnedOn && phase >= 3000 && phase < 43000,
       applying: working, tank: 1, product: tank.type, level: tank.level, cap: capacity } }];
@@ -1200,6 +1201,7 @@ const server = http.createServer((req, res) => {
       if (u.pathname === '/api/ops/settings') return post(c => ({ settings: store.setSettings(save, c) }));
       if (u.pathname === '/api/ops/tracks') return post(c => {
         if (c.action === 'add') return { track: store.addTrack(save, c.track || {}) };
+        if (c.action === 'fromBoundary') return { track: store.trackFromBoundary(save, String(c.fieldId), Number(c.v)) };
         if (c.action === 'update') return { track: store.updateTrack(save, String(c.id), c.changes || {}) };
         if (c.action === 'delete') { store.deleteTrack(save, String(c.id)); return {}; }
         throw new Error('unknown action');
@@ -1242,7 +1244,12 @@ const server = http.createServer((req, res) => {
       if (u.pathname === '/api/ops/active') return post(c => { store.setActive(save, c.fieldId, Number(c.v)); });
       if (u.pathname === '/api/ops/rename') return post(c => { store.rename(save, c.fieldId, c.name); });
       if (u.pathname === '/api/ops/remove-boundary') return post(c => { store.removeBoundary(save, c.fieldId, Number(c.v)); });
-      if (u.pathname === '/api/ops/from-coverage') return post(c => ({ proposal: store.fromCoverage(save, c.fieldId ? { fieldId: c.fieldId } : { x: Number(c.x), z: Number(c.z) }) }));
+      if (u.pathname === '/api/ops/from-coverage') return post(c => {
+        if (save !== currentSave()) throw new Error('The save changed. Review this boundary again.');
+        if (c.action === 'commit') return store.commitCoverage(save, c.id, c.name);
+        const context = c.fieldId ? { fieldId: String(c.fieldId) } : { x: c.x, z: c.z };
+        return { proposal: store.reviewCoverage(save, { ...context, operation: c.operation || null, coverageClass: c.coverageClass || 'worked' }) };
+      });
     }
     return json(404, { error: 'unknown route' });
   }
@@ -1334,7 +1341,7 @@ if (DEMO) {
 
 if (require.main === module) {
   start();
-  const bye = () => { try { if (maps) maps.flush(Date.now(), true); } finally { process.exit(0); } };
+  const bye = () => { try { if (maps) maps.interrupt(); } finally { process.exit(0); } };
   process.on('SIGINT', bye);
   process.on('SIGTERM', bye);
 }

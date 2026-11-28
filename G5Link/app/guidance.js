@@ -53,16 +53,8 @@
     pose.recording = !!(d.work && d.work.recording);
     pose.farmland = v.farmland; pose.onField = !!v.onField;
     pose.implName = imps[0] ? imps[0].name : null;
-    // implement bars in vehicle-local metres (r = right, f = forward) from the real work-area corners
-    const fw = fwdOf(pose.h), rw = rightOf(pose.h);
-    pose.bars = imps.map(i => {
-      const pts = (i.geometry || []).flatMap(g => [[g.sx, g.sz], [g.wx, g.wz]]).filter(q => typeof q[0] === 'number');
-      if (!pts.length) return null;
-      const loc = pts.map(([x, z]) => ({ r: (x - v.x) * rw.x + (z - v.z) * rw.z, f: (x - v.x) * fw.x + (z - v.z) * fw.z }));
-      const r0 = Math.min(...loc.map(q => q.r)), r1 = Math.max(...loc.map(q => q.r));
-      const f = loc.reduce((a, q) => a + q.f, 0) / loc.length;
-      return { r0, r1, f };
-    }).filter(Boolean);
+    pose.machine = d.combine ? 'combine' : imps.some(i => i.id != null && i.id === v.id && i.sprayer) ? 'sprayer' : 'tractor';
+    pose.tools = toolFootprints(imps, v, pose.h);
     pose.field = d.field ?? v.field ?? null;
     onFieldChange(workField());
     const pv = d.providers || {};
@@ -71,6 +63,36 @@
     if ((d.courseKey ?? null) !== courseKey) loadCourse(d.courseKey ?? null);
     renderSide();
   };
+
+  function toolFootprints(implements_, vehicle, heading) {
+    const fw = fwdOf(heading), rw = rightOf(heading);
+    const local = (x, z) => [(x - vehicle.x) * rw.x + (z - vehicle.z) * rw.z, (x - vehicle.x) * fw.x + (z - vehicle.z) * fw.z];
+    return implements_.flatMap(impl => {
+      const spans = [];
+      for (const g of impl.geometry || []) {
+        if (![g.sx, g.sz, g.wx, g.wz].every(Number.isFinite)) continue;
+        const a = local(g.sx, g.sz), b = local(g.wx, g.wz);
+        const width = Math.hypot(b[0] - a[0], b[1] - a[1]);
+        if (width < 0.02) continue;
+        const height = [g.hx, g.hz].every(Number.isFinite) ? local(g.hx, g.hz) : a;
+        const delta = [height[0] - a[0], height[1] - a[1]];
+        const length = Math.hypot(...delta);
+        // Give the body a narrow rim around the measured work edge. The
+        // extent of the contact edge is always drawn from the native nodes.
+        const depth = length > 0.02 ? delta.map(n => n * Math.min(1, 1.05 / length)) : [(a[1] - b[1]) / width * 0.33, (b[0] - a[0]) / width * 0.33];
+        const active = impl.areas?.[g.i ?? 0] !== false && impl.sprayer?.applying !== false;
+        spans.push({ a, b, depth, width, active });
+      }
+      if (!spans.length) return [];
+      const rail = spans.reduce((wide, span) => span.width > wide.width ? span : wide);
+      const direction = [(rail.b[0] - rail.a[0]) / rail.width, (rail.b[1] - rail.a[1]) / rail.width];
+      const along = p => p[0] * direction[0] + p[1] * direction[1];
+      const edges = spans.flatMap(({ a, b }) => [along(a), along(b)]);
+      const shift = (Math.max(...edges) + Math.min(...edges)) * 0.5 - along(rail.a);
+      const center = [rail.a[0] + direction[0] * shift, rail.a[1] + direction[1] * shift];
+      return [{ spans, center, type: impl.operation, mounted: impl.id != null && impl.id === vehicle.id }];
+    });
+  }
 
   // Courseplay course and field boundary (course.json via /api/course), refetched when the key changes
   let courseKey = null, course = null;
@@ -708,26 +730,17 @@
       $('mapNote').textContent = 'No guidance track. Tap Set Track to create one.';
     }
 
-    // implement (green T) and tractor: from the work-area corners when the mod sends them
-    const w = pose.width || 0;
-    const bars = pose.bars && pose.bars.length ? pose.bars : (w > 0 ? [{ r0: -w / 2, r1: w / 2, f: -7.5 }] : []);
-    ctx.strokeStyle = '#2ee82e'; ctx.lineCap = 'butt';
-    for (const b of bars) {
-      const mid = (b.r0 + b.r1) / 2, hitch = projV(mid * 0.2, b.f < 0 ? -2.2 : 2.6), bar = projV(mid, b.f);
-      const l = projV(b.r0, b.f), r = projV(b.r1, b.f);
-      if (!hitch || !bar || !l || !r) continue;
-      ctx.lineWidth = Math.max(6, 0.45 * bar.s); ctx.beginPath(); ctx.moveTo(hitch.x, hitch.y); ctx.lineTo(bar.x, bar.y); ctx.stroke();
-      ctx.lineWidth = Math.max(6, 0.35 * bar.s); ctx.beginPath(); ctx.moveTo(l.x, l.y); ctx.lineTo(r.x, r.y); ctx.stroke();
-    }
-    drawTractor(projV);
-    // zoomed far out the machine is a few pixels: mark it with an arrow
+    drawTools(projV, polyline);
+    // At wide zoom a compact heading marker stays legible.
     const m0 = projV(0, 0), m1 = projV(0, 6);
-    if (m0 && m1 && Math.hypot(m1.x - m0.x, m1.y - m0.y) < 18) {
+    if (m0 && m1 && Math.hypot(m1.x - m0.x, m1.y - m0.y) < 24) {
       const ux = (m1.x - m0.x), uy = (m1.y - m0.y), L = Math.hypot(ux, uy) || 1, ax = ux / L, ay = uy / L;
-      ctx.fillStyle = '#ffd200'; ctx.strokeStyle = '#111'; ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.moveTo(m0.x + ax * 26, m0.y + ay * 26);
-      ctx.lineTo(m0.x - ax * 14 - ay * 16, m0.y - ay * 14 + ax * 16); ctx.lineTo(m0.x - ax * 6, m0.y - ay * 6);
-      ctx.lineTo(m0.x - ax * 14 + ay * 16, m0.y - ay * 14 - ax * 16); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#ffe495'; ctx.strokeStyle = '#172019'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(m0.x + ax * 17, m0.y + ay * 17);
+      ctx.lineTo(m0.x - ax * 10 - ay * 10, m0.y - ay * 10 + ax * 10); ctx.lineTo(m0.x - ax * 4, m0.y - ay * 4);
+      ctx.lineTo(m0.x - ax * 10 + ay * 10, m0.y - ay * 10 - ax * 10); ctx.closePath(); ctx.fill(); ctx.stroke();
+    } else {
+      drawMachine(projV, polyline);
     }
 
     $('mapHdg').textContent = `${cardinal(p.h)} ${Math.round(p.h)}°`;
@@ -779,21 +792,84 @@
     if (name) { $('mapAiName').textContent = name; $('mapAiTxt').textContent = txt; }
   }
 
-  function drawTractor(proj) {
+  function glyphShape(proj, points, fill, outline, weight) {
+    const pts = points.map(p => proj(...p));
+    if (pts.some(p => !p)) return;
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (const p of pts.slice(1)) ctx.lineTo(p.x, p.y);
+    ctx.closePath();
+    ctx.fillStyle = fill;
+    ctx.fill();
+    ctx.setLineDash([]);
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = outline;
+    ctx.lineWidth = weight;
+    ctx.stroke();
+  }
+
+  function glyphWeight(proj) {
     const c = proj(0, 0);
-    if (!c) return;
-    const k = Math.max(0.6, c.s / 10);
-    const box = (r0, f0, r1, f1, fill) => {
-      const a = proj(r0, f0), b = proj(r1, f0), d = proj(r1, f1), e = proj(r0, f1);
-      if (!a || !b || !d || !e) return;
-      ctx.fillStyle = fill; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(d.x, d.y); ctx.lineTo(e.x, e.y); ctx.closePath(); ctx.fill();
-      ctx.strokeStyle = '#0b2a08'; ctx.lineWidth = 2 * k; ctx.stroke();
+    const edge = proj(1, 0);
+    return c && edge ? Math.max(1.35, Math.min(4, Math.hypot(c.x - edge.x, c.y - edge.y) * 0.115)) : 1.35;
+  }
+
+  function drawTools(proj, line) {
+    const weight = glyphWeight(proj);
+    const ink = '#172625';
+    for (const tool of pose.tools || []) {
+      if (!tool.mounted && Math.abs(tool.center[1]) > 2.75) {
+        const attach = [proj(0, tool.center[1] < 0 ? -2.15 : 2.55), proj(...tool.center)];
+        line(attach, ink, weight * 3);
+        line(attach, '#a6a993', weight * 1.35);
+      }
+      const fill = tool.type === 'harvest' ? '#d4ae56' : tool.type === 'application' ? '#83b6b1'
+        : tool.type === 'tillage' ? '#bc8c5f' : '#9eac72';
+      for (const { a, b, depth, active } of tool.spans) {
+        const offset = p => [p[0] + depth[0], p[1] + depth[1]];
+        glyphShape(proj, [a, b, offset(b), offset(a)], active ? fill : '#6a726b', ink, weight);
+        line([proj(...a), proj(...b)], active ? '#ffe09b' : '#a7aaa1', weight * 0.85);
+      }
+    }
+  }
+
+  function drawMachine(proj, line) {
+    const weight = glyphWeight(proj), ink = '#162725';
+    const shape = (points, fill, stroke = ink) => glyphShape(proj, points, fill, stroke, weight);
+    const tires = (center, width, f0, f1) => {
+      for (const side of [-1, 1]) {
+        const r = x => side * (center + x), h = width * 0.5, k = Math.min(width * 0.22, 0.13);
+        shape([[r(-h + k), f0], [r(h - k), f0], [r(h), f0 + k], [r(h), f1 - k],
+          [r(h - k), f1], [r(-h + k), f1], [r(-h), f1 - k], [r(-h), f0 + k]], '#252d2a', '#121919');
+        for (const t of [0.23, 0.48, 0.73]) {
+          const f = f0 + (f1 - f0) * t;
+          line([proj(r(-h + k), f), proj(r(h - k), f + 0.13)], '#5d6154', weight * 0.55);
+        }
+      }
     };
-    box(-1.4, -2.0, -0.7, -0.2, '#1a1a1a'); box(0.7, -2.0, 1.4, -0.2, '#1a1a1a');     // rear tyres
-    box(-1.25, 1.2, -0.75, 2.4, '#1a1a1a'); box(0.75, 1.2, 1.25, 2.4, '#1a1a1a');     // front tyres
-    box(-0.65, -1.8, 0.65, 2.8, '#3c9a2e');                                            // body
-    box(-0.75, -1.4, 0.75, 0.3, '#2f7d25');                                            // cab
-    box(-0.55, -1.2, 0.55, 0.1, '#ffd200');                                            // roof accent
+    if (pose.machine === 'combine') {
+      tires(1.36, 0.72, 0.65, 2.34);
+      tires(1.06, 0.52, -2.65, -1.40);
+      shape([[-1.20, -2.73], [1.20, -2.73], [1.42, -1.78], [1.38, 1.75], [0.94, 2.54],
+        [-0.94, 2.54], [-1.38, 1.75], [-1.42, -1.78]], '#758a53');
+      shape([[-1.05, -1.83], [1.05, -1.83], [0.94, 0.55], [-0.94, 0.55]], '#aebd75');
+      shape([[-0.82, 0.88], [0.82, 0.88], [0.93, 1.94], [0.59, 2.35], [-0.59, 2.35], [-0.93, 1.94]], '#b6d7ce');
+    } else if (pose.machine === 'sprayer') {
+      tires(1.36, 0.58, -2.70, -1.04);
+      tires(1.36, 0.58, 0.88, 2.55);
+      shape([[-0.82, -2.80], [0.82, -2.80], [1.02, -1.85], [0.96, 2.30], [0.59, 2.76],
+        [-0.59, 2.76], [-0.96, 2.30], [-1.02, -1.85]], '#5a8078');
+      shape([[-0.76, -1.92], [0.76, -1.92], [0.83, -0.54], [0.61, 0.34], [-0.61, 0.34], [-0.83, -0.54]], '#a1c4ae');
+      shape([[-0.72, 1.17], [0.72, 1.17], [0.70, 2.30], [0.50, 2.52], [-0.50, 2.52], [-0.70, 2.30]], '#c0ded6');
+    } else {
+      tires(1.05, 0.72, -2.17, 0.12);
+      tires(0.97, 0.54, 1.08, 2.48);
+      shape([[-0.68, -2.13], [0.68, -2.13], [0.94, -1.52], [0.84, 0.22], [0.54, 0.76],
+        [0.45, 2.39], [0.26, 2.71], [-0.26, 2.71], [-0.45, 2.39], [-0.54, 0.76], [-0.84, 0.22], [-0.94, -1.52]], '#819758');
+      shape([[-0.64, -1.60], [0.64, -1.60], [0.70, -0.26], [0.47, 0.31], [-0.47, 0.31], [-0.70, -0.26]], '#b8d3b1');
+      shape([[-0.29, 0.64], [0.29, 0.64], [0.26, 2.33], [-0.26, 2.33]], '#adbc74');
+      line([proj(-0.27, 2.39), proj(0.27, 2.39)], '#fff1be', weight);
+    }
   }
 
   renderSide();

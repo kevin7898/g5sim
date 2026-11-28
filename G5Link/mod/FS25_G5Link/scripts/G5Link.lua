@@ -16,7 +16,7 @@
 -- one odd vehicle can never break the game loop.
 
 G5Link = {}
-G5Link.VERSION = "0.9.0"
+G5Link.VERSION = "0.10.0"
 G5Link.WRITE_INTERVAL = 250   -- ms between telemetry writes (4 Hz)
 G5Link.CMD_INTERVAL = 250     -- ms between command file polls
 G5Link.MAX_IMPLEMENTS = 8
@@ -1118,6 +1118,10 @@ function G5Link:writeFleet(current)
                 xml:setFloat(k .. "#heading", round((180 - math.deg(math.atan2(dx, dz))) % 360, 0))
                 xml:setFloat(k .. "#speed", round(call(v, "getLastSpeed") or 0, 1))
                 xml:setBool(k .. "#ai", ai)
+                xml:setBool(k .. "#onField", bool(call(v, "getIsOnField")))
+                xml:setBool(k .. "#motorOn", bool(call(v, "getIsMotorStarted")))
+                local motor = call(v, "getMotor")
+                if motor ~= nil then xml:setInt(k .. "#dir", call(motor, "getDrivingDirection") or 0) end
                 local fieldId = self:getFieldIdAt(x, z)
                 if fieldId ~= nil then xml:setInt(k .. "#field", fieldId) end
                 self:writeImplementsTo(xml, k .. ".implements", v, 0, 0)

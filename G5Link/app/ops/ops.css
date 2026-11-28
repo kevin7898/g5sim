@@ -203,3 +203,8 @@ table.rec td.n { text-align: right; white-space: nowrap; }
 .rx-form { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
 .rx-form select { min-height: var(--h-md); border: 1px solid #b9b7ad; border-radius: 4px; padding: 0 6px; background: #fff; }
 .jobs-group { margin: 11px 14px; font-size: var(--fs-sm); }
+.coverage-review { margin: 8px 10px 12px; }
+.coverage-review p, .coverage-review li { margin: 7px 0; }
+.coverage-options { margin: 10px 0; display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 8px; }
+.coverage-options label { display: grid; font-weight: 700; gap: 4px; }
+.coverage-options select { max-width: 100%; min-width: 0; min-height: var(--h-md); font: inherit; }

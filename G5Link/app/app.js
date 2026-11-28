@@ -380,7 +380,7 @@ function render() {
   setHtml($('scPanelGrid'), [
     ['Bridge Link', $('scLinkTxt').textContent], ['Game State', d.state || '---'], ['Game Day', g.day ?? '---'],
     ['Vehicle', inVehicle ? v.name : '---'], ['Work Recording', w.recording ? 'On' : 'Off'], ['Units', { metric: 'Metric', imperial: 'US', custom: 'Custom' }[unitPreset()]],
-    ['Mod Version', d.version || '---'], ['Last Command', d.lastCmd ?? '---'],
+    ['Mod Telemetry', d.version || '---'], ['PC Bridge', d.bridgeVersion || '---'], ['Last Command', d.lastCmd ?? '---'],
     ['Realistic Harvesting', d.rh ? 'Found' : d.combine ? 'Not found' : '---'], ['Soil & Fertilizer', modState('soil-fertilizer')],
     ['Courseplay', modState('courseplay')], ['AutoDrive', modState('autodrive')],
   ].map(([k, val]) => `<div><small>${k}</small><b>${esc(val)}</b></div>`).join(''));

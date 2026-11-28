@@ -1,16 +1,15 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
-const { polygonArea, round1, simplify } = require('./fields.js');
+const { round1, simplify } = require('./fields.js');
+const { distance, crossingSegments, polygonArea, perimeter, MAX_POINTS, MIN_AREA_M2 } = require('./boundary-geometry.js');
 
 const SAMPLE_DISTANCE = 1;
-const MAX_POINTS = 20000;
 const UNDO_DISTANCE = 5;
 const MAX_LIVE_STEP = 25;
 const LONG_CONNECTOR = 25;
 const CONNECTOR_TOLERANCE = 2;
 
-const distance = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 const vehicleKey = v => v?.id ?? v?.name ?? null;
 
 function toolsFor(frame) {
@@ -31,47 +30,6 @@ function pointAt(vehicle, side, offset) {
     .map(value => Math.round(value * 100) / 100);
 }
 
-const turn = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
-const collinear = n => Math.abs(n) < 1e-8;
-const between = (n, a, b) => n >= Math.min(a, b) && n <= Math.max(a, b);
-const onSegment = (p, a, b) => between(p[0], a[0], b[0]) && between(p[1], a[1], b[1]);
-
-function segmentsMeet(a, b, c, d) {
-  const abC = turn(a, b, c), abD = turn(a, b, d), cdA = turn(c, d, a), cdB = turn(c, d, b);
-  if (collinear(abC) && onSegment(c, a, b) || collinear(abD) && onSegment(d, a, b)
-    || collinear(cdA) && onSegment(a, c, d) || collinear(cdB) && onSegment(b, c, d)) return true;
-  return ![abC, abD, cdA, cdB].some(collinear) && (abC > 0) !== (abD > 0) && (cdA > 0) !== (cdB > 0);
-}
-
-function crossingSegments(points) {
-  const count = points.length;
-  // Adjacent edges may meet at their shared vertex, but must not double back over each other.
-  for (let i = 0; i < count; i++) {
-    const a = points[(i + count - 1) % count], b = points[i], c = points[(i + 1) % count];
-    if (collinear(turn(a, b, c)) && (a[0] - b[0]) * (c[0] - b[0]) + (a[1] - b[1]) * (c[1] - b[1]) > 0) return [[a, b], [b, c]];
-  }
-  // Sweep along the path's longer axis to avoid comparing distant segments.
-  const bounds = points.reduce((box, [x, z]) =>
-    [Math.min(box[0], x), Math.max(box[1], x), Math.min(box[2], z), Math.max(box[3], z)],
-    [Infinity, -Infinity, Infinity, -Infinity]);
-  const axis = bounds[1] - bounds[0] >= bounds[3] - bounds[2] ? 0 : 1;
-  const other = 1 - axis;
-  const edges = points.map((a, i) => {
-    const b = points[(i + 1) % count];
-    return { a, b, i, min: Math.min(a[axis], b[axis]), max: Math.max(a[axis], b[axis]),
-      lo: Math.min(a[other], b[other]), hi: Math.max(a[other], b[other]) };
-  }).sort((a, b) => a.min - b.min);
-  for (let i = 0; i < count; i++) {
-    const edge = edges[i];
-    for (let j = i + 1; j < count && edges[j].min <= edge.max; j++) {
-      const next = edges[j], apart = Math.abs(edge.i - next.i);
-      if (apart === 1 || apart === count - 1 || edge.hi < next.lo || next.hi < edge.lo) continue;
-      if (segmentsMeet(edge.a, edge.b, next.a, next.b)) return [[edge.a, edge.b], [next.a, next.b]];
-    }
-  }
-  return [];
-}
-
 function reviewBoundary(points, length) {
   const gap = points.length > 1 ? distance(points[0], points[points.length - 1]) : null;
   const gapLimit = Math.min(15, Math.max(2, length * 0.05));
@@ -87,13 +45,11 @@ function reviewBoundary(points, length) {
   let outline = ring;
   if (issues.length === 0) {
     const simplified = simplify(ring, 0.5);
-    if (simplified.length >= 3 && polygonArea(simplified) >= 25 && !crossingSegments(simplified).length) outline = simplified;
+    if (simplified.length >= 3 && polygonArea(simplified) >= MIN_AREA_M2 && !crossingSegments(simplified).length) outline = simplified;
   }
   const area = polygonArea(outline);
-  if (outline.length >= 3 && area < 25) issues.push('The outline must enclose at least 25 m².');
-  const perimeter = outline.length >= 3 ? outline.reduce((sum, point, index) =>
-    sum + distance(point, outline[(index + 1) % outline.length]), 0) : null;
-  return { outline, area, perimeter, gap, gapLimit, issues, problemSegments };
+  if (outline.length >= 3 && area < MIN_AREA_M2) issues.push('The outline must enclose at least 25 m².');
+  return { outline, area, perimeter: outline.length >= 3 ? perimeter(outline) : null, gap, gapLimit, issues, problemSegments };
 }
 
 class BoundaryRecorder {
@@ -114,6 +70,7 @@ class BoundaryRecorder {
   rememberPose(frame) {
     this.draft.lastCenter = pointAt(frame.vehicle, 'center', 0);
     this.draft.lastTime = Number.isFinite(frame.time) ? frame.time : null;
+    this.draft.lastSession = frame.session ?? null;
   }
 
   sample(point) {
@@ -133,7 +90,8 @@ class BoundaryRecorder {
     const blocked = this.blocked(draft, save, frame);
     const center = blocked ? null : pointAt(frame.vehicle, 'center', 0);
     const jumped = center && draft.lastCenter && distance(center, draft.lastCenter) > MAX_LIVE_STEP;
-    const restarted = Number.isFinite(frame?.time) && draft.lastTime !== null && frame.time < draft.lastTime;
+    const restarted = !!(draft.lastSession && frame?.session && draft.lastSession !== frame.session)
+      || Number.isFinite(frame?.time) && draft.lastTime !== null && frame.time < draft.lastTime;
     if (blocked || jumped || restarted) {
       draft.mode = 'paused';
       draft.pauseReason = blocked || (restarted ? 'restart' : 'jump');

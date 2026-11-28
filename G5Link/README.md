@@ -74,7 +74,10 @@ working are mapped too (G5Link writes them to fleet.xml twice a second), so yiel
 Profit include the fields you didn't drive yourself.
 
 **Map layers.** The bridge records coverage from each implement's real work areas (section by section) and
-saves it per savegame and operation in `modSettings/FS25_G5Link/maps/`. Tap the layers key on the map, or the
+saves it per savegame and operation in `modSettings/FS25_G5Link/maps/`. The machine symbol follows vehicle
+heading and the tool outline follows its own work-area corners in turns. A brief missed processing sample
+can be recovered when the same work area stays engaged on the field and reports work again. Raised tools
+and disabled sections leave gaps, and recovery applies to incoming samples. Tap the layers key on the map, or the
 layer chip, for **Select Map View**: pick the operation (Harvest · Wheat, Seeding · Corn, ...), the primary layer
 and the legend. Layers: Coverage (blue, dark blue = overlap), and as available Yield, Moisture, Grain Loss,
 Seeding or Applied Rate, Singulation, Skips, Doubles, Distribution CV, Seed Depth, Soil Moisture, Compaction,
@@ -134,6 +137,18 @@ Open **Menu → Applications → Boundary**. Choose the current field or New Fie
 During recording, you can close the panel and use the boundary card on the run page. Use Pause to make a detour, Resume to reconnect to the track, and Undo or Redo to correct the last stretch. A long connector asks for confirmation. Review shows the closing gap, perimeter, and area, and flags crossed or incomplete outlines. Save creates an active boundary version in the field library. Use the Outline/Boundary view in Guidance or Operations Center to see it again.
 
 Refresh or reopen the display to resume viewing the current draft. A bridge restart clears an unsaved draft. A saved boundary remains in the bridge data for that FS25 savegame.
+
+In Operations Center, open a field and choose **Add Boundary → From a previous operation**. Select the operation and
+coverage class, then preview the outline and compare it with the active boundary. **Save as New Boundary** adds a
+version. Use **Create Edge Track** on a particular boundary version to add a straight track along its longest edge.
+
+## Record a work job
+
+Open **Work Setup** and choose **Start New Work** to record work against that field and work setup. The job keeps the
+boundary version from its start. **Finish Work** saves the job and totals in Operations Center under **Analyze**.
+The run-page counter measures accepted swaths since its last reset. Job area counts each covered grid cell once.
+Spraying displays confirmed application where the tool reports it. Product used and actual rate require a verified
+measurement source. The display leaves those values blank when the source is unavailable.
 
 ## RTK package (StarFire)
 

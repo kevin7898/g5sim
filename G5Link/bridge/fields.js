@@ -13,15 +13,11 @@ const fs = require('fs');
 const path = require('path');
 const { randomUUID } = require('node:crypto');
 const { quadArea, CELL, TILE } = require('./coverage.js');
+const { polygonArea, crossingSegments, perimeter, distance, MAX_POINTS, MIN_AREA_M2 } = require('./boundary-geometry.js');
 
 const slug = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'x';
 
 // ---------------------------------------------------------------- geometry
-function polygonArea(poly) {
-  let a = 0;
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) a += poly[j][0] * poly[i][1] - poly[i][0] * poly[j][1];
-  return Math.abs(a) / 2;
-}
 function bbox(poly) {
   let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
   for (const [x, z] of poly) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (z < z0) z0 = z; if (z > z1) z1 = z; }
@@ -133,6 +129,7 @@ class FieldStore {
     this.game = new Map();                             // save -> latest fields.json from the mod
     this.version = 0;
     this.lastWorkMs = 10000;
+    this.proposals = new Map();
   }
   file(save) { return path.join(this.dir, 'maps', slug(save), 'ops-fields.json'); }
   db(save) {
@@ -179,7 +176,8 @@ class FieldStore {
       const lastGame = [...f.boundaries].reverse().find(b => b.source === 'game');
       const poly = round1(gf.polygon);
       if (!lastGame || JSON.stringify(lastGame.polygon) !== JSON.stringify(poly)) {
-        f.boundaries.push({ v: f.boundaries.length + 1, source: 'game', polygon: poly, areaHa: +(polygonArea(poly) / 10000).toFixed(3), at: Date.now() });
+        const v = f.boundaries.reduce((max, boundary) => Math.max(max, boundary.v), 0) + 1;
+        f.boundaries.push({ v, source: 'game', polygon: poly, areaHa: +(polygonArea(poly) / 10000).toFixed(3), at: Date.now() });
         changed = true;
       }
     }
@@ -374,16 +372,32 @@ class FieldStore {
     const n = v => (typeof v === 'number' && Number.isFinite(v) ? v : null);
     if (n(t.ax) === null || n(t.az) === null || n(t.h) === null) throw new Error('a track needs ax, az and h');
     const d = this.db(save);
-    d.tracks = d.tracks || [];
-    d.nextTrack = d.nextTrack || 1;
+    const tracks = d.tracks || [];
+    const nextTrack = d.nextTrack || 1;
     const fieldId = t.fieldId !== undefined && t.fieldId !== null && t.fieldId !== '' ? String(t.fieldId) : null;
-    const how = ['A+B', 'A+Heading', 'Quick Line'].includes(t.how) ? t.how : 'A+Heading';
-    const sameField = d.tracks.filter(x => x.fieldId === fieldId).length;
-    const track = { id: 'T' + (d.nextTrack++), name: String(t.name || `Track ${sameField + 1} (${how})`).slice(0, 60), fieldId, how,
+    const how = ['A+B', 'A+Heading', 'Quick Line', 'Boundary Edge'].includes(t.how) ? t.how : 'A+Heading';
+    const sameField = tracks.filter(x => x.fieldId === fieldId).length;
+    const track = { id: 'T' + nextTrack, name: String(t.name || `Track ${sameField + 1} (${how})`).slice(0, 60), fieldId, how,
       ax: +n(t.ax).toFixed(2), az: +n(t.az).toFixed(2), h: +(((n(t.h) % 360) + 360) % 360).toFixed(2), at: Date.now() };
-    d.tracks.push(track);
-    this.write(save);
+    if (how === 'Boundary Edge' && Number.isInteger(t.boundaryVersion)) track.boundaryVersion = t.boundaryVersion;
+    this.write(save, { ...d, tracks: [...tracks, track], nextTrack: nextTrack + 1 }, 'track');
     return track;
+  }
+  trackFromBoundary(save, fieldId, version) {
+    const f = this.db(save).fields[fieldId];
+    const boundary = f?.boundaries.find(item => item.v === version);
+    if (!boundary) throw new Error('The selected boundary version is unavailable.');
+    let longest;
+    const points = boundary.polygon;
+    for (let i = 0; i < points.length; i++) {
+      const a = points[i], b = points[(i + 1) % points.length];
+      const length = distance(a, b);
+      if (!longest || length > longest.length) longest = { a, b, length };
+    }
+    if (!longest || longest.length < 3) throw new Error('The outline has no usable straight edge.');
+    const { a, b } = longest;
+    return this.addTrack(save, { fieldId, name: `${f.name} v${version} edge`, how: 'Boundary Edge', boundaryVersion: version,
+      ax: a[0], az: a[1], h: Math.atan2(b[0] - a[0], a[1] - b[1]) * 180 / Math.PI });
   }
   updateTrack(save, id, changes) {
     const t = (this.db(save).tracks || []).find(x => x.id === id);
@@ -459,14 +473,14 @@ class FieldStore {
     const poly = job.boundary?.polygon;
     const cached = this.jobTotalsCache;
     if (cached?.view === view && cached.seq === view.worked.seq) return cached.totals;
-    const summary = view.worked.summary();
     const inside = poly ? this.coveredIn(view.worked, poly) : null;
-    const applied = view.applied ? (poly ? this.coveredIn(view.applied, poly).coveredHa : view.applied.summary().areaHa) : null;
-    const workedHa = inside?.coveredHa ?? summary.areaHa;
+    const hectares = cells => cells * CELL * CELL / 10000;
+    const applied = view.applied ? (poly ? this.coveredIn(view.applied, poly).coveredHa : hectares(view.applied.coveredCells)) : null;
+    const workedHa = inside?.coveredHa ?? hectares(view.worked.coveredCells);
     const fieldHa = poly ? polygonArea(poly) / 10000 : null;
     const totals = { sweptM2: view.sweptM2, distanceM: view.distanceM, timeS: view.timeS,
-      workedHa, overlapHa: inside?.overlapHa ?? summary.overlapHa, fieldHa,
-      outsideHa: inside ? Math.max(0, view.worked.coveredCells * CELL * CELL / 10000 - inside.coveredHa) : null,
+      workedHa, overlapHa: inside?.overlapHa ?? hectares(view.worked.overlapCells), fieldHa,
+      outsideHa: inside ? Math.max(0, hectares(view.worked.coveredCells) - inside.coveredHa) : null,
       remainingHa: inside ? Math.max(0, fieldHa - inside.coveredHa) : null,
       appliedHa: applied, appliedPercent: applied !== null && workedHa > 0 ? 100 * applied / workedHa : null,
       productUsed: null };
@@ -708,17 +722,22 @@ class FieldStore {
   // ---------------------------------------------------------------- boundary from coverage
   // Region of covered ground connected to a field (or to a point), outside every other field,
   // closed by `close` cells, traced and simplified. Returns a proposal; nothing is saved.
-  fromCoverage(save, { fieldId = null, x = null, z = null, margin = 250, close = 2 } = {}) {
+  fromCoverage(save, { fieldId = null, x = null, z = null, margin = 250, close = 2, operation = null, coverageClass = 'worked' } = {}) {
     const fields = this.list(save);
     const field = fieldId ? fields.find(f => f.id === String(fieldId)) : null;
     if (fieldId && !field) throw new Error('no such field');
+    if (!field && (!Number.isFinite(x) || !Number.isFinite(z))) throw new Error('Choose a point on the work map.');
+    if (!['worked', 'applied'].includes(coverageClass)) throw new Error('Unknown coverage class.');
     const others = fields.filter(f => !field || f.id !== field.id);
-    const ops = this.coverage ? [...this.coverage.ops(save).values()] : [];
+    const selected = operation && this.coverage ? this.coverage.coverageClass(save, operation, coverageClass) : null;
+    const ops = operation ? (selected ? [selected] : []) : this.coverage && coverageClass === 'worked' ? [...this.coverage.ops(save).values()] : [];
+    if (!ops.length) return null;
     const bb = field ? bbox(field.polygon) : { x0: x, x1: x, z0: z, z1: z };
     const X0 = Math.floor(bb.x0 - margin), X1 = Math.ceil(bb.x1 + margin), Z0 = Math.floor(bb.z0 - margin), Z1 = Math.ceil(bb.z1 + margin);
     const W = X1 - X0 + 1, H = Z1 - Z0 + 1;
     if (W * H > 9e6) throw new Error('area too large');
     const mask = new Uint8Array(W * H);
+    const observed = new Uint8Array(W * H);
     const idx = (cx, cz) => (cz - Z0) * W + (cx - X0);
     const ownedByOther = (px, pz) => others.some(f => { if (!f.bb) f.bb = bbox(f.polygon); return px >= f.bb.x0 && px <= f.bb.x1 && pz >= f.bb.z0 && pz <= f.bb.z1 && inPolygon(f.polygon, px, pz); });
     if (field) {                                        // field interior by scanline
@@ -732,10 +751,10 @@ class FieldStore {
       for (const t of op.tiles.values()) {
         for (let i = 0; i < t.cnt.length; i++) {
           if (!t.cnt[i]) continue;
-          const cx = t.tx * 64 + (i % 64), cz = t.tz * 64 + Math.floor(i / 64);
+          const cx = t.tx * TILE + (i % TILE), cz = t.tz * TILE + Math.floor(i / TILE);
           if (cx < X0 || cx > X1 || cz < Z0 || cz > Z1) continue;
           const k = idx(cx, cz);
-          if (!mask[k] && !ownedByOther(cx + 0.5, cz + 0.5)) mask[k] = 1;
+          if (mask[k] || !ownedByOther(cx + 0.5, cz + 0.5)) { mask[k] = 1; observed[k] = 1; }
         }
       }
     }
@@ -768,10 +787,15 @@ class FieldStore {
     }
     if (!seed) return null;
     const region = new Set(), stack = [seed], seen = new Uint8Array(W * H);
+    let observedCells = 0, touchedField = false;
     seen[idx(...seed)] = 1;
     while (stack.length) {
       const [cx, cz] = stack.pop();
       region.add(cx + ',' + cz);
+      if (observed[idx(cx, cz)]) {
+        observedCells++;
+        if (field && !touchedField && inPolygon(field.polygon, cx + 0.5, cz + 0.5)) touchedField = true;
+      }
       for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
         const nx = cx + dx, nz = cz + dz;
         if (nx < X0 || nx > X1 || nz < Z0 || nz > Z1) continue;
@@ -783,7 +807,38 @@ class FieldStore {
     if (!ring) return null;
     const polygon = round1(simplifyRing(ring, 1.2));
     const areaHa = +(polygonArea(polygon) / 10000).toFixed(3);
-    return { polygon, areaHa, addedHa: field ? +(areaHa - field.areaHa).toFixed(3) : areaHa, field: field ? field.id : null };
+    const problems = [];
+    const problemSegments = polygon.length >= 3 && polygon.length < MAX_POINTS ? crossingSegments(polygon) : [];
+    const length = perimeter(polygon);
+    if (observedCells * CELL * CELL < MIN_AREA_M2) problems.push('This operation has too little coverage connected to the selected area.');
+    if (field && !touchedField) problems.push('This coverage does not reach the selected field.');
+    if (polygon.length < 3 || polygon.length >= MAX_POINTS || polygonArea(polygon) < MIN_AREA_M2 || length < 30) problems.push('The outline is too small or has an invalid number of points.');
+    if (problemSegments.length) problems.push('The outline crosses or doubles back on itself.');
+    return { polygon, areaHa, perimeterM: length, previousHa: field?.areaHa ?? null, addedHa: field ? +(areaHa - field.areaHa).toFixed(3) : areaHa,
+      field: field?.id ?? null, operation, coverageClass, previousVersion: field?.v ?? null, valid: !problems.length, problems, problemSegments };
+  }
+
+  reviewCoverage(save, options) {
+    const proposal = this.fromCoverage(save, options);
+    if (!proposal) return null;
+    const id = randomUUID();
+    this.proposals.set(id, { save, proposal });
+    while (this.proposals.size > 32) this.proposals.delete(this.proposals.keys().next().value);
+    return { ...proposal, id };
+  }
+
+  commitCoverage(save, id, name = null) {
+    const existing = this.recordedBoundary(save, 'coverage', id);
+    if (existing) return existing;
+    const review = this.proposals.get(id);
+    if (!review || review.save !== save) throw new Error('Review this boundary again before saving.');
+    const p = review.proposal;
+    if (!p.valid) throw new Error(p.problems[0]);
+    if (p.field && this.field(save, p.field)?.active !== p.previousVersion) throw new Error('The active boundary changed. Review the outline again.');
+    const fieldName = typeof name === 'string' ? name.trim().slice(0, 60) : null;
+    return this.addBoundary(save, { fieldId: p.field, name: p.field ? null : fieldName, newField: !p.field, source: 'coverage', polygon: p.polygon,
+      note: p.operation ? `${p.coverageClass === 'applied' ? 'Applied' : 'Worked'} coverage · ${p.operation}` : 'From recorded coverage',
+      recording: { draft: 'coverage', review: id } });
   }
 }
 

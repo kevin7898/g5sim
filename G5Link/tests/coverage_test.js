@@ -148,6 +148,69 @@ try {
 
 const eq = (a, b, label) => check(a === b, `${label}: expected ${b}, got ${a}`);
 
+// Native telemetry can miss one or two 200 ms processing windows between
+// confirmed work samples. Retain each measured pose and each real stopped lane.
+{
+  const at = (seq, processing, { areas = [true, false, true, true], time = seq * 250, dir = 1, id = 'drill' } = {}) => {
+    const t = frame({ x: seq * 0.555, z: 0, heading: 90, active: areas, speed: 8 });
+    t.time = time;
+    t.seq = seq;
+    Object.assign(t.vehicle, { onField: true, motorOn: true, dir });
+    Object.assign(t.implements[0], { id, canTurnOn: true, processing: areas.map(active => active && processing) });
+    t.activeWork = { id: 'planting', op: 'seeding' };
+    return t;
+  };
+  const store = new CoverageStore();
+  const missed = at(2, false);
+  store.onFrame(at(1, true));
+  store.onFrame(missed);
+  store.onFrame(missed);
+  store.onFrame(at(3, false));
+  eq(store.frames('seeding').seq, 0, 'missed samples require a subsequent work confirmation');
+  store.onFrame(at(4, true));
+  const strips = store.frames('seeding').frames;
+  eq(strips.length, 3, 'two missed samples restore all three intervals');
+  eq(new Set(strips.map(f => f.p)).size, 1, 'processing flicker keeps the same pass');
+  check(strips.every(f => f.q.length === 2 && f.dist > 0 && f.dt === 250), 'lane gap and job time survive recovery');
+  check(!missed.implements[0].processing.includes(true), 'coverage repair leaves observed telemetry intact');
+
+  const fleet = new CoverageStore();
+  for (let seq = 1; seq <= 3; seq++) fleet.onFrame(at(seq, seq !== 2, { time: seq * 500 }), 'm:worker');
+  const fleetStrips = fleet.frames('seeding').frames;
+  eq(fleetStrips.length, 2, 'one missed fleet sample at 2 Hz preserves the measured path');
+  check(fleetStrips.every(f => f.m === 'worker'), 'recovered fleet strips retain the worker identity');
+
+  for (const [label, middle, end] of [
+    ['raised or disabled', [at(2, false, { areas: [false, false, false, false] })], at(3, true)],
+    ['reversing', [at(2, false, { dir: -1 })], at(3, true)],
+    ['different implement', [at(2, false, { id: 'other drill' })], at(3, true)],
+    ['long sample interval', [at(2, false)], at(3, true, { time: 1100 })],
+    ['more than two missed samples', [at(2, false), at(3, false), at(4, false, { time: 925 })], at(5, true, { time: 1000 })],
+    ['tool still inactive', [at(2, false)], null],
+  ]) {
+    const separate = new CoverageStore();
+    separate.onFrame(at(1, true));
+    for (const f of middle) separate.onFrame(f);
+    if (end) separate.onFrame(end);
+    separate.interrupt();
+    eq(separate.frames('seeding').seq, 0, label + ' preserves the coverage break');
+  }
+}
+
+{
+  const store = new CoverageStore();
+  const impl = { areas: [true], geometry: [{ sx: -2, sz: 0, wx: 2, wz: 0 }] };
+  const before = store.spansOf(impl, { x: 0, z: 0, heading: 85 });
+  const after = store.spansOf({ ...impl, geometry: [{ sx: -2, sz: 0.5, wx: 2, wz: 0.5 }] }, { x: 0, z: 0.5, heading: 95 });
+  const quads = store.sweepsBetween(before, after);
+  eq(quads.length, 1, 'turning tractor keeps physical implement endpoints paired');
+  near(quadArea(quads[0]), 2, 0.001, 'area of the articulated sweep');
+  const pivot = store.spansOf({ ...impl, geometry: [{ sx: -2, sz: -0.5, wx: 2, wz: 0.5 }] }, { x: 0, z: 0, heading: 0 });
+  const lobes = store.sweepsBetween(before, pivot);
+  eq(lobes.length, 2, 'pivoting around a contact point retains both swept lobes');
+  near(lobes.reduce((area, q) => area + quadArea(q), 0), 1, 0.001, 'area of both pivot lobes');
+}
+
 // Observe a true gap, two fore-aft planes and a second operation during the same pass.
 {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'g5cov-planes-'));

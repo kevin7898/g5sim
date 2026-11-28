@@ -14,6 +14,7 @@
   // 10 legend colors, worst to best (red, orange, yellow, light green, dark green as on the G5 yield map)
   const RAMP = ['#c40b0b', '#dc3b1a', '#ec741c', '#f4a81e', '#f1d424', '#c7dc2c', '#8dc63a', '#55aa3b', '#2f8a31', '#1b6424'];
   const COVER = '#4a7fd6', OVER = '#16307f';
+  const APPLIED = '#44a17c';
   const crop = () => (data.rh && data.rh.crop && data.rh.crop !== '--') ? data.rh.crop : data.combine && data.combine.crop;
 
   function rateUnit(meta) {
@@ -32,6 +33,7 @@
   // good: which end of the scale is best ('high', 'low'), or 'none' for a plain gradient
   const LAYERS = [
     { id: 'coverage', label: () => 'Coverage' },
+    { id: 'applied', label: () => 'Applied Coverage' },
     { id: 'yield', key: 'yield', kinds: ['harvest'], good: 'high', label: () => 'Yield',
       unit: () => HU.yieldUnit(), conv: v => HU.yield(v, crop()), digits: () => metric('grain') ? 1 : 0 },
     { id: 'moisture', key: 'moisture', kinds: ['harvest'], good: 'low', label: () => 'Moisture', ...pct },
@@ -60,7 +62,7 @@
 
   // ---------------------------------------------------------------- sync with the bridge
   const S = { save: undefined, op: null, seq: 0, frames: [], overlap: { runs: [], cell: 1 }, ovVer: -1, ops: [], meta: {},
-    busy: false, lastFetch: 0, version: 0, range: null, opsKey: '' };
+    busy: false, lastFetch: 0, version: 0, scope: 0, range: null, opsKey: '' };
 
   function effectiveOp(m) {
     const ids = Object.keys(m.ops || {});
@@ -71,6 +73,11 @@
   }
   function resetOp(op) {
     S.op = op; S.seq = 0; S.frames = []; S.ovVer = -1; S.overlap = { runs: [], cell: 1 }; S.range = null; S.meta = {}; S.version++;
+    S.scope++;
+    clearGrid();
+  }
+
+  function clearGrid() {
     G.tiles.clear(); G.painted = 0; G.runs = null; G.key = ''; G.byTile.clear(); G.smooth = null;
   }
 
@@ -80,15 +87,13 @@
   // (like the bridge's overlap grid), and the map draws that grid as runs per row and color.
   const CELL = 1, TILE = 64;
   const G = { tiles: new Map(), painted: 0, runs: null, key: '', builtAt: 0, byTile: new Map(), smooth: null };
-  const side = (ax, az, bx, bz, px, pz) => (bx - ax) * (pz - az) - (bz - az) * (px - ax);
   function inQuad(q, x, z) {
-    let pos = false, neg = false;
-    for (let i = 0; i < 4; i++) {
-      const j = (i + 1) % 4, d = side(q[i * 2], q[i * 2 + 1], q[j * 2], q[j * 2 + 1], x, z);
-      if (d > 1e-9) pos = true; else if (d < -1e-9) neg = true;
-      if (pos && neg) return false;
+    let inside = false;
+    for (let i = 0, j = 3; i < 4; j = i++) {
+      const xi = q[i * 2], zi = q[i * 2 + 1], xj = q[j * 2], zj = q[j * 2 + 1];
+      if ((zi > z) !== (zj > z) && x < (xj - xi) * (z - zi) / (zj - zi) + xi) inside = !inside;
     }
-    return true;
+    return inside;
   }
   function paint(q, id) {
     let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
@@ -108,10 +113,13 @@
     }
   }
   function paintNew() {
+    const applied = layer().id === 'applied';
+    if (G.applied !== applied) { clearGrid(); G.applied = applied; }
     // a long session arrives as one big batch: paint it a slice per animation frame so the page stays live
     const stop = Math.min(S.frames.length, G.painted + 8000);
     for (; G.painted < stop; G.painted++) {
       const f = S.frames[G.painted];
+      if (applied && !f.application) continue;
       for (const q of f.q || []) paint(q, G.painted + 1);
       // index the frame by the tile of its first quad's centre, for the smooth drawing near the view
       const q0 = f.q && f.q[0];
@@ -225,6 +233,7 @@
   async function refreshOps() {
     try {
       const r = await (await fetch('/api/map/ops')).json();
+      if (r.save !== undefined && r.save !== S.save) return;
       S.ops = r.ops || [];
       const cur = S.ops.find(o => o.id === S.op);
       if (cur) S.meta = { ...cur, ...S.meta };
@@ -233,10 +242,11 @@
   }
   async function sync(op, seq, ov) {
     S.busy = true; S.lastFetch = Date.now();
+    const scope = S.scope;
     try {
       for (let guard = 0; S.seq < seq && guard < 50; guard++) {
         const r = await (await fetch(`/api/map/frames?op=${encodeURIComponent(op)}&since=${S.seq}`)).json();
-        if (S.op !== op) return;
+        if (S.scope !== scope || r.save !== undefined && r.save !== S.save) return;
         if (r.meta) S.meta = { ...S.meta, ...r.meta };
         for (const f of r.frames) S.frames.push(f);
         S.seq = r.frames.length ? r.frames[r.frames.length - 1].s : r.seq;
@@ -245,7 +255,7 @@
       }
       if (ov !== S.ovVer) {
         const o = await (await fetch(`/api/map/overlap?op=${encodeURIComponent(op)}`)).json();
-        if (S.op === op) { S.overlap = o; S.ovVer = o.version; S.version++; }
+        if (S.scope === scope) { S.overlap = o; S.ovVer = o.version; S.version++; }
       }
     } catch (e) { /* retried on the next frame */ } finally { S.busy = false; renderLegend(); }
   }
@@ -259,15 +269,16 @@
     else if (opsKey !== S.opsKey) refreshOps();
     S.opsKey = opsKey;
     if (!op) { renderLegend(); return; }
-    const [seq, ov] = m.ops[op] || [0, 0];
+    const [seq, ov, applied] = m.ops[op] || [0, 0, false];
     if (seq < S.seq) resetOp(op);                        // the bridge restarted or the map was cleared
+    S.meta.hasApplication = applied === true;
     if (!S.busy && (seq > S.seq || ov !== S.ovVer) && Date.now() - S.lastFetch > 400) sync(op, seq, ov);
   }
 
   // ---------------------------------------------------------------- layers and colors
   function availableLayers(meta = S.meta) {
     const have = new Set((meta && meta.values) || []);
-    return LAYERS.filter(L => L.id === 'coverage' || (have.has(L.key) && (!L.kinds || L.kinds.includes(meta.kind))));
+    return LAYERS.filter(L => L.id === 'coverage' || L.id === 'applied' && meta.hasApplication || (have.has(L.key) && (!L.kinds || L.kinds.includes(meta.kind))));
   }
   function layer() {
     const list = availableLayers();
@@ -308,6 +319,7 @@
   // fill color of a recorded frame for the current layer (null = no value: drawn as plain coverage)
   function colorOf(f) {
     const L = layer();
+    if (L.id === 'applied') return f.application ? APPLIED : null;
     if (!L.key) return COVER;
     const v = f.v && f.v[L.key];
     if (typeof v !== 'number') return null;
@@ -326,7 +338,8 @@
     $('mlOp').textContent = S.meta && S.meta.title ? S.meta.title : 'No work recorded';
     const cur = S.ops.find(o => o.id === S.op);
     let rows = '';
-    if (!L.key) {
+    if (L.id === 'applied') rows = `<div class="ml-row"><i style="background:${APPLIED}"></i><span>Confirmed application</span></div>`;
+    else if (!L.key) {
       const a = cur ? fmt(U.areaFromHa(cur.areaHa), 2) : '---', o = cur ? fmt(U.areaFromHa(cur.overlapHa), 2) : '---';
       rows = `<div class="ml-row"><i style="background:${COVER}"></i><span>Coverage</span><b>${a}</b></div>
         <div class="ml-row"><i style="background:${OVER}"></i><span>Overlap</span><b>${o}</b></div>
@@ -344,18 +357,9 @@
       }
     }
     setHtml($('mlRows'), rows);
-    $('mlNew').disabled = !S.op;
+    $('mlNew').disabled = data.state !== 'vehicle';
   }
-  $('mlNew').onclick = () => {
-    if (!S.op) return;
-    const name = (S.meta && S.meta.title) || 'this operation';
-    confirmBox('New Work', `Start new work for ${name}? The recorded map for ${name} in this savegame is cleared.`, async () => {
-      try {
-        await fetch('/api/map/clear', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ op: S.op }) });
-        resetOp(null); refreshOps();
-      } catch (e) { shade('Map not cleared: G5Link bridge unreachable', 'warn', 3000); }
-    });
-  };
+  $('mlNew').onclick = () => window.G5WorkSetup?.open();
 
   // ---------------------------------------------------------------- Select Map View window
   let draft = null, tab = 'op';

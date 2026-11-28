@@ -873,6 +873,11 @@ do
     combine.getCanToggleLight = function(self) return true end
     combine.setLightsTypesMask = function(self, m) record("setLightsTypesMask", m) self.spec_lights.lightsTypesMask = m end
     combine.spec_pipe = {numStates = 2, currentState = 1, targetState = 1}
+    Dischargeable = {DISCHARGE_STATE_OFF = 0, DISCHARGE_STATE_OBJECT = 1, DISCHARGE_STATE_GROUND = 2}
+    local dischargeState = Dischargeable.DISCHARGE_STATE_OFF
+    combine.isServer = true
+    combine.spec_dischargeable = {dischargedLiters = 0}
+    combine.getDischargeState = function() return dischargeState end
     header.spec_foldable = {hasFoldingParts = true, foldMoveDirection = 0}
     header.getIsUnfolded = function(self) return true end
     combine.children = {combine, header}
@@ -914,22 +919,43 @@ do
         check(math.abs(c.args[1] - 8 + 0.5 * steps) < 0.001, "each step is 0.5 km/h")
     end end
     t = telemetry(dir)
-    keepLive(dir)
     eq(t["g5.harvestAuto#state"], "active", "automation active")
     eq(t["g5.harvestAuto#source"], "rh", "automation follows Realistic Harvesting")
     near(tonumber(t["g5.harvestAuto#target"]), 5.8, 0.001, "target is RH recommended speed")
     eq(t["g5.controls.pipe#open"], "true", "pipe opening")
+    eq(t["g5.controls.pipe#unloading"], "false", "opening the pipe does not unload")
     eq(t["g5.controls#beacon"], "true", "beacon on")
     eq(t["g5.controls#workFront"], "true", "front work lights on")
 
+    combine.spec_pipe.currentState = 2
+    dischargeState = Dischargeable.DISCHARGE_STATE_OBJECT
+    tick(2)
+    eq(telemetry(dir)["g5.controls.pipe#unloading"], "false", "discharge selected without grain flow")
+    combine.spec_dischargeable.dischargedLiters = -25
+    tick(2)
+    eq(telemetry(dir)["g5.controls.pipe#unloading"], "true", "pipe reports native grain flow")
+    keepLive(dir)
+    dischargeState = Dischargeable.DISCHARGE_STATE_OFF
+    tick(2)
+    eq(telemetry(dir)["g5.controls.pipe#unloading"], "false", "previous litres do not keep an idle pipe unloading")
+    combine.isServer = false
+    tick(2)
+    eq(telemetry(dir)["g5.controls.pipe#unloading"], nil, "client without discharge amounts leaves flow unavailable")
+
     tick(12)
     near(cs.ccSpeed, 5.8, 0.001, "settles on the recommended speed")
+    eq(telemetry(dir)["g5.harvestAuto#limited"], "false", "automation below its speed cap")
+    G5LinkControls:run(combine, {name = "harvestAutoMax", value = 4})
+    tick(6)
+    eq(telemetry(dir)["g5.harvestAuto#limited"], "true", "automation reports a configured speed cap")
+    near(tonumber(telemetry(dir)["g5.harvestAuto#target"]), 4, 0.001, "automation target is capped")
     -- work lights toggle back off, cruise off puts automation on standby
     writeFile(dir .. "commands.xml", '<?xml version="1.0"?>\n<commands>\n    <cmd id="8" name="workLightsToggle" value="0" index="0"/>\n</commands>\n')
     cs.cc = Drivable.CRUISECONTROL_STATE_OFF
     tick(6)
     eq(combine.spec_lights.lightsTypesMask, 0, "work lights off")
     eq(telemetry(dir)["g5.harvestAuto#state"], "cruiseOff", "standby while cruise is off")
+    eq(telemetry(dir)["g5.harvestAuto#limited"], nil, "standby no longer reports an active limit")
     -- leaving the combine switches automation off
     local tractor = makeVehicle({})
     g_localPlayer = {getCurrentVehicle = function(self) return tractor end}

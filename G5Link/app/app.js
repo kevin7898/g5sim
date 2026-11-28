@@ -685,7 +685,8 @@ function renderHarvestAuto(d, v) {
   const crop = (rh && rh.crop && rh.crop !== '--') ? rh.crop : c.crop;
   $('haTitle').textContent = `Harvest Automation - ${c.name || 'Combine'}`;
   const active = a.on && a.state === 'active';
-  $('haState').textContent = !a.on ? 'OFF' : active ? 'ACTIVE' : 'STANDBY';
+  const limited = active && a.limited === true;
+  $('haState').textContent = !a.on ? 'OFF' : limited ? 'LIMITED' : active ? 'ACTIVE' : 'STANDBY';
   $('haState').className = 'ha-state ' + (!a.on ? '' : active ? 'on' : 'stby');
   $('haToggle').classList.toggle('on', !!a.on);
   $('haToggle').lastChild.textContent = a.on ? 'On' : 'Off';
@@ -693,7 +694,7 @@ function renderHarvestAuto(d, v) {
   $('haTarget').textContent = typeof tgt === 'number' ? `${fmt(U.speed(tgt), 1)} ${U.speedUnit()}` : '---';
   $('haSpeed').textContent = v ? `${fmt(U.speed(v.speed || 0), 1)} ${U.speedUnit()}` : '---';
   $('haMax').textContent = a.max !== undefined ? `${fmt(U.speed(a.max), 1)} ${U.speedUnit()}` : '---';
-  $('haMsg').textContent = (HA_MSG[a.on ? a.state : 'off'] || HA_MSG.standby)(a.source);
+  $('haMsg').textContent = limited ? 'Speed capped at the configured maximum.' : (HA_MSG[a.on ? a.state : 'off'] || HA_MSG.standby)(a.source);
   const mode = rh ? (rh.mode || 'MANUAL') : null;
   $('haMode').textContent = mode || '---';
   $('haMode').classList.toggle('auto', mode === 'AUTO');
@@ -720,7 +721,7 @@ function renderHarvestAuto(d, v) {
   const trip = rh && rh.trip, kgPerL = trip && trip.liters ? trip.massKg / trip.liters : 0.78;
   const lph = rh && rh.tph > 0 ? rh.tph * 1000 / kgPerL : 0;              // tank litres per hour
   const pipe = d.controls && d.controls.pipe;
-  $('haFull').textContent = pipe && pipe.open ? 'Unloading' : tankPct >= 99.5 ? 'Tank full'
+  $('haFull').textContent = d.link === 'live' && pipe?.unloading === true ? 'Unloading' : tankPct >= 99.5 ? 'Tank full'
     : lph > 0 && c.tankCap ? `Full in ${haDur((c.tankCap - c.tank) / lph * 60)}` : HU.tank(c.tank || 0);
   $('haAuger').hidden = !pipe;
   $('haAuger').classList.toggle('on', !!(pipe && pipe.open));

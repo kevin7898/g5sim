@@ -744,7 +744,7 @@ function demoCombine(t, dt, working, meters) {
   }];
   t.combine = { name: 'Demo S7 Combine', tank: Math.round(demo.tank), tankCap: cap, crop: 'WHEAT', cropTitle: 'Wheat', turnedOn: demo.turnedOn };
   t.grainCart = demoGrainCart(dt);
-  t.controls = { ...t.controls, pipe: { state: demo.unloading ? 2 : 1, target: demo.unloading ? 2 : 1, states: 2, open: demo.unloading } };
+  t.controls = { ...t.controls, pipe: { state: demo.unloading ? 2 : 1, target: demo.unloading ? 2 : 1, states: 2, open: demo.unloading, unloading: demo.unloading } };
   t.controls.fold.name = 'Demo HD40F Header';
   t.rh = {
     version: 'demo', crop: 'WHEAT', mode: 'MANUAL', harvesting: working, ai: false, moistureHigh: moisture > 14.5, tier: 3,
@@ -794,6 +794,7 @@ function demoAuto(dt) {
   if (!demo.cc) { a.state = 'cruiseOff'; return; }
   if (!demo.turnedOn) { a.state = 'notThreshing'; return; }
   if (!demo.lowered || demo.turning || demo.recSpeed === null) { a.state = 'noCrop'; return; }
+  a.limited = demo.recSpeed > a.max;
   a.target = Math.max(1, Math.min(a.max, demo.recSpeed));
   const step = Math.max(-0.5, Math.min(0.5, a.target - demo.ccSpeed));
   if (Math.abs(step) >= 0.05) demo.ccSpeed = +(demo.ccSpeed + step).toFixed(1);

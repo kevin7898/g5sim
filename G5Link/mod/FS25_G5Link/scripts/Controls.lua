@@ -109,6 +109,15 @@ function G5LinkControls:write(xml, vehicle, host)
         xml:setInt(k .. ".pipe#target", spec.targetState or 1)
         xml:setInt(k .. ".pipe#states", spec.numStates or 2)
         xml:setBool(k .. ".pipe#open", (spec.targetState or 1) > 1)
+        local discharge = pipe.spec_dischargeable
+        local litres = discharge and discharge.dischargedLiters
+        local state = call(pipe, "getDischargeState")
+        -- The server's native discharge tick reports a negative fill change on the source tank.
+        if pipe.isServer and type(litres) == "number" and Dischargeable ~= nil
+            and type(state) == "number" then
+            local flowing = state == Dischargeable.DISCHARGE_STATE_OBJECT or state == Dischargeable.DISCHARGE_STATE_GROUND
+            xml:setBool(k .. ".pipe#unloading", flowing and math.abs(litres) > 0)
+        end
     end
 
     local fold = self:findFoldable(vehicle)
@@ -129,6 +138,9 @@ function G5LinkControls:write(xml, vehicle, host)
     end
     if a.source ~= nil then
         xml:setString(ak .. "#source", a.source)
+    end
+    if a.state == "active" then
+        xml:setBool(ak .. "#limited", a.limited == true)
     end
 end
 
@@ -281,6 +293,7 @@ function G5LinkControls:update(vehicle, dt, host)
         a.source = "load"
     end
 
+    a.limited = target > a.max
     target = math.max(G5LinkControls.AUTO_MIN, math.min(a.max, target))
     a.target = target
     local step = math.max(-G5LinkControls.AUTO_STEP, math.min(G5LinkControls.AUTO_STEP, target - current))

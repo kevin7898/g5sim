@@ -27,6 +27,9 @@ const read = (s, f) => fs.readFileSync(path.join(dirOf(s), f), 'utf8');
   eq(fleet.time, 500, 'fleet supplies a source time');
   eq(fleet.save, 'savegame3', 'fleet supplies a save key');
   eq(fleet.vehicles[0].implements[0].areas.join(','), tool.areas.join(','), 'fleet uses the same positional masks');
+  const legacyPipe = telemetryFromXml('<g5><controls><pipe state="2" open="true"/></controls></g5>').controls.pipe;
+  eq(legacyPipe.open, true, 'legacy pipe still reports its position');
+  eq(legacyPipe.unloading, undefined, 'legacy pipe reports no grain transfer evidence');
 }
 
 // Scenario 1: vanilla tractor (the last telemetry is the "unloaded" idle file)
@@ -141,6 +144,7 @@ if (fs.existsSync(live)) {
     eq(t.controls && t.controls.beacon, true, 'live: beacon on');
     eq(t.controls && t.controls.workFront, true, 'live: front work lights');
     eq(t.controls && t.controls.pipe && t.controls.pipe.open, true, 'live: pipe open');
+    eq(t.controls.pipe.unloading, true, 'live: native grain discharge');
     eq(t.controls && t.controls.fold && t.controls.fold.unfolded, true, 'live: header unfolded');
     eq(t.harvestAuto && t.harvestAuto.state, 'active', 'live: automation state');
     eq(t.harvestAuto && t.harvestAuto.target, 5.8, 'live: automation target');

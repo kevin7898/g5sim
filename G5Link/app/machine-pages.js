@@ -67,7 +67,8 @@
     const tool = (d.implements || []).find(i => i.operation === 'harvest' || i.geometry?.length);
     const pipe = d.controls?.pipe;
     $('logisticsCart').disabled = !gc;
-    const pipeState = pipe?.state == null ? '—' : pipe.state !== pipe.target ? 'Moving' : pipe.state > 1 ? 'Extended' : 'Retracted';
+    const pipeState = d.link === 'live' && pipe?.unloading === true ? 'Unloading'
+      : pipe?.state == null ? '—' : pipe.state !== pipe.target ? 'Moving' : pipe.state > 1 ? 'Extended' : 'Retracted';
     setHtml($('harvestLogisticsReadings'), pairs([['Header', tool?.name], ['Pipe', pipeState],
       ['Tank', c?.tankCap ? `${pct(c.tank / c.tankCap * 100)} · ${HU.tank(c.tank)}` : '—'], ['Crop', c?.cropTitle || c?.crop],
       ['Grain cart', gc?.name || 'Unavailable'], ['Field harvested', unitsArea(job.totals?.workedHa)]]));

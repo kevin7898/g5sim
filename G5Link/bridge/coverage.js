@@ -17,6 +17,9 @@ const TURN_DEG = 100;           // heading change from the pass start that start
 const ENDPOINT_TOLERANCE = 0.04; // m, work-area corners arrive rounded to centimetres
 const MAX_FRAME_GAP = 2000;      // ms of mission time
 const MAX_INPUT_GAP = 750;       // ms between trustworthy observations of the same tank
+const MIN_RATE_DISTANCE = 0.1;  // m, above the centimetre precision of stock poses
+const MIN_RATE_SPEED = 1;       // km/h, very slow application can show volumetric flow instead
+const RATE_SPEED_CHANGE = 0.5;  // km/h between samples, exclude startup and braking from areal rates
 const PROCESSING_GAP_DRIVEN = 800; // ms, up to two missed 4 Hz samples between confirmations
 const PROCESSING_GAP_FLEET = 1100; // ms, one missed 2 Hz sample between confirmations
 const FLUSH_MS = 2000;
@@ -523,6 +526,8 @@ class CoverageStore {
     const driven = source === 'driven', v = t.vehicle;
     const distance = ms.position ? Math.hypot(v.x - ms.position[0], v.z - ms.position[1]) : 0;
     const elapsed = Number.isFinite(t.time) && ms.time !== null ? t.time - ms.time : null;
+    const steadyTravel = distance >= MIN_RATE_DISTANCE && v.speed >= MIN_RATE_SPEED && ms.speed >= MIN_RATE_SPEED
+      && Math.abs(v.speed - ms.speed) <= RATE_SPEED_CHANGE;
     const job = driven ? t.activeWork || null : null;
     if (source !== ms.source || ms.job !== job?.id || elapsed !== null && (elapsed < 0 || elapsed > MAX_FRAME_GAP) || distance > MAX_STEP) {
       for (const key of ms.track.keys()) this.rates.delete(key);
@@ -530,6 +535,7 @@ class CoverageStore {
       ms.passes.clear();
     }
     ms.position = [v.x, v.z];
+    ms.speed = v.speed;
     ms.source = source;
     ms.time = Number.isFinite(t.time) ? t.time : null;
     ms.job = job?.id;
@@ -573,11 +579,13 @@ class CoverageStore {
         const inputUsed = observedUse(previous.input, impl.input, elapsed);
         if (inputUsed && (meta.kind === 'seeding' || inputUsed.product === meta.product)) {
           frame.inputUsed = inputUsed;
-          if (frame.application || !impl.seeder && meta.rateUnit === 'L/ha') {
+          // Every proven depletion still contributes to the mapped job total.
+          // Only publish an area-normalized spray reading during steady travel.
+          if (frame.application ? steadyTravel : !impl.seeder && meta.rateUnit === 'L/ha') {
             frame.v.rate = +(inputUsed.liters * 10000 / areaM2).toFixed(1);
-          }
-          if (driven && frame.application && !this.applicationRate) {
-            this.applicationRate = { implement: impl.id, product: inputUsed.product, litersPerHa: frame.v.rate };
+            if (driven && frame.application && !this.applicationRate) {
+              this.applicationRate = { implement: impl.id, product: inputUsed.product, litersPerHa: frame.v.rate };
+            }
           }
         }
       }

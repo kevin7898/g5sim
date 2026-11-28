@@ -493,6 +493,17 @@ function G5Link:getImplementState(impl)
             productTitle = product and product.title, level = index and call(impl, "getFillUnitFillLevel", index),
             cap = index and call(impl, "getFillUnitCapacity", index),
             applying = params and applying }
+        -- FS25 varies the coverage with ground speed, but its stock volumetric flow can
+        -- continue at a stop. Do not report the scheduled flow for a partially supplied tick.
+        if params ~= nil then
+            if not applying then
+                s.sprayer.flowLpm = 0
+            elseif type(params.usage) == "number" and type(params.sprayFillLevel) == "number"
+                and params.sprayFillLevel >= params.usage and type(params.usagePerMin) == "number"
+                and params.usagePerMin >= 0 then
+                s.sprayer.flowLpm = params.usagePerMin
+            end
+        end
         if applying and params.sprayVehicle == impl and params.lastIsExternallyFilled == false then
             s.input = observedInputTank(impl, params.sprayVehicleFillUnitIndex)
         end
@@ -887,6 +898,7 @@ function G5Link:writeImplementsTo(xml, base, vehicle, ox, oz)
             xml:setString(k .. "#provider", "fs25")
             xml:setBool(k .. "#master", b.master)
             if b.applying ~= nil then xml:setBool(k .. "#applying", b.applying) end
+            setNumber(xml, k .. "#flowLpm", b.flowLpm, 2)
             if type(b.tank) == "number" then xml:setInt(k .. "#tank", b.tank) end
             if type(b.level) == "number" then xml:setFloat(k .. "#level", round(b.level, 1)) end
             if type(b.cap) == "number" then xml:setFloat(k .. "#cap", round(b.cap, 0)) end

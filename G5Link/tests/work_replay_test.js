@@ -7,7 +7,7 @@ const path = require('node:path');
 const { CoverageStore } = require('../bridge/coverage');
 const captures = require('./fixtures/work-samples.json');
 
-for (const { name, kind, source, expected, samples } of captures) {
+for (const { name, kind, source, expected, samples, expectedRates, expectedLiters } of captures) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'g5-work-replay-'));
   try {
     const coverage = new CoverageStore({ dir, persist: true });
@@ -29,7 +29,13 @@ for (const { name, kind, source, expected, samples } of captures) {
 
     if (kind === 'application') {
       assert.ok(frames.every(frame => frame.application === true && frame.inputUsed?.product === 'LIQUIDFERTILIZER'));
-      assert.ok(reopened.jobCoverage('replay', job).inputLiters > 0);
+      const liters = reopened.jobCoverage('replay', job).inputLiters;
+      assert.ok(liters > 0);
+      if (expectedRates) {
+        assert.deepEqual(frames.flatMap(frame => frame.v.rate ?? []), expectedRates,
+          'accelerating and empty frames do not publish an areal rate');
+        assert.equal(+liters.toFixed(3), expectedLiters, 'startup depletion is still included in the mapped quantity');
+      }
     } else if (kind === 'harvest') {
       assert.ok(frames.every(frame => frame.v.yield === undefined && frame.v.moisture === undefined),
         'stock harvest capture leaves optional yield and moisture unavailable');

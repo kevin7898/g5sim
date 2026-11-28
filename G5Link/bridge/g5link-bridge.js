@@ -817,7 +817,8 @@ function demoSprayer(t, meters, working) {
     canTurnOn: true, turnedOn: demo.turnedOn && phase >= 3000 && phase < 43000, areas: [demo.unfolded], processing: [working],
     geometry: demoAreas(1, width, -5), fills: [tank], input: working ? { tank: 1, product: tank.type, liters: demo.sprayTank } : null,
     sprayer: { provider: 'demo', master: demo.turnedOn && phase >= 3000 && phase < 43000,
-      applying: working, tank: 1, product: tank.type, productTitle: tank.title, level: tank.level, cap: capacity } }];
+      applying: working, tank: 1, product: tank.type, productTitle: tank.title, level: tank.level, cap: capacity,
+      flowLpm: working ? +(t.vehicle.speed * width * 0.09 * 1000 / 60).toFixed(2) : 0 } }];
   return t;
 }
 

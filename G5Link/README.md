@@ -78,8 +78,9 @@ saves it per savegame and operation in `modSettings/FS25_G5Link/maps/`. The mach
 heading and the tool outline follows its own work-area corners in turns. A brief missed processing sample
 can be recovered when the same work area stays engaged on the field and reports work again. Raised tools
 and disabled sections leave gaps, and recovery applies to incoming samples. Where the game identifies an internal
-tank, measured depletion over consecutive mapped passes supplies the applied rate and the job's mapped product
-use. External supply and incomplete observations leave the quantity unavailable. Tap the layers key on the map, or the
+tank, measured depletion over consecutive mapped passes supplies the job's mapped product use. External supply and
+incomplete observations leave the quantity unavailable. Spraying shows the game's volumetric flow when available and
+uses measured depletion over swept area for the applied rate during steady travel. Tap the layers key on the map, or the
 layer chip, for **Select Map View**: pick the operation (Harvest · Wheat, Seeding · Corn, ...), the primary layer
 and the legend. Layers: Coverage (blue, dark blue = overlap), and as available Yield, Moisture, Grain Loss,
 Seeding or Applied Rate, Singulation, Skips, Doubles, Distribution CV, Seed Depth, Soil Moisture, Compaction,

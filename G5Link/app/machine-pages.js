@@ -77,9 +77,10 @@
     const rate = d.rate;
     const opState = sprayer?.applying === true ? 'Applying' : sprayer?.applying === false ? 'Idle' : 'Unavailable';
     const width = tool?.width > 0 ? U.width(tool.width) : null;
+    const flow = d.link === 'live' && Number.isFinite(sprayer?.flowLpm) ? `${fmt(U.vol(sprayer.flowLpm), 1)} ${U.volUnit()}/min` : '—';
     if (boom) {
       setHtml($('boomReadings'), pairs([['Master', yes(sprayer?.master)], ['Application', opState], ['Work Job', d.workJob?.active ? 'Open' : 'Idle'],
-        ['Working Width', width], ['Pressure', '—']]));
+        ['Working Width', width], ['Flow', flow], ['Pressure', '—']]));
       setHtml($('boomStrip'), sprayer ? `<div class="lane-mark broadcast ${sprayer.applying ? 'on' : ''}">${esc(width || 'Broadcast')}</div>` : '');
       $('boomNote').textContent = sprayer ? 'Broadcast application. Individual sections require a supported controller.' : 'Boom status is unavailable from this tool.';
       return;
@@ -92,7 +93,7 @@
     const measured = d.link === 'live' && sprayer?.applying && d.applicationRate?.implement === tool.id ? d.applicationRate?.litersPerHa : null;
     const actual = Number.isFinite(measured) ? `${fmt(U.vol(measured) / U.areaFromHa(1), 1)} ${U.volUnit()}/${U.areaUnit()}` : '—';
     const product = sprayer?.product !== 'UNKNOWN' && (sprayer?.productTitle || sprayer?.product);
-    setHtml($('sprayReadings'), pairs([['Product', product || d.workSetup?.product], ['Target setting', target], ['Actual Rate', actual],
+    setHtml($('sprayReadings'), pairs([['Product', product || d.workSetup?.product], ['Target setting', target], ['Actual Rate', actual], ['Flow', flow],
       ['Worked', unitsArea(job.totals?.workedHa)], ['Applied', unitsArea(job.totals?.appliedHa)], ['Mapped Product Used', vol(job.totals?.productUsed?.quantity)]]));
     $('sprayRates').hidden = !rate;
   }
